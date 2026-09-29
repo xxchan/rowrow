@@ -30,10 +30,13 @@ rowrow service install         # again after switching Node versions
 
 ## What it is
 
-A server on your machine owns the agents, and every screen answers *who needs me now?*
-Your phone connects to it directly, over your LAN or Tailscale. There is no relay, account
-or cloud, so it works where remote-control apps that go through a vendor's server are not
-allowed.
+[herdr](https://herdr.dev)-style workspaces (a long-lived server owns your agents, and
+every screen answers *who needs me now?*), but with a rich web UI you can install on your
+phone's home screen, instead of a TUI and tmux keys.
+
+It's local first: your phone connects straight to your machine, over your LAN or
+Tailscale. There is no relay, account or cloud, so it works where remote-control apps that
+go through a vendor's server are not allowed.
 
 <p align="center">
   <img src="docs/images/agent.png" alt="An agent's conversation next to the inspector, showing what its last turn changed" width="820">
