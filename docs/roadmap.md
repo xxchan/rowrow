@@ -20,7 +20,8 @@ file when something lands.
 
 - **Approvals from the phone**: answer an agent's permission request or question (oar
   approvals), with per-agent plan/permission mode.
-- **npm package**, published by GitHub Actions on a version tag (trusted publishing).
+- **npm package** (D-018): built, tested in CI, and published by GitHub Actions on a version
+  tag (trusted publishing). The first publish waits on npmjs.com's trusted-publisher setup.
 
 ## Next, in build order
 
@@ -34,7 +35,7 @@ file when something lands.
 4. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
 5. **File paths open in the inspector**, from tool calls, inline code and diffs.
 6. **Notification preferences and per-agent mute.**
-7. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
+7. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs.
 
 ## Later (P2)
 

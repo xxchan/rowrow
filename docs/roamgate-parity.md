@@ -183,7 +183,7 @@
 | User service: install, status, restart, reload, uninstall via systemd, launchd or a Windows task (`server/src/config/service-manager.ts`) | Survive logout, reboot and crashes | have | `rowrow service install/status/restart/uninstall` using launchd or systemd --user (`src/cli/service.ts`, D-016). No Windows | — |
 | `/health` and `/healthz` | Monitoring | have | `/healthz` | — |
 | Log levels and bounded logs (#82, #84) | Diagnose problems | have | Better: JSONL logs with trace ids, browser errors in the server log, `rowrow logs/errors/status/state`, and OpenAPI | — |
-| Checksum-verified standalone binary, installer, in-app update check and install, `.previous` rollback (#1; `server/src/http/update.ts`) | Install and update without a toolchain | missing | Today: git clone + pnpm, then `service restart` after `git pull && pnpm build`. Publish to npm with a bundled server (D-012's revisit clause), add `rowrow update`, and show "update available" in Settings | P2 |
+| Checksum-verified standalone binary, installer, in-app update check and install, `.previous` rollback (#1; `server/src/http/update.ts`) | Install and update without a toolchain | partial | `npm install -g rowrow`, published from CI with provenance (D-018: the server's JavaScript stripped from its source, not bundled); upgrade with `npm install -g rowrow`, then `service restart`. Still missing: `rowrow update`, and "update available" in Settings | P2 |
 | Bounded CPU profiling (#292) | Diagnose slowness | missing | `rowrow serve --cpu-profile <seconds>`, using Node's `--cpu-prof`, writing into `<profile>/profiles/`. (`--profile` already means the data profile) | P2 |
 | Native Windows, x64 and ARM64 (#41, #42, #44) | Windows users | missing | D-016 says Windows isn't supported, and hooks use `sh -c`. Record "not before 1.0" as a decision | P2 |
 | Herdr plugin: install, start/url/status/restart actions, panel (#90, #91, #252) | Run inside an existing tool | deliberately different | rowrow isn't a Herdr client. Its extension point is the contract: the CLI and OpenAPI, plus `ROWROW_URL`/`ROWROW_TOKEN` for agents | — |
@@ -221,7 +221,7 @@ This order assumes approvals and the Workspace Inspector land first.
 7. **Transcript search.** iOS home-screen apps have no find-in-page, and windowed history hides older turns from the browser's search anyway.
 8. **File-path links into the inspector** from tool calls, inline code and diffs. Once the inspector exists, this cheap addition closes the loop from "the agent says it changed X" to looking at X.
 9. **Notification preferences and per-agent mute.** With many agents, controlling noise is what keeps push notifications worth trusting.
-10. **Stale-build reload banner, then npm packaging with `rowrow update`.** Otherwise, after an upgrade, phones keep running an old UI against the new server.
+10. **Stale-build reload banner, then `rowrow update`** (the npm package is D-018). Otherwise, after an upgrade, phones keep running an old UI against the new server.
 
 After these: diff readability (highlighting, search, side-by-side); workspace management UI (rename, archive, forget, pin, discover worktrees, review hooks); session download; a Machines switcher.
 
