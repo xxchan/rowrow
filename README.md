@@ -31,8 +31,8 @@ rowrow service install         # again after switching Node versions
 ## What it is
 
 [herdr](https://herdr.dev)-style workspaces (a long-lived server owns your agents, and
-every screen answers *who needs me now?*), but with a rich web UI you can install on your
-phone's home screen, instead of a TUI and tmux keys.
+every screen answers *who needs me now?*), but with a rich web UI instead of a TUI and
+tmux keys. It installs on your phone's home screen; an iOS app is on the way.
 
 It's local first: your phone connects straight to your machine, over your LAN or
 Tailscale. There is no relay, account or cloud, so it works where remote-control apps that
