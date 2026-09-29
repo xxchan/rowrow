@@ -12,20 +12,6 @@
   <a href="https://github.com/xxchan/rowrow/actions/workflows/ci.yml"><img src="https://github.com/xxchan/rowrow/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-A server on your machine owns the agents, and every screen answers *who needs me now?*
-Your phone connects to it directly, over your LAN or Tailscale. There is no relay, account
-or cloud, so it works where remote-control apps that go through a vendor's server are not
-allowed.
-
-<p align="center">
-  <img src="docs/images/agent.png" alt="An agent's conversation next to the inspector, showing what its last turn changed" width="820">
-</p>
-<p align="center">
-  <img src="docs/images/phone-home.png" alt="Agents sorted by who needs you, on a phone" width="240">
-  &nbsp;
-  <img src="docs/images/phone-agent.png" alt="An agent's conversation on a phone" width="240">
-</p>
-
 ## Quick start
 
 Needs Node.js 24+, git, and an agent CLI you're signed in to (`claude`, `codex`, `grok`,
@@ -41,6 +27,22 @@ To keep it running, install it as a service (launchd or systemd; same flags as `
 npm install -g rowrow
 rowrow service install         # again after switching Node versions
 ```
+
+## What it is
+
+A server on your machine owns the agents, and every screen answers *who needs me now?*
+Your phone connects to it directly, over your LAN or Tailscale. There is no relay, account
+or cloud, so it works where remote-control apps that go through a vendor's server are not
+allowed.
+
+<p align="center">
+  <img src="docs/images/agent.png" alt="An agent's conversation next to the inspector, showing what its last turn changed" width="820">
+</p>
+<p align="center">
+  <img src="docs/images/phone-home.png" alt="Agents sorted by who needs you, on a phone" width="240">
+  &nbsp;
+  <img src="docs/images/phone-agent.png" alt="An agent's conversation on a phone" width="240">
+</p>
 
 ## On your phone
 
