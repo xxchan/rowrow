@@ -9,7 +9,7 @@ import { NavIcon } from "@astryxdesign/core/NavIcon";
 import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { useToast } from "@astryxdesign/core/Toast";
-import { FolderGit2, Folder, GitBranch, Home, Plus, Settings } from "lucide-react";
+import { FolderGit2, Folder, GitBranch, Home, Plus, Search, Settings } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AgentState, AppState, Workspace } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
@@ -17,6 +17,7 @@ import { statusDot, title } from "../lib/format.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { onAttention, useApp } from "../lib/store.ts";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
+import { CommandMenu, useCommandMenu } from "./CommandMenu.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
@@ -138,6 +139,11 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           >
             <SideNavSection title="Home" isHeaderHidden>
               <SideNavItem label="All agents" icon={Home} href="/" isSelected={route.name === "home"} />
+              <SideNavItem
+                label="Go to… (⌘K)"
+                icon={Search}
+                onClick={() => useCommandMenu.getState().setOpen(true)}
+              />
             </SideNavSection>
             {needsYou.length > 0 && (
               <SideNavSection title="Needs you">
@@ -157,6 +163,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         {children}
       </AppShell>
       <NewAgentDialog />
+      <CommandMenu route={route} />
     </>
   );
 }

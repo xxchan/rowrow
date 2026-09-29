@@ -77,3 +77,33 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
   await panel.getByText("src/hello.ts").click();
   await expect(panel.getByText("export const hello = 1;")).toBeVisible();
 });
+
+test("⌘K jumps to an agent by name; ⌘J goes to the next one that needs you", async ({
+  page,
+  rowrow,
+}, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const quiet = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "quiet one",
+  });
+  const { agent: loud, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "finished one",
+    input: { inputId: randomUUID(), text: "/echo hi" },
+  });
+  await rowrow.client.agents.wait({ agentId: loud.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("quiet");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/a/${quiet.agent.id}$`));
+
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(page).toHaveURL(new RegExp(`/a/${loud.id}$`));
+});
