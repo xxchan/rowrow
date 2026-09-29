@@ -24,6 +24,7 @@ import { closeLog, log, logFile, serializeError, setupLog } from "./telemetry/lo
 import { SnapshotStore } from "./git/snapshots.ts";
 import { createGitOps } from "./workspaces/git-ops.ts";
 import { Workspaces } from "./workspaces/service.ts";
+import { detectInstall, npmRegistry, UpdateChecker } from "./updates.ts";
 
 export interface RunningServer {
   readonly url: string;
@@ -89,6 +90,7 @@ export async function startServer(
   const presence = new Presence();
   let url = "";
   let publicUrl = "";
+  let updates: UpdateChecker | null = null;
   const host = (): HostInfo => ({
     name: os.hostname(),
     version,
@@ -102,6 +104,7 @@ export async function startServer(
     url: publicUrl,
     exposed: !isLoopback(options.host),
     pushKey: push.publicKey,
+    update: updates?.current ?? null,
   });
 
   const state = new StateStore({
@@ -113,6 +116,30 @@ export async function startServer(
   });
   const settings = new SettingsService(db, state);
   settings.load();
+  // A checkout (tests, pnpm dev) runs .ts and updates through git: it asks only when told where.
+  const updateRegistry =
+    options.updateRegistry === undefined
+      ? import.meta.filename.endsWith(".ts")
+        ? null
+        : npmRegistry()
+      : options.updateRegistry;
+  if (updateRegistry !== null) {
+    const checker = new UpdateChecker({
+      current: version,
+      install: detectInstall(root, options.profile),
+      registry: updateRegistry,
+      enabled: () => settings.get().checkForUpdates,
+      changed: (update) =>
+        state.update("host.update", (draft) => {
+          draft.host.update = update;
+        }),
+    });
+    settings.onChange((keys) => {
+      if (keys.includes("checkForUpdates")) void checker.check();
+    });
+    checker.start();
+    updates = checker;
+  }
   const runtimes = new Runtimes({ testRuntime: options.testRuntime, probe: options.probeRuntimes });
   const syncRuntimes = (): void => {
     state.update("runtimes", (draft) => {
@@ -235,6 +262,7 @@ export async function startServer(
       closing ??= (async () => {
         log.info("server.stopping", {});
         notifier.close();
+        updates?.stop();
         clearInterval(pruneTimer);
         workspaces.close();
         await agents.shutdown();

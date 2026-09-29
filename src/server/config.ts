@@ -59,6 +59,11 @@ export interface ServerOptions {
   readonly probeRuntimes: boolean;
   /** The GitHub CLI for pull request status: `gh` on PATH unless given (tests use a fake one). */
   readonly gh?: string;
+  /**
+   * The npm registry to ask for a newer rowrow (D-025). Unset: the one npm uses, but only
+   * when running the installed package (not a checkout); null: never ask.
+   */
+  readonly updateRegistry?: string | null;
 }
 
 export function isLoopback(host: string): boolean {

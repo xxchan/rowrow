@@ -36,6 +36,7 @@ import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
 import { ShortcutsDialog, useShortcuts } from "./ShortcutsDialog.tsx";
+import { UpdateBanner } from "./UpdateBanner.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
@@ -50,6 +51,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   return (
     <div className="flex h-full flex-col">
       <ConnectionBanner />
+      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         {narrow ? (
           <Sheet

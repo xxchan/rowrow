@@ -8,10 +8,20 @@ import { log } from "./telemetry/log.ts";
 export class SettingsService {
   readonly #db: Db;
   readonly #state: StateStore;
+  readonly #listeners = new Set<(keys: readonly (keyof Settings)[]) => void>();
 
   constructor(db: Db, state: StateStore) {
     this.#db = db;
     this.#state = state;
+  }
+
+  get(): Settings {
+    return this.#state.get().state.settings;
+  }
+
+  /** Called with the keys that changed after every update. */
+  onChange(listener: (keys: readonly (keyof Settings)[]) => void): void {
+    this.#listeners.add(listener);
   }
 
   /** Reads what's stored over the defaults; a stored value that no longer validates is dropped. */
@@ -47,6 +57,7 @@ export class SettingsService {
       draft.settings = next;
     });
     log.info("settings.updated", { keys: Object.keys(given) });
+    for (const listener of this.#listeners) listener(Object.keys(given) as (keyof Settings)[]);
     return next;
   }
 }

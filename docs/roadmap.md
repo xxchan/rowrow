@@ -26,6 +26,9 @@ file when something lands.
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.
 
+- **"A newer rowrow is out" banner** (D-025): the server asks npm twice a day and every
+  client shows the command that updates this install; off in Settings.
+
 ## Parked
 
 - **Permission prompts from the phone** (D-022): agents run with prompts off, by design.
@@ -41,7 +44,8 @@ file when something lands.
 3. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
 4. **File paths open in the inspector**, from tool calls, inline code and diffs.
 5. **Notification preferences and per-agent mute.**
-6. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs.
+6. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
+   already says when a newer version is out, D-025).
 
 ## Later (P2)
 

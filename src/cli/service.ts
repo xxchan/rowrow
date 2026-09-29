@@ -259,6 +259,8 @@ export async function installService(profile: string, serveArgs: readonly string
     env: {
       // What this shell can run, the service can run (a service manager's own PATH is bare).
       PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+      // The server says `rowrow service restart` after an update (src/server/updates.ts).
+      ROWROW_SERVICE: "1",
       ...(process.env["ROWROW_HOME"] === undefined ? {} : { ROWROW_HOME: process.env["ROWROW_HOME"] }),
     },
     workingDirectory: root,

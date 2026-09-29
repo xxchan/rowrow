@@ -9,6 +9,16 @@ import type { AgentSummary, Attention } from "./summary.ts";
 
 // ─── Host ────────────────────────────────────────────────────────────────────
 
+export const UpdateInfo = z.object({
+  version: z.string().describe("The newer rowrow published on npm."),
+  command: z.string().describe("What to run on the server's machine to update this install."),
+  after: z
+    .string()
+    .nullable()
+    .describe("What to do after the command, when it doesn't restart the server itself."),
+});
+export type UpdateInfo = z.infer<typeof UpdateInfo>;
+
 export const HostInfo = z.object({
   name: z.string().describe("The machine's hostname."),
   version: z.string(),
@@ -22,6 +32,9 @@ export const HostInfo = z.object({
   url: z.string().describe("Where the server listens."),
   exposed: z.boolean().describe("Listening on a non-loopback address."),
   pushKey: z.string().nullable().describe("The VAPID public key for Web Push subscriptions."),
+  update: UpdateInfo.nullable().describe(
+    "A newer rowrow is on npm (checked on start, then twice a day; off with settings.checkForUpdates). null when up to date, unknown, or not checked.",
+  ),
 });
 export type HostInfo = z.infer<typeof HostInfo>;
 
@@ -153,6 +166,9 @@ export const Settings = z.object({
     .array(z.string().trim().min(1).max(500))
     .max(24)
     .describe("Replies you send often: one tap puts one in the composer (it is never sent by itself)."),
+  checkForUpdates: z
+    .boolean()
+    .describe("Ask the npm registry twice a day whether a newer rowrow is out, and say so in the app."),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -163,6 +179,7 @@ export const DEFAULT_SETTINGS: Settings = {
     "Commit this with a clear message.",
     "Summarize what you changed, briefly.",
   ],
+  checkForUpdates: true,
 };
 
 // ─── App state ───────────────────────────────────────────────────────────────

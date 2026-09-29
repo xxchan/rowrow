@@ -617,6 +617,11 @@ function formatStatus(status: Awaited<ReturnType<Client["app"]["status"]>>): str
     `rowrow ${host.version} (${host.profile}) pid ${host.pid}, up ${ago(host.startedAt)}, oar ${host.oar}, node ${host.node}`,
     `url ${host.url}${host.exposed ? " (exposed beyond loopback)" : ""}   data ${host.dataDir}`,
     `${status.counts.workspaces} workspaces, ${status.counts.agents} agents, ${status.counts.entries} log entries`,
+    ...(host.update === null
+      ? []
+      : [
+          `update: rowrow ${host.update.version} is out: ${host.update.command}${host.update.after === null ? "" : `  (${host.update.after})`}`,
+        ]),
     "",
     `live runs (${status.runs.length}):`,
     ...status.runs.map((r) => `  ${r.agentId} ${r.runId} ${r.runtime} ${r.status} since ${ago(r.since)}`),

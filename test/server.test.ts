@@ -2,6 +2,7 @@
 // scripted runtime), the real database on a throwaway home. What these prove is what a
 // browser, the CLI and agents can rely on.
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
@@ -527,5 +528,40 @@ describe("settings", () => {
     await expect(t.client.settings.update({ quickReplies: ["x".repeat(501)] })).rejects.toThrow();
     t = await t.restart();
     expect((await t.client.state.get()).state.settings.quickReplies).toEqual(["Ship it.", "Try again."]);
+  });
+});
+
+describe("updates", () => {
+  it("says when the registry has a newer rowrow, and stops asking when turned off", async () => {
+    const asked: string[] = [];
+    const registry = http.createServer((req, res) => {
+      asked.push(`${req.url ?? ""} ${req.headers.accept ?? ""}`);
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ name: "rowrow", "dist-tags": { latest: "99.0.0" } }));
+    });
+    await new Promise<void>((resolve) => registry.listen(0, "127.0.0.1", resolve));
+    const { port } = registry.address() as { port: number };
+    try {
+      const server = await startTestServer({ updateRegistry: `http://127.0.0.1:${port}` });
+      t = server;
+      expect((await server.client.app.info()).update).toBeNull();
+
+      // The first check waits a few seconds after start; turning checking on asks at once.
+      await server.client.settings.update({ checkForUpdates: false });
+      await server.client.settings.update({ checkForUpdates: true });
+      const update = await eventually(async () => (await server.client.app.info()).update ?? undefined);
+      expect(update).toEqual({
+        version: "99.0.0",
+        command: "npm install -g rowrow@99.0.0",
+        after: "Then restart `rowrow serve`.",
+      });
+      expect(asked).toEqual(["/rowrow application/vnd.npm.install-v1+json"]);
+      expect((await server.client.state.get()).state.host.update?.version).toBe("99.0.0");
+
+      await server.client.settings.update({ checkForUpdates: false });
+      expect((await server.client.app.info()).update).toBeNull();
+    } finally {
+      registry.close();
+    }
   });
 });

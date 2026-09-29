@@ -2,6 +2,8 @@
 // a QR code, revoke), the agent runtimes installed on the server, and what the server is.
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Info, Plus, TriangleAlert, X } from "lucide-react";
@@ -219,7 +221,16 @@ export function SettingsPage({ route }: { route: Route }) {
           <Section title="Server">
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-lg border bg-card px-4 py-3 text-sm">
               <Fact label="Machine">{host.name}</Fact>
-              <Fact label="Version">{`rowrow ${host.version} · oar ${host.oar} · node ${host.node}`}</Fact>
+              <Fact label="Version">
+                {`rowrow ${host.version} · oar ${host.oar} · node ${host.node}`}
+                {host.update !== null && (
+                  <span className="block text-muted-foreground">
+                    {`rowrow ${host.update.version} is out: `}
+                    <code className="font-mono text-xs break-all text-foreground">{host.update.command}</code>
+                    {host.update.after === null ? "" : ` ${host.update.after}`}
+                  </span>
+                )}
+              </Fact>
               <Fact label="Address">
                 {host.url + (host.exposed ? " (reachable beyond this machine)" : " (this machine only)")}
               </Fact>
@@ -228,6 +239,22 @@ export function SettingsPage({ route }: { route: Route }) {
               </Fact>
               <Fact label="Running since">{new Date(host.startedAt).toLocaleString()}</Fact>
             </dl>
+            <div className="flex items-center gap-3">
+              <Switch
+                id="check-for-updates"
+                checked={state.settings.checkForUpdates}
+                disabled={client === null}
+                onCheckedChange={(checkForUpdates) =>
+                  void run("Save", async () => client?.settings.update({ checkForUpdates }))
+                }
+              />
+              <Label htmlFor="check-for-updates" className="flex-col items-start gap-0.5 font-normal">
+                <span className="text-sm">Check for updates</span>
+                <span className="text-xs text-muted-foreground">
+                  The server asks the npm registry twice a day whether a newer rowrow is out.
+                </span>
+              </Label>
+            </div>
           </Section>
         </div>
       </div>

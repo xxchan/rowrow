@@ -530,3 +530,35 @@ shows as a file). Files are not read into the text; the agent opens them.
 
 **Revisit when** a runtime takes other file kinds natively (video, PDFs, audio), or people want to
 attach files that already live in the workspace without uploading them.
+
+## D-025 The server asks npm whether a newer rowrow is out; the app says so (2026-09-29)
+
+**Context.** rowrow ships often, and people who installed it from npm (often as a service)
+had no way to learn that a new version was out short of checking npm themselves.
+
+**Decision.** An installed package (not a checkout: tests and `pnpm dev` run `.ts` and
+don't ask) requests `GET <registry>/rowrow` (npm's abbreviated document) ten seconds after it
+starts and then every twelve hours. The registry is the one npm uses: `npm_config_registry`,
+then `registry=` in `~/.npmrc`, then registry.npmjs.org, so a mirror (npmmirror, a company's
+proxy) is asked instead of npmjs.org. It offers `latest` when that is newer, and `next` too
+when you run a prerelease. The answer is `host.update` in the app state (`{ version,
+command, after }`, null when up to date or unknown): every client shows a banner with the
+command that updates this install (`npm install -g`, `pnpm add -g`, or `npx rowrow@x serve`,
+followed by `rowrow service restart` when launchd or systemd runs it), dismissible per
+version on each device; Settings shows it under Version, and `rowrow status` prints it. A
+failed check logs `update.check_failed` and changes nothing. The `checkForUpdates` setting
+(on by default, a switch in Settings) turns it off, and turning it on asks at once.
+
+**Why.** npm is where rowrow comes from, not a third party in the sense of PRINCIPLES.md
+(product 7): this is the same request `npm install` makes, from the machine that already
+installs rowrow from that registry, it carries no data of yours, and nothing sits between your
+devices and your server. So it is on by default, with an off switch. The server asks, not the browser: a phone may not reach npm,
+and the server knows how it was installed.
+
+**Limits.** It tells you; it doesn't update (a `rowrow update` is on the roadmap). Install
+kinds other than npm, pnpm and npx get the npm command. A service installed before this
+change is recognized on macOS (launchd's `XPC_SERVICE_NAME`), but under systemd only after
+`rowrow service install` runs again (it sets `ROWROW_SERVICE=1`).
+
+**Revisit when** rowrow can update itself, or people ask for no outbound request at all by
+default.

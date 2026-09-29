@@ -469,7 +469,7 @@ const settings = {
   update: oc
     .route({
       summary:
-        "Change settings that follow you to every device (quickReplies: what one tap puts in the composer). Give only what changes; returns all settings. Every client sees the change in its app state (state.settings).",
+        "Change settings that follow you to every device (quickReplies: what one tap puts in the composer; checkForUpdates: whether the server asks npm for a newer rowrow). Give only what changes; returns all settings. Every client sees the change in its app state (state.settings).",
     })
     .input(Settings.partial())
     .output(Settings),
