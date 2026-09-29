@@ -241,6 +241,6 @@ message says what to do next.
 | `src/shared/` | Browser-safe code: the contract, schemas, entry types, folds. No Node built-ins. |
 | `src/server/` | The server. `main.ts` is the composition root. |
 | `src/cli/` | The `rowrow` CLI. |
-| `src/web/` | The web app (React, Astryx). Talks to the server only through the contract. |
+| `src/web/` | The web app (React, Tailwind, shadcn/ui). Talks to the server only through the contract. |
 | `test/` | Integration and end-to-end tests, fixtures, the scripted runtime. |
 | `scripts/` | Development tools: dev runner, screenshots. |

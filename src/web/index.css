@@ -1,14 +1,161 @@
-@import "@astryxdesign/core/reset.css";
-@import "@astryxdesign/core/astryx.css";
-@import "@astryxdesign/theme-neutral/theme.css";
+/* rowrow's look (D-017): dense and calm, dark first, in the spirit of roamgate. Colors are
+   tokens (shadcn/ui names plus a few of ours), so components never name a raw color. */
+@import "tailwindcss";
+@import "tw-animate-css";
+@source "../../node_modules/streamdown/dist/*.js";
 
-html,
-body,
-#root {
-  height: 100%;
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.5rem;
+  --background: #f6f7fb;
+  --foreground: #1c2240;
+  --card: #ffffff;
+  --card-foreground: #1c2240;
+  --popover: #ffffff;
+  --popover-foreground: #1c2240;
+  --primary: #3867d6;
+  --primary-foreground: #ffffff;
+  --secondary: #eceef5;
+  --secondary-foreground: #1c2240;
+  --muted: #eff1f7;
+  --muted-foreground: #626a8c;
+  --accent: #e6e9f4;
+  --accent-foreground: #1c2240;
+  --destructive: #d64561;
+  --border: #dfe2ec;
+  --input: #d6d9e5;
+  --ring: #3867d6;
+  --sidebar: #eff1f6;
+  --sidebar-foreground: #2a3152;
+  --sidebar-primary: #3867d6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e1e5f0;
+  --sidebar-accent-foreground: #1c2240;
+  --sidebar-border: #e0e3ed;
+  --sidebar-ring: #3867d6;
+  /* ours */
+  --success: #1f8f55;
+  --warning: #a36f00;
+  --info: #3867d6;
+  --code: #f1f3f8;
+  --diff-add: rgb(31 143 85 / 0.13);
+  --diff-add-strong: rgb(31 143 85 / 0.3);
+  --diff-del: rgb(214 69 97 / 0.12);
+  --diff-del-strong: rgb(214 69 97 / 0.28);
+  --diff-hunk: #e3eafa;
 }
-body {
-  font-family: var(--font-family-body);
-  -webkit-text-size-adjust: 100%;
-  overscroll-behavior: none;
+
+.dark {
+  --background: #15161e;
+  --foreground: #d4d9f0;
+  --card: #1a1c26;
+  --card-foreground: #d4d9f0;
+  --popover: #1e2130;
+  --popover-foreground: #d4d9f0;
+  --primary: #7aa2f7;
+  --primary-foreground: #0e1018;
+  --secondary: #242838;
+  --secondary-foreground: #d4d9f0;
+  --muted: #1e2130;
+  --muted-foreground: #7b83a6;
+  --accent: #252a3b;
+  --accent-foreground: #e8ecff;
+  --destructive: #f7768e;
+  --border: #272b3c;
+  --input: #2e3346;
+  --ring: #7aa2f7;
+  --sidebar: #181a23;
+  --sidebar-foreground: #bcc3e0;
+  --sidebar-primary: #7aa2f7;
+  --sidebar-primary-foreground: #0e1018;
+  --sidebar-accent: #232637;
+  --sidebar-accent-foreground: #e8ecff;
+  --sidebar-border: #232636;
+  --sidebar-ring: #7aa2f7;
+  --success: #73d99a;
+  --warning: #e8c267;
+  --info: #7aa2f7;
+  --code: #11121a;
+  --diff-add: rgb(115 217 154 / 0.1);
+  --diff-add-strong: rgb(115 217 154 / 0.26);
+  --diff-del: rgb(247 118 142 / 0.1);
+  --diff-del-strong: rgb(247 118 142 / 0.26);
+  --diff-hunk: #1c2438;
+}
+
+@theme inline {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-code: var(--code);
+  --color-diff-add: var(--diff-add);
+  --color-diff-add-strong: var(--diff-add-strong);
+  --color-diff-del: var(--diff-del);
+  --color-diff-del-strong: var(--diff-del-strong);
+  --color-diff-hunk: var(--diff-hunk);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  /* Code shows the characters that are there: no `=>` drawn as an arrow. */
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
+    font-variant-ligatures: none;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
 }

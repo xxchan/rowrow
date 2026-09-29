@@ -1,11 +1,16 @@
 // ⌘K: jump to any agent or workspace, or run an action (herdr's goto picker). ⌘J: go to
 // the next agent that needs you, in attention order. Everything reachable by keyboard.
-import { CommandPalette, CommandPaletteInput } from "@astryxdesign/core/CommandPalette";
-import { HStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Text } from "@astryxdesign/core/Text";
-import { createStaticSource } from "@astryxdesign/core/Typeahead";
-import { useEffect, useMemo } from "react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
+import { Folder, House, Plus, Settings } from "lucide-react";
+import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
@@ -13,22 +18,12 @@ import { statusDot, title } from "../lib/format.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import { useNewAgent } from "./NewAgentDialog.tsx";
+import { StatusDot } from "./StatusDot.tsx";
 
 export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean) => void }>((set) => ({
   isOpen: false,
   setOpen: (isOpen) => set({ isOpen }),
 }));
-
-interface Item {
-  readonly id: string;
-  readonly label: string;
-  readonly auxiliaryData: {
-    readonly group: string;
-    readonly detail: string;
-    readonly agent?: AgentState;
-    readonly keywords: string[];
-  };
-}
 
 /** Agents that need you, most urgent first (blocked, then done), newest first within a kind. */
 export function needsYou(state: AppState): AgentState[] {
@@ -64,122 +59,105 @@ export function CommandMenu({ route }: { route: Route }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [route, setOpen, state]);
 
-  const source = useMemo(() => {
-    const items: Item[] = [];
-    if (state !== null) {
-      const urgent = new Set(needsYou(state).map((a) => a.id));
-      const agents = Object.values(state.agents)
-        .filter((a) => !a.summary.archived)
-        .sort(
-          (a, b) =>
-            ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
-            b.summary.lastActivityAt - a.summary.lastActivityAt,
-        );
-      for (const agent of agents) {
-        const ws = state.workspaces[agent.summary.workspaceId];
-        items.push({
-          id: `agent:${agent.id}`,
-          label: title(agent),
-          auxiliaryData: {
-            group: urgent.has(agent.id) ? "Needs you" : "Agents",
-            detail: `${statusDot(agent).label} · ${ws?.label ?? ""}`,
-            agent,
-            keywords: [
-              agent.id,
-              ws?.label ?? "",
-              agent.summary.runtime,
-              agent.attention,
-              ws?.git?.branch ?? "",
-            ],
-          },
-        });
-      }
-      for (const ws of Object.values(state.workspaces).filter((w) => !w.archived)) {
-        items.push({
-          id: `ws:${ws.id}`,
-          label: ws.label,
-          auxiliaryData: { group: "Workspaces", detail: ws.path, keywords: [ws.path, ws.git?.branch ?? ""] },
-        });
-      }
-    }
-    items.push(
-      {
-        id: "action:new",
-        label: "New agent",
-        auxiliaryData: {
-          group: "Actions",
-          detail: "Start an agent in a workspace",
-          keywords: ["create", "start"],
-        },
-      },
-      {
-        id: "action:home",
-        label: "All agents",
-        auxiliaryData: { group: "Actions", detail: "The attention-sorted list", keywords: ["home", "inbox"] },
-      },
-      {
-        id: "action:settings",
-        label: "Settings",
-        auxiliaryData: {
-          group: "Actions",
-          detail: "Devices, notifications, runtimes",
-          keywords: ["pair", "devices", "push"],
-        },
-      },
-    );
-    return createStaticSource(items, { keywords: (item) => item.auxiliaryData.keywords });
-  }, [state]);
-
-  const run = (id: string): void => {
+  const run = (action: () => void): void => {
     setOpen(false);
-    const [kind, value = ""] = id.split(":");
     // Act after this keystroke is done: closing the palette returns focus to whatever had it
     // before (often a link), and the same Enter would otherwise activate that too.
-    setTimeout(() => {
-      if (kind === "agent") navigate(`/a/${value}`);
-      else if (kind === "ws") navigate(`/w/${value}`);
-      else if (value === "new") openNewAgent({});
-      else if (value === "home") navigate("/");
-      else if (value === "settings") navigate("/settings");
-    }, 0);
+    setTimeout(action, 0);
+  };
+
+  const urgent = state === null ? [] : needsYou(state);
+  const urgentIds = new Set(urgent.map((a) => a.id));
+  const others =
+    state === null
+      ? []
+      : Object.values(state.agents)
+          .filter((a) => !a.summary.archived && !urgentIds.has(a.id))
+          .sort(
+            (a, b) =>
+              ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
+              b.summary.lastActivityAt - a.summary.lastActivityAt,
+          );
+  const workspaces = state === null ? [] : Object.values(state.workspaces).filter((w) => !w.archived);
+
+  const agentItem = (agent: AgentState) => {
+    const dot = statusDot(agent);
+    const ws = state?.workspaces[agent.summary.workspaceId];
+    return (
+      <CommandItem
+        key={agent.id}
+        value={`agent:${agent.id}`}
+        keywords={[
+          title(agent),
+          agent.id,
+          ws?.label ?? "",
+          agent.summary.runtime,
+          agent.attention,
+          ws?.git?.branch ?? "",
+        ]}
+        onSelect={() => run(() => navigate(`/a/${agent.id}`))}
+      >
+        <StatusDot tone={dot.tone} label={dot.label} />
+        <span className="truncate">{title(agent)}</span>
+        <span className="ml-auto truncate text-xs text-muted-foreground">{`${dot.label} · ${ws?.label ?? ""}`}</span>
+      </CommandItem>
+    );
   };
 
   return (
-    <CommandPalette<Item>
-      isOpen={isOpen}
+    <CommandDialog
+      open={isOpen}
       onOpenChange={setOpen}
-      searchSource={source}
-      onValueChange={run}
-      input={
-        <CommandPaletteInput
-          placeholder="Go to an agent or workspace, or run an action…"
-          onKeyDown={(event) => {
-            // Enter picks the first result when nothing is highlighted yet, like other palettes.
-            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-            if (event.currentTarget.getAttribute("aria-activedescendant") !== null) return;
-            const list = document.getElementById(event.currentTarget.getAttribute("aria-controls") ?? "");
-            const first = list?.querySelector<HTMLElement>('[role="option"]') ?? null;
-            if (first !== null) {
-              event.preventDefault();
-              first.click();
-            }
-          }}
-        />
-      }
-      label="Go to an agent, a workspace, or an action"
-      emptyBootstrapText="Type an agent, a workspace or an action"
-      renderItem={(item) => {
-        const dot = item.auxiliaryData.agent === undefined ? null : statusDot(item.auxiliaryData.agent);
-        return (
-          <HStack gap={2} vAlign="center">
-            {dot !== null && <StatusDot variant={dot.variant} label={dot.label} />}
-            <Text type="body">{item.label}</Text>
-            <Text type="supporting" maxLines={1}>
-              {item.auxiliaryData.detail}
-            </Text>
-          </HStack>
-        );
-      }}
-    />
+      title="Go to an agent, a workspace, or an action"
+      description="Type to filter; Enter opens the highlighted one."
+      className="top-[20%] translate-y-0 sm:max-w-xl"
+    >
+      <CommandInput placeholder="Go to an agent or workspace, or run an action…" />
+      <CommandList className="max-h-[min(60dvh,420px)]">
+        <CommandEmpty>Nothing matches.</CommandEmpty>
+        {urgent.length > 0 && <CommandGroup heading="Needs you">{urgent.map(agentItem)}</CommandGroup>}
+        {others.length > 0 && <CommandGroup heading="Agents">{others.map(agentItem)}</CommandGroup>}
+        {workspaces.length > 0 && (
+          <CommandGroup heading="Workspaces">
+            {workspaces.map((ws) => (
+              <CommandItem
+                key={ws.id}
+                value={`ws:${ws.id}`}
+                keywords={[ws.label, ws.path, ws.git?.branch ?? ""]}
+                onSelect={() => run(() => navigate(`/w/${ws.id}`))}
+              >
+                <Folder className="text-muted-foreground" />
+                <span className="truncate">{ws.label}</span>
+                <span className="ml-auto truncate font-mono text-xs text-muted-foreground">{ws.path}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        <CommandGroup heading="Actions">
+          <CommandItem
+            value="action:new"
+            keywords={["New agent", "create", "start"]}
+            onSelect={() => run(() => openNewAgent({}))}
+          >
+            <Plus /> New agent
+          </CommandItem>
+          <CommandItem
+            value="action:home"
+            keywords={["All agents", "home", "inbox"]}
+            onSelect={() => run(() => navigate("/"))}
+          >
+            <House /> All agents
+          </CommandItem>
+          <CommandItem
+            value="action:settings"
+            keywords={["Settings", "pair", "devices", "push", "theme"]}
+            onSelect={() => run(() => navigate("/settings"))}
+          >
+            <Settings /> Settings
+            <CommandShortcut>⌘,</CommandShortcut>
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
   );
 }

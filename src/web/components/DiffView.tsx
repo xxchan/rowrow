@@ -2,11 +2,10 @@
 // line to comment on it: comments collect into review feedback for the agent
 // (lib/annotations.ts). Pure and cheap: the server caps a patch at 512 KB, and a file's
 // diff renders only when you open it.
-import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import * as stylex from "@stylexjs/stylex";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import { X } from "lucide-react";
 import { memo, useState } from "react";
 import type { Annotation } from "../lib/annotations.ts";
 
@@ -85,39 +84,58 @@ export const DiffView = memo(function DiffView({
     byLine.set(key, [...(byLine.get(key) ?? []), a]);
   }
   return (
-    <div {...stylex.props(styles.diff)} role="table" aria-label="Diff">
+    <div
+      role="table"
+      aria-label="Diff"
+      className="overflow-x-auto rounded-md border bg-code font-mono text-[12px] leading-[1.6]"
+    >
       {lines.map((line, index) => {
         const ref = refOf(line);
         const key = ref === null ? null : keyOf(ref.side, ref.line);
         const comments = key === null ? [] : (byLine.get(key) ?? []);
+        const commentable = onComment !== undefined && key !== null;
         return (
           <div key={index}>
             <div
-              {...stylex.props(
-                styles.row,
-                rowStyle[line.kind],
-                onComment !== undefined && ref !== null && styles.commentable,
-              )}
               role="row"
-              {...(onComment !== undefined && key !== null
+              className={cn(
+                "grid min-w-max grid-cols-[3.2em_3.2em_1.4em_1fr]",
+                ROW[line.kind],
+                commentable &&
+                  "cursor-pointer hover:outline hover:outline-1 hover:-outline-offset-1 hover:outline-ring/50",
+              )}
+              {...(commentable
                 ? { onClick: () => setEditing(editing === key ? null : key), title: "Comment on this line" }
                 : {})}
             >
-              <span {...stylex.props(styles.number)}>{line.oldNo ?? ""}</span>
-              <span {...stylex.props(styles.number)}>{line.newNo ?? ""}</span>
-              <span {...stylex.props(styles.sign)}>
+              <span className="pr-1.5 text-right text-muted-foreground/60 select-none">
+                {line.oldNo ?? ""}
+              </span>
+              <span className="pr-1.5 text-right text-muted-foreground/60 select-none">
+                {line.newNo ?? ""}
+              </span>
+              <span className="text-center text-muted-foreground select-none">
                 {line.kind === "add" ? "+" : line.kind === "del" ? "−" : comments.length > 0 ? "●" : ""}
               </span>
-              <span {...stylex.props(styles.code)}>{line.text}</span>
+              <span className="pr-3 whitespace-pre">{line.text}</span>
             </div>
             {comments.map((a) => (
-              <div key={a.id} {...stylex.props(styles.comment)}>
-                <HStack gap={2} vAlign="start">
-                  <Text type="body">{a.comment}</Text>
-                  {onRemove !== undefined && (
-                    <Button label="Remove" size="sm" variant="ghost" onClick={() => onRemove(a.id)} />
-                  )}
-                </HStack>
+              <div
+                key={a.id}
+                className="my-1 ml-[7.8em] flex max-w-xl items-start gap-2 rounded-md border-l-2 border-primary bg-card px-3 py-1.5 font-sans text-sm"
+              >
+                <p className="min-w-0 flex-1 whitespace-pre-wrap">{a.comment}</p>
+                {onRemove !== undefined && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 shrink-0 text-muted-foreground"
+                    aria-label="Remove"
+                    onClick={() => onRemove(a.id)}
+                  >
+                    <X />
+                  </Button>
+                )}
               </div>
             ))}
             {editing === key && ref !== null && onComment !== undefined && (
@@ -142,89 +160,38 @@ function CommentEditor({ onSave, onCancel }: { onSave: (comment: string) => void
     if (text.trim() !== "") onSave(text);
   };
   return (
-    <div {...stylex.props(styles.comment)}>
-      <VStack gap={1}>
-        <TextArea
-          label="Comment"
-          isLabelHidden
-          value={text}
-          onChange={setText}
-          rows={2}
-          width="100%"
-          hasAutoFocus
-          placeholder="What should change here?"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              save();
-            } else if (event.key === "Escape") onCancel();
-          }}
-        />
-        <HStack gap={1} hAlign="end">
-          <Button label="Cancel" size="sm" variant="ghost" onClick={onCancel} />
-          <Button
-            label="Comment"
-            size="sm"
-            variant="primary"
-            isDisabled={text.trim() === ""}
-            onClick={save}
-          />
-        </HStack>
-      </VStack>
+    <div className="my-1.5 ml-[7.8em] flex max-w-xl flex-col gap-1.5 rounded-md border-l-2 border-primary bg-card p-2 font-sans">
+      <Textarea
+        aria-label="Comment"
+        value={text}
+        onChange={(event) => setText(event.currentTarget.value)}
+        rows={2}
+        autoFocus
+        placeholder="What should change here?"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          } else if (event.key === "Escape") onCancel();
+        }}
+      />
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={text.trim() === ""} onClick={save}>
+          Comment
+        </Button>
+      </div>
     </div>
   );
 }
 
-const styles = stylex.create({
-  diff: {
-    fontFamily: "var(--font-family-code)",
-    fontSize: 12,
-    lineHeight: 1.55,
-    overflowX: "auto",
-    borderRadius: "var(--radius-inner)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--color-border)",
-    backgroundColor: "var(--color-background-surface)",
-  },
-  row: {
-    display: "grid",
-    gridTemplateColumns: "3.2em 3.2em 1.2em 1fr",
-    minWidth: "max-content",
-  },
-  commentable: {
-    cursor: "pointer",
-    outline: { default: "none", ":hover": "1px solid var(--color-border-emphasized)" },
-    outlineOffset: -1,
-  },
-  number: {
-    color: "var(--color-text-secondary)",
-    textAlign: "right",
-    paddingInlineEnd: 6,
-    userSelect: "none",
-    opacity: 0.7,
-  },
-  sign: { color: "var(--color-text-secondary)", userSelect: "none", textAlign: "center" },
-  code: { whiteSpace: "pre", paddingInlineEnd: 12 },
-  comment: {
-    fontFamily: "var(--font-family-body)",
-    paddingBlock: 6,
-    paddingInline: 12,
-    marginInlineStart: "7.6em",
-    marginBlock: 4,
-    borderInlineStartWidth: 3,
-    borderInlineStartStyle: "solid",
-    borderInlineStartColor: "var(--color-accent)",
-    backgroundColor: "var(--color-background-card)",
-    maxWidth: 640,
-  },
-});
-
-const rowStyle = stylex.create({
-  meta: { color: "var(--color-text-secondary)" },
-  hunk: { color: "var(--color-text-secondary)", backgroundColor: "var(--color-background-muted)" },
-  add: { backgroundColor: "var(--color-success-muted)" },
-  del: { backgroundColor: "var(--color-error-muted)" },
-  context: {},
-  note: { color: "var(--color-text-secondary)", fontStyle: "italic" },
-});
+const ROW: Record<DiffLine["kind"], string> = {
+  meta: "text-muted-foreground",
+  hunk: "bg-diff-hunk text-muted-foreground",
+  add: "bg-diff-add",
+  del: "bg-diff-del",
+  context: "",
+  note: "text-muted-foreground italic",
+};

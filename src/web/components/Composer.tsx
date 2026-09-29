@@ -1,33 +1,57 @@
 // Writing to an agent. Enter sends; while the agent works, a message steers the running
 // turn (or waits for the next one, when the runtime can't steer), "Queue" holds it for the
 // next turn, and Stop interrupts. A send that may not have arrived keeps its id, so trying
-// again can't deliver it twice (PRINCIPLES.md, engineering 2). On touch screens Enter is a
-// newline, since IME and dictation users need it.
-import { Button } from "@astryxdesign/core/Button";
-import { ChatComposer, ChatComposerInput, type ChatComposerInputHandle } from "@astryxdesign/core/Chat";
-import { Icon } from "@astryxdesign/core/Icon";
-import { Paperclip } from "lucide-react";
-import { Text } from "@astryxdesign/core/Text";
-import { useRef, useState } from "react";
+// again can't deliver it twice (PRINCIPLES.md, engineering 2). On touch screens Return is a
+// newline (IME and dictation users need it) and the button sends.
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { ArrowUp, LoaderCircle, Paperclip, Square } from "lucide-react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
+import type { InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult } from "../../shared/schemas.ts";
-import type { InputMode } from "../../shared/entries.ts";
 import { setDraft, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
 
-const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+/** What you sent to each agent in this tab, for ↑ in an empty composer. */
+const sentHistory = new Map<string, string[]>();
 
 export function Composer({ agent }: { agent: AgentState }) {
   const workspaceId = agent.summary.workspaceId;
   const client = useClient();
   const draft = useDrafts((s) => s.byAgent[agent.id] ?? "");
   const pendingId = useRef<{ text: string; inputId: string } | null>(null);
-  const inputRef = useRef<ChatComposerInputHandle>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [status, setStatus] = useState<{ type: "error" | "warning"; message: string } | null>(null);
+  const caret = useRef<number | null>(null);
+  const [status, setStatus] = useState<{ type: "error" | "warning" | "busy"; message: string } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
+  const disabled = archived || client === null;
+  const empty = draft.trim() === "";
+
+  // Grow with the text, up to a limit; then scroll inside.
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (input === null) return;
+    input.style.height = "auto";
+    if (draft !== "") input.style.height = `${Math.min(input.scrollHeight, 240)}px`;
+    if (caret.current !== null) {
+      input.setSelectionRange(caret.current, caret.current);
+      caret.current = null;
+    }
+  }, [draft]);
 
   const send = async (text: string, mode: InputMode): Promise<void> => {
     const trimmed = text.trim();
@@ -50,6 +74,7 @@ export function Composer({ agent }: { agent: AgentState }) {
       return;
     }
     pendingId.current = null;
+    sentHistory.set(agent.id, [...(sentHistory.get(agent.id) ?? []), trimmed].slice(-50));
     if (result.landed === "rejected" || result.landed === "failed") {
       setDraft(agent.id, text);
       setStatus({
@@ -72,17 +97,24 @@ export function Composer({ agent }: { agent: AgentState }) {
     }
   };
 
+  /** Puts text at the caret (or the end), keeping the caret after it. */
+  const insert = (text: string): void => {
+    const current = useDrafts.getState().byAgent[agent.id] ?? "";
+    const input = inputRef.current;
+    const at = input === null || document.activeElement !== input ? current.length : input.selectionStart;
+    const end = input === null || document.activeElement !== input ? current.length : input.selectionEnd;
+    caret.current = at + text.length;
+    setDraft(agent.id, current.slice(0, at) + text + current.slice(end));
+  };
+
   /** Upload files to the server and put their paths in the message (roamgate #70): every runtime reads files by path. */
   const attach = async (files: readonly File[]): Promise<void> => {
     if (client === null || files.length === 0) return;
-    setStatus({ type: "warning", message: `Uploading ${files.map((f) => f.name || "a file").join(", ")}…` });
+    setStatus({ type: "busy", message: `Uploading ${files.map((f) => f.name || "a file").join(", ")}…` });
     try {
       for (const file of files) {
         const saved = await client.files.upload({ file });
-        const mention = `\`${saved.path}\` `;
-        if (inputRef.current === null)
-          setDraft(agent.id, `${useDrafts.getState().byAgent[agent.id] ?? ""}${mention}`);
-        else inputRef.current.insertText(mention);
+        insert(`\`${saved.path}\` `);
       }
       setStatus(null);
     } catch (error) {
@@ -94,52 +126,92 @@ export function Composer({ agent }: { agent: AgentState }) {
     }
   };
 
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
+      // On a touch screen Return is a newline, unless you mean it (⌘/Ctrl+Return).
+      if (touch && !event.metaKey && !event.ctrlKey) return;
+      event.preventDefault();
+      void send(draft, "auto");
+    } else if (event.key === "ArrowUp" && draft === "") {
+      const last = sentHistory.get(agent.id)?.at(-1);
+      if (last !== undefined) {
+        event.preventDefault();
+        caret.current = last.length;
+        setDraft(agent.id, last);
+      }
+    } else if (event.key === "Escape" && working && empty) {
+      void abort();
+    }
+  };
+
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = [...event.clipboardData.files];
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attach(files);
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    setDragging(false);
+    const files = [...event.dataTransfer.files];
+    if (files.length === 0) return;
+    event.preventDefault();
+    void attach(files);
+  };
+
   const context = agent.summary.context?.percent;
   return (
-    <ChatComposer
-      value={draft}
-      onChange={(value) => setDraft(agent.id, value)}
-      onSubmit={(value) => void send(value, "auto")}
-      isStopShown={working && draft.trim() === ""}
-      onStop={() => void abort()}
-      isDisabled={archived || client === null}
-      placeholder={
-        archived
-          ? "Archived. Unarchive it to continue."
-          : working
-            ? "Steer the running turn…"
-            : "Message the agent…"
-      }
-      {...(status === null ? {} : { status })}
-      input={
-        <ChatComposerInput
-          handleRef={inputRef}
-          onFiles={(files) => void attach(files)}
-          hasHistory
-          maxRows={10}
-          onKeyDown={(event) => {
-            if (coarse && event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey)
-              event.preventDefault();
-          }}
+    <div className="mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+      <div
+        className={cn(
+          "overflow-hidden rounded-xl border bg-card shadow-sm transition-colors focus-within:border-ring/60",
+          dragging && "border-primary bg-primary/5",
+          disabled && "opacity-70",
+        )}
+        onDragOver={(event) => {
+          if (disabled || !event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+      >
+        <ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />
+        <textarea
+          ref={inputRef}
+          aria-label="Message input"
+          rows={1}
+          value={draft}
+          disabled={disabled}
+          placeholder={
+            archived
+              ? "Archived. Unarchive it to continue."
+              : working
+                ? "Steer the running turn…"
+                : "Message the agent…"
+          }
+          onChange={(event) => setDraft(agent.id, event.currentTarget.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          className="block max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-base leading-relaxed outline-none placeholder:text-muted-foreground md:text-sm"
         />
-      }
-      sendActions={
-        working && draft.trim() !== "" ? (
-          <Button label="Queue" size="sm" variant="ghost" onClick={() => void send(draft, "queue")} />
-        ) : undefined
-      }
-      drawer={<ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />}
-      headerActions={
-        <>
-          <Button
-            label="Attach a file"
-            size="sm"
-            variant="ghost"
-            isIconOnly
-            icon={<Icon icon={Paperclip} size="sm" />}
-            isDisabled={archived || client === null}
-            onClick={() => fileRef.current?.click()}
-          />
+        <div className="flex items-center gap-1 px-2 pb-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                aria-label="Attach a file"
+                disabled={disabled}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Paperclip />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Attach a file (or paste, or drop)</TooltipContent>
+          </Tooltip>
           <input
             ref={fileRef}
             type="file"
@@ -151,13 +223,51 @@ export function Composer({ agent }: { agent: AgentState }) {
               void attach(picked);
             }}
           />
-        </>
-      }
-      headerContext={
-        context === null || context === undefined ? undefined : (
-          <Text type="supporting">{`context ${Math.round(context)}%`}</Text>
-        )
-      }
-    />
+          {context !== null && context !== undefined && (
+            <span className="text-[11px] text-muted-foreground tabular-nums">{`context ${Math.round(context)}%`}</span>
+          )}
+          <div className="ml-auto flex items-center gap-1">
+            {working && !empty && (
+              <Button variant="ghost" size="sm" className="h-8" onClick={() => void send(draft, "queue")}>
+                Queue
+              </Button>
+            )}
+            {working && empty ? (
+              <Button
+                size="icon"
+                variant="secondary"
+                className="size-8 rounded-full"
+                aria-label="Stop"
+                onClick={() => void abort()}
+              >
+                <Square className="size-3.5 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                className="size-8 rounded-full"
+                aria-label="Send"
+                disabled={disabled || empty}
+                onClick={() => void send(draft, "auto")}
+              >
+                <ArrowUp />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+      {status !== null && (
+        <p
+          role={status.type === "error" ? "alert" : "status"}
+          className={cn(
+            "flex items-center gap-1.5 px-1 pt-1.5 text-xs",
+            status.type === "error" ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {status.type === "busy" && <LoaderCircle className="size-3 animate-spin" />}
+          {status.message}
+        </p>
+      )}
+    </div>
   );
 }

@@ -77,10 +77,11 @@ Don't change the user's data or agents while debugging unless they asked.
 - **Log events, not prose.** `log.info("agent.run.started", { runtime })` with a stable,
   dot-namespaced name. Never swallow an error: log it with context, or return it to the
   caller as a `UserError` whose message says what to do.
-- **UI.** Astryx components first. Check props with `pnpm exec astryx component <Name>
-  --dense`; the types in `node_modules/@astryxdesign/core/dist/**/*.d.ts` are the truth
-  when docs disagree. Our own styles use `stylex.create` and theme tokens
-  (`var(--color-…)`). Every screen must work at 375 px: check with `pnpm shot --mobile`.
+- **UI.** Tailwind classes and the components in `src/web/components/ui` (shadcn/ui on
+  Radix, ours to edit; D-017). Colors are tokens (`bg-card`, `text-muted-foreground`,
+  `bg-diff-add`…, defined in `src/web/index.css`), never raw colors. Keep accessible names
+  stable: the e2e tests find things by role and name. Inputs are 16px on phones (iOS zooms
+  into smaller ones). Every screen must work at 375 px: check with `pnpm shot --mobile`.
 - **oar is ours.** Fix gaps in oar (`../oar`, its own tests and docs) instead of working
   around them here; list any temporary workaround in `docs/upstream.md`.
 - **Tests never touch the user's world.** Every server a test starts uses a throwaway

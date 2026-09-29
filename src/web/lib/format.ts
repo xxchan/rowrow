@@ -1,11 +1,13 @@
 // Words and colors for states, shared by every screen so an agent reads the same
 // everywhere (docs/architecture.md, "Attention and notifications").
-import type { StatusDotVariant } from "@astryxdesign/core/StatusDot";
 import { classifyTool, toolActionLabel } from "@botiverse/oar/observe";
 import type { AgentState } from "../../shared/schemas.ts";
 import { stalledFor, type AgentSummary } from "../../shared/summary.ts";
 
 export const STALL_MS = 3 * 60_000;
+
+/** The color family of a state: the same everywhere a state is shown. */
+export type Tone = "error" | "success" | "accent" | "warning" | "neutral";
 
 /** The latest thing worth your attention was a failure (a failed turn, a run that died or never started). */
 export function failed(summary: AgentSummary): boolean {
@@ -18,25 +20,25 @@ export function failed(summary: AgentSummary): boolean {
 export function statusDot(
   agent: AgentState,
   now = Date.now(),
-): { variant: StatusDotVariant; label: string; pulsing: boolean } {
+): { tone: Tone; label: string; pulsing: boolean } {
   const { summary } = agent;
   switch (agent.attention) {
     case "blocked":
-      return { variant: "error", label: "Needs you", pulsing: true };
+      return { tone: "error", label: "Needs you", pulsing: true };
     case "done":
       return failed(summary)
-        ? { variant: "error", label: "Failed", pulsing: false }
-        : { variant: "success", label: "Finished", pulsing: false };
+        ? { tone: "error", label: "Failed", pulsing: false }
+        : { tone: "success", label: "Finished", pulsing: false };
     case "working":
       return stalledFor(summary, now, STALL_MS) === null
-        ? { variant: "accent", label: phaseLabel(summary), pulsing: true }
+        ? { tone: "accent", label: phaseLabel(summary), pulsing: true }
         : {
-            variant: "warning",
+            tone: "warning",
             label: `Silent for ${duration(now - (summary.status.kind === "running" ? summary.status.lastEventAt : now))}`,
             pulsing: false,
           };
     case "idle":
-      return { variant: "neutral", label: summary.run === null ? "Idle" : "Idle (live)", pulsing: false };
+      return { tone: "neutral", label: summary.run === null ? "Idle" : "Idle (live)", pulsing: false };
   }
 }
 

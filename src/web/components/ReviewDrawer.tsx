@@ -1,10 +1,9 @@
-// Review comments waiting to be sent, shown above the composer: on diff lines (Changes) or
+// Review comments waiting to be sent, shown on top of the composer: on diff lines (Changes) or
 // on passages the agent wrote (select text in the transcript). "Add to message" compiles
 // them into one "Review feedback" message in this agent's draft; you still press send.
-import { Button } from "@astryxdesign/core/Button";
-import { ChatComposerDrawer } from "@astryxdesign/core/Chat";
-import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronRight, MessageSquareText, X } from "lucide-react";
 import {
   annotationsFor,
   compileFeedback,
@@ -20,53 +19,59 @@ export function ReviewDrawer({ workspaceId, agentId }: { workspaceId: string; ag
   const draft = useDrafts((s) => s.byAgent[agentId] ?? "");
   if (annotations.length === 0) return null;
   const ids = new Set(annotations.map((a) => a.id));
+  const label = `${annotations.length} review ${annotations.length === 1 ? "comment" : "comments"}`;
   return (
-    <ChatComposerDrawer
-      count={annotations.length}
-      label={annotations.length === 1 ? "review comment" : "review comments"}
-      defaultIsCollapsed
-    >
-      <VStack gap={1} width="100%">
-        {annotations.map((a) => (
-          <HStack key={a.id} gap={2} vAlign="start">
-            <StackItem size="fill">
-              <VStack gap={0}>
-                <Text type="supporting" maxLines={1}>
-                  {where(a)}
-                </Text>
-                <Text type="body" maxLines={2}>
-                  {a.comment}
-                </Text>
-              </VStack>
-            </StackItem>
-            <Button
-              label="Remove"
-              size="sm"
-              variant="ghost"
-              onClick={() => removeAnnotations(new Set([a.id]))}
-            />
-          </HStack>
-        ))}
-        <HStack gap={2} hAlign="end">
-          <Button label="Clear all" size="sm" variant="ghost" onClick={() => removeAnnotations(ids)} />
+    <Collapsible className="group/review border-b bg-muted/40">
+      <CollapsibleTrigger
+        aria-label={`Show ${label}`}
+        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs text-muted-foreground hover:text-foreground"
+      >
+        <MessageSquareText className="size-3.5 text-primary" />
+        <span className="flex-1">{label}</span>
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/review:rotate-90" />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <ul className="max-h-56 space-y-1 overflow-y-auto px-2">
+          {annotations.map((a) => (
+            <li key={a.id} className="flex items-start gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-mono text-[11px] text-muted-foreground">{where(a)}</div>
+                <div className="line-clamp-2 text-sm">{a.comment}</div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground"
+                aria-label="Remove"
+                onClick={() => removeAnnotations(new Set([a.id]))}
+              >
+                <X />
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end gap-1.5 px-3 py-2">
+          <Button variant="ghost" size="sm" onClick={() => removeAnnotations(ids)}>
+            Clear all
+          </Button>
           <Button
-            label="Add to message"
             size="sm"
-            variant="primary"
             onClick={() => {
               const feedback = compileFeedback(annotations);
               setDraft(agentId, draft.trim() === "" ? feedback : `${draft.trimEnd()}\n\n${feedback}`);
               removeAnnotations(ids);
             }}
-          />
-        </HStack>
-      </VStack>
-    </ChatComposerDrawer>
+          >
+            Add to message
+          </Button>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
 function where(a: Annotation): string {
   if (a.source.kind === "diff") return `${a.source.path}:${a.source.line}`;
   const quote = a.source.quote.replaceAll(/\s+/g, " ").trim();
-  return `“${quote.length > 60 ? `${quote.slice(0, 59)}…` : quote}”`;
+  return `“${quote.length > 80 ? `${quote.slice(0, 79)}…` : quote}”`;
 }

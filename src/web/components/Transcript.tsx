@@ -1,19 +1,9 @@
-// The transcript: the timeline fold (src/shared/timeline.ts) rendered with Astryx's chat
-// components. Every block and message is memoized on identity, and the fold shares
-// structure, so while text streams only the open turn re-renders.
-import {
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageMetadata,
-  ChatSystemMessage,
-  ChatToolCalls,
-} from "@astryxdesign/core/Chat";
-import type { ChatToolCallItem } from "@astryxdesign/core/Chat";
-import { CodeBlock } from "@astryxdesign/core/CodeBlock";
-import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { Markdown } from "@astryxdesign/core/Markdown";
-import { Text } from "@astryxdesign/core/Text";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
+// The transcript: the timeline fold (src/shared/timeline.ts) rendered as a conversation.
+// Every block and message is memoized on identity, and the fold shares structure, so while
+// text streams only the open turn re-renders. Messages carry data-author ("you" or
+// "agent"): selection comments quote only what the agent wrote (SelectionComment).
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import {
   classifyTool,
   type ViewMessage,
@@ -21,19 +11,22 @@ import {
   type ViewPart,
   type ViewSection,
 } from "@botiverse/oar/observe";
+import { cjk } from "@streamdown/cjk";
+import { code } from "@streamdown/code";
+import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
 import { memo, type ReactNode } from "react";
+import { Streamdown } from "streamdown";
 import type { Actor } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import type { InputBlock, NoticeBlock, RunBlock, Timeline, TimelineBlock } from "../../shared/timeline.ts";
-import { ErrorText } from "./ErrorText.tsx";
 
 export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
   return (
-    <>
+    <div className="flex flex-col gap-5">
       {timeline.blocks.map((block) => (
         <Block key={keyOf(block)} block={block} timeline={timeline} runtime={runtime} />
       ))}
-    </>
+    </div>
   );
 }
 
@@ -72,7 +65,9 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
   return (
     <>
       {started?.resume !== undefined && (
-        <ChatSystemMessage variant="divider">{`Resumed${started.model === undefined ? "" : ` on ${started.model}`}`}</ChatSystemMessage>
+        <SystemLine
+          divider
+        >{`Resumed${started.model === undefined ? "" : ` on ${started.model}`}`}</SystemLine>
       )}
       {view.messages.map((message, index) =>
         // The run's own end says why the process went away; oar's exit notice would repeat it.
@@ -90,13 +85,13 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
         ),
       )}
       {ended !== undefined && ended.reason !== "idle" && ended.reason !== "restart" && (
-        <ChatSystemMessage>{endText(ended.reason, ended.code)}</ChatSystemMessage>
+        <SystemLine>{endText(ended.reason, ended.code)}</SystemLine>
       )}
     </>
   );
 }
 
-function endText(reason: string, code: number | null | undefined): string {
+function endText(reason: string, exitCode: number | null | undefined): string {
   switch (reason) {
     case "stopped":
       return "Stopped. The next message resumes the conversation.";
@@ -107,7 +102,7 @@ function endText(reason: string, code: number | null | undefined): string {
     case "crashed":
       return "rowrow stopped unexpectedly while this was running.";
     case "exited":
-      return `The agent process exited${code === null || code === undefined ? "" : ` (code ${code})`}.`;
+      return `The agent process exited${exitCode === null || exitCode === undefined ? "" : ` (code ${exitCode})`}.`;
     default:
       return `Run ended: ${reason}`;
   }
@@ -139,10 +134,10 @@ const Message = memo(function Message({
       );
     }
     case "notice":
-      return <ChatSystemMessage>{noticeText(message.notice)}</ChatSystemMessage>;
+      return <SystemLine>{noticeText(message.notice)}</SystemLine>;
     case "turn":
       return (
-        <ChatMessage sender="assistant" data-author="agent">
+        <article data-author="agent" aria-label="The agent's turn" className="flex min-w-0 flex-col gap-3">
           {message.sections.map((section, index) => (
             <Section
               key={index}
@@ -152,16 +147,13 @@ const Message = memo(function Message({
             />
           ))}
           {message.outcome?.kind === "failed" && (
-            <ChatMessageBubble variant="ghost">
-              <ErrorText type="body">{`Failed: ${message.outcome.reason}`}</ErrorText>
-            </ChatMessageBubble>
+            <p className="flex items-start gap-2 text-sm text-destructive">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" />
+              {`Failed: ${message.outcome.reason}`}
+            </p>
           )}
-          {message.outcome?.kind === "aborted" && (
-            <ChatMessageBubble variant="ghost">
-              <Text type="supporting">Stopped.</Text>
-            </ChatMessageBubble>
-          )}
-        </ChatMessage>
+          {message.outcome?.kind === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
+        </article>
       );
   }
 });
@@ -179,32 +171,33 @@ function UserMessage({
   landed: string | undefined;
   state: "sending" | "sent" | "error";
 }) {
-  const footer = [
+  const facts = [
     by === undefined ? null : actorLabel(by),
+    at === undefined ? null : new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
     landed === "steered"
       ? "steered into the running turn"
       : landed === "queued"
         ? "queued for the next turn"
         : null,
-  ]
-    .filter((part) => part !== null)
-    .join(" · ");
+  ].filter((part) => part !== null);
   return (
-    <ChatMessage sender="user" data-author="you">
-      <ChatMessageBubble
-        metadata={
-          <ChatMessageMetadata
-            timestamp={
-              at === undefined ? undefined : <Timestamp value={new Date(at).toISOString()} format="time" />
-            }
-            footer={footer === "" ? undefined : footer}
-            status={state}
-          />
-        }
-      >
-        <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
-      </ChatMessageBubble>
-    </ChatMessage>
+    <article data-author="you" aria-label="Your message" className="flex flex-col items-end gap-1 pl-10">
+      <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-secondary-foreground">
+        {text}
+      </div>
+      <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">
+        {state === "sending" ? (
+          <LoaderCircle className="size-3 animate-spin" />
+        ) : state === "error" ? (
+          <CircleX className="size-3 text-destructive" />
+        ) : (
+          <Check className="size-3" />
+        )}
+        <span>
+          {[state === "sending" ? "Sending" : state === "error" ? "Not sent" : "Sent", ...facts].join(" · ")}
+        </span>
+      </div>
+    </article>
   );
 }
 
@@ -221,7 +214,7 @@ function PendingInput({ block }: { block: InputBlock }) {
         state={failed ? "error" : "sending"}
       />
       {failed && (
-        <ChatSystemMessage>{`Not delivered: ${block.result?.reason ?? block.result?.landed ?? ""}`}</ChatSystemMessage>
+        <SystemLine>{`Not delivered: ${block.result?.reason ?? block.result?.landed ?? ""}`}</SystemLine>
       )}
     </>
   );
@@ -231,18 +224,47 @@ function Notice({ block }: { block: NoticeBlock }) {
   const { entry } = block;
   switch (entry.kind) {
     case "run.failed":
-      return <ChatSystemMessage>{`Couldn't start the agent: ${entry.error}`}</ChatSystemMessage>;
+      return <SystemLine tone="error">{`Couldn't start the agent: ${entry.error}`}</SystemLine>;
     case "host.error":
-      return <ChatSystemMessage>{entry.message}</ChatSystemMessage>;
+      return <SystemLine tone="error">{entry.message}</SystemLine>;
     case "agent.updated": {
       const parts = [
         entry.changes.model === undefined ? null : `model: ${entry.changes.model ?? "default"}`,
         entry.changes.effort === undefined ? null : `effort: ${entry.changes.effort ?? "default"}`,
       ].filter((p) => p !== null);
-      return <ChatSystemMessage variant="divider">{`Switched ${parts.join(", ")}`}</ChatSystemMessage>;
+      return <SystemLine divider>{`Switched ${parts.join(", ")}`}</SystemLine>;
     }
   }
 }
+
+function SystemLine({
+  children,
+  divider = false,
+  tone,
+}: {
+  children: ReactNode;
+  divider?: boolean;
+  tone?: "error";
+}) {
+  if (divider)
+    return (
+      <div role="note" className="flex items-center gap-3 text-[11px] text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        {children}
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  return (
+    <p
+      role="note"
+      className={cn("text-center text-xs text-muted-foreground", tone === "error" && "text-destructive")}
+    >
+      {children}
+    </p>
+  );
+}
+
+const plugins = { code, cjk };
 
 /** One lane (the agent, or a sub-agent) inside a turn: text, reasoning, tool calls in order. */
 function Section({
@@ -271,43 +293,44 @@ function Section({
     switch (part.kind) {
       case "text":
         out.push(
-          <ChatMessageBubble key={index} variant="ghost">
-            <Markdown density="compact" isStreaming={streaming && last} contentWidth="100%">
-              {part.text}
-            </Markdown>
-          </ChatMessageBubble>,
+          <Streamdown
+            key={index}
+            className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
+            plugins={plugins}
+            isAnimating={streaming && last}
+            shikiTheme={["github-light", "tokyo-night"]}
+            linkSafety={{ enabled: false }}
+            codeBlockMaxHeight={480}
+          >
+            {part.text}
+          </Streamdown>,
         );
         break;
       case "reasoning":
         out.push(
-          <ChatMessageBubble key={index} variant="ghost">
-            {part.content.kind === "text" ? (
-              <Collapsible
-                trigger={<Text type="supporting">{streaming && last ? "Thinking…" : "Thought"}</Text>}
-                defaultIsOpen={false}
-              >
-                <Text type="supporting">
-                  <span style={{ whiteSpace: "pre-wrap" }}>{part.content.text}</span>
-                </Text>
-              </Collapsible>
-            ) : (
-              <Text type="supporting">{streaming && last ? "Thinking…" : "Thought (hidden)"}</Text>
-            )}
-          </ChatMessageBubble>,
+          part.content.kind === "text" ? (
+            <Disclosure key={index} label={streaming && last ? "Thinking…" : "Thought"}>
+              <p className="border-l-2 pl-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                {part.content.text}
+              </p>
+            </Disclosure>
+          ) : (
+            <p key={index} className="text-xs text-muted-foreground">
+              {streaming && last ? "Thinking…" : "Thought (hidden)"}
+            </p>
+          ),
         );
         break;
       case "notice":
-        out.push(<ChatSystemMessage key={index}>{noticeText(part.notice)}</ChatSystemMessage>);
+        out.push(<SystemLine key={index}>{noticeText(part.notice)}</SystemLine>);
         break;
       case "app_request":
         out.push(
-          <ChatMessageBubble key={index} variant="filled">
-            <Text type="body">
-              {part.answered
-                ? `The agent asked (${part.type}); rowrow answered.`
-                : `The agent is asking for something rowrow can't answer yet (${part.type}).`}
-            </Text>
-          </ChatMessageBubble>,
+          <div key={index} className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+            {part.answered
+              ? `The agent asked (${part.type}); rowrow answered.`
+              : `The agent is asking for something rowrow can't answer yet (${part.type}).`}
+          </div>,
         );
         break;
     }
@@ -317,55 +340,94 @@ function Section({
   return lane === null ? (
     <>{out}</>
   ) : (
-    <ChatMessageBubble variant="ghost">
-      <Collapsible trigger={<Text type="label">{`Sub-agent ${lane}`}</Text>} defaultIsOpen={streaming}>
-        {out}
-      </Collapsible>
-    </ChatMessageBubble>
+    <Disclosure label={`Sub-agent ${lane}`} defaultOpen={streaming}>
+      <div className="flex flex-col gap-3 border-l-2 pl-3">{out}</div>
+    </Disclosure>
+  );
+}
+
+function Disclosure({
+  label,
+  defaultOpen = false,
+  children,
+}: {
+  label: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible defaultOpen={defaultOpen} className="group/disclosure">
+      <CollapsibleTrigger className="flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/disclosure:rotate-90" />
+        {label}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
 
 function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
-  const calls: ChatToolCallItem[] = parts.flatMap((part) => {
-    if (part.kind !== "tool") return [];
-    const action = classifyTool(runtime, part.tool, part.input);
-    const output = part.output ?? "";
-    const detail = toolDetail(action.kind, part.input, output);
-    return [
-      {
-        key: part.callId,
-        name: part.tool,
-        status: part.result === "running" ? "running" : part.result === "failed" ? "error" : "complete",
-        ...(action.detail === undefined ? {} : { target: action.detail }),
-        ...(part.result === "failed" ? { errorMessage: output.slice(0, 300) } : {}),
-        ...(detail === null
-          ? {}
-          : {
-              resultDetail: (
-                <CodeBlock
-                  code={detail.code.slice(0, 20_000)}
-                  language={detail.language}
-                  width="100%"
-                  maxHeight={320}
-                  isWrapped
-                />
-              ),
-            }),
-      },
-    ];
-  });
-  return <ChatToolCalls calls={calls} />;
+  return (
+    <div className="divide-y overflow-hidden rounded-lg border bg-card/60">
+      {parts.map((part) =>
+        part.kind === "tool" ? <ToolCall key={part.callId} part={part} runtime={runtime} /> : null,
+      )}
+    </div>
+  );
+}
+
+function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>; runtime: string }) {
+  const action = classifyTool(runtime, part.tool, part.input);
+  const output = part.output ?? "";
+  const detail = toolDetail(action.kind, part.input, output);
+  const status =
+    part.result === "running" ? (
+      <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
+    ) : part.result === "failed" ? (
+      <CircleX className="size-3.5 shrink-0 text-destructive" aria-label="Failed" />
+    ) : (
+      <Check className="size-3.5 shrink-0 text-success" aria-label="Done" />
+    );
+  const row = (
+    <>
+      {status}
+      <span className="shrink-0 font-mono text-[12px] text-foreground/90">{part.tool}</span>
+      {action.detail !== undefined && (
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground">
+          {action.detail}
+        </span>
+      )}
+    </>
+  );
+  return (
+    <Collapsible className="group/tool">
+      {detail === null ? (
+        <div className="flex min-h-8 items-center gap-2 px-2.5 py-1.5">{row}</div>
+      ) : (
+        <CollapsibleTrigger className="flex min-h-8 w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-accent/50">
+          {row}
+          <ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/tool:rotate-90" />
+        </CollapsibleTrigger>
+      )}
+      {part.result === "failed" && output !== "" && (
+        <p className="px-2.5 pb-1.5 pl-8 text-xs break-words text-destructive">{output.slice(0, 300)}</p>
+      )}
+      {detail !== null && (
+        <CollapsibleContent>
+          <pre className="max-h-80 overflow-auto border-t bg-code px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap">
+            {detail.slice(0, 20_000)}
+          </pre>
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  );
 }
 
 /**
  * What an expanded tool call shows: a command as `$ command` then its output; an edit as
  * the text it wrote; anything else as its input (JSON, pretty) then its output.
  */
-function toolDetail(
-  kind: string,
-  input: string | undefined,
-  output: string,
-): { code: string; language: "bash" | "json" | "markdown" } | null {
+function toolDetail(kind: string, input: string | undefined, output: string): string | null {
   const parsed = parse(input);
   const field = (...names: string[]): string | null => {
     for (const name of names) {
@@ -377,18 +439,13 @@ function toolDetail(
   };
   const join = (...parts: (string | null)[]): string =>
     parts.filter((p) => p !== null && p !== "").join("\n\n");
-  if (kind === "run_command") {
-    const command = field("command", "cmd") ?? input ?? "";
-    return { code: join(`$ ${command}`, output), language: "bash" };
-  }
+  if (kind === "run_command") return join(`$ ${field("command", "cmd") ?? input ?? ""}`, output);
   if (kind === "edit_file") {
     const written = field("content", "new_string", "patch", "diff");
-    if (written !== null)
-      return { code: join(written, output === "" ? null : `→ ${output}`), language: "markdown" };
+    if (written !== null) return join(written, output === "" ? null : `→ ${output}`);
   }
-  const shown = parsed === null ? (input ?? null) : JSON.stringify(parsed, null, 2);
-  const code = join(shown, output);
-  return code === "" ? null : { code, language: parsed === null ? "markdown" : "json" };
+  const text = join(parsed === null ? (input ?? null) : JSON.stringify(parsed, null, 2), output);
+  return text === "" ? null : text;
 }
 
 function parse(input: string | undefined): Record<string, unknown> | null {

@@ -8,7 +8,7 @@ function subscribe(onChange: () => void): () => void {
   return () => media.removeEventListener("change", onChange);
 }
 
-/** Phone-width layout (the same breakpoint as Astryx's AppShell drawer). */
+/** Phone-width layout: the same breakpoint as Tailwind's `md`, where the side nav becomes a sheet. */
 export function useNarrow(): boolean {
   return useSyncExternalStore(subscribe, () => matchMedia(QUERY).matches);
 }

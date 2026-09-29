@@ -1,41 +1,61 @@
 // One workspace: its git state, its agents, and its worktrees.
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { Button } from "@astryxdesign/core/Button";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { MoreMenu } from "@astryxdesign/core/MoreMenu";
-import { TextInput } from "@astryxdesign/core/TextInput";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { ORPCError } from "@orpc/client";
-import { useState } from "react";
-import { Code } from "@astryxdesign/core/Code";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Icon } from "@astryxdesign/core/Icon";
-import { Layout, LayoutContent, LayoutFooter, LayoutHeader } from "@astryxdesign/core/Layout";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Heading, Text } from "@astryxdesign/core/Text";
-import { useToast } from "@astryxdesign/core/Toast";
-import { Plus, RefreshCw } from "lucide-react";
+import { Ellipsis, GitBranch, LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import type { AppState, Workspace } from "../../shared/schemas.ts";
 import { ChangesView } from "../components/ChangesView.tsx";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
-import { navigate } from "../lib/router.ts";
+import { PageHeader } from "../components/Shell.tsx";
+import { StatusDot } from "../components/StatusDot.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
+import { navigate, RouterLink, type Route } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { useNow } from "../lib/use-now.ts";
 
-export function WorkspacePage({ workspaceId }: { workspaceId: string }) {
+export function WorkspacePage({ workspaceId, route }: { workspaceId: string; route: Route }) {
   const state = useApp((s) => s.state) as AppState;
   const ws = state.workspaces[workspaceId];
   if (ws === undefined)
-    return <EmptyState title="No such workspace" description={`There is no workspace ${workspaceId}.`} />;
-  return <WorkspaceView ws={ws} state={state} />;
+    return (
+      <>
+        <PageHeader title="No such workspace" route={route} />
+        <EmptyState title="No such workspace" description={`There is no workspace ${workspaceId}.`} />
+      </>
+    );
+  return <WorkspaceView ws={ws} state={state} route={route} />;
 }
 
-function WorkspaceView({ ws, state }: { ws: Workspace; state: AppState }) {
+function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; route: Route }) {
   const client = useClient();
-  const toast = useToast();
   const open = useNewAgent((s) => s.open);
   const now = useNow(15_000);
   const agents = Object.values(state.agents)
@@ -54,16 +74,13 @@ function WorkspaceView({ ws, state }: { ws: Workspace; state: AppState }) {
     try {
       await client.workspaces.removeWorktree({ id: ws.id, force });
       setRemoving(null);
-      toast({ body: `Removed the worktree; branch ${git?.branch ?? ""} is kept.` });
+      toast.success(`Removed the worktree; branch ${git?.branch ?? ""} is kept.`);
       navigate(ws.parentId === null ? "/" : `/w/${ws.parentId}`);
     } catch (error) {
       if (!force && error instanceof ORPCError && error.code === "CONFLICT") setRemoving("dirty");
       else {
         setRemoving(null);
-        toast({
-          body: `Couldn't remove it: ${error instanceof Error ? error.message : String(error)}`,
-          type: "error",
-        });
+        toast.error(`Couldn't remove it: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally {
       setBusy(false);
@@ -75,159 +92,220 @@ function WorkspaceView({ ws, state }: { ws: Workspace; state: AppState }) {
     try {
       await client.workspaces.refresh({ id: ws.id });
     } catch (error) {
-      toast({
-        body: `Refresh failed: ${error instanceof Error ? error.message : String(error)}`,
-        type: "error",
-      });
+      toast.error(`Refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
+  const facts =
+    git === null
+      ? null
+      : [
+          git.branch === null ? `detached at ${git.head ?? "?"}` : `on ${git.branch}`,
+          git.upstream === null ? "no upstream" : `${git.ahead} ahead, ${git.behind} behind ${git.upstream}`,
+          git.changed === 0 ? "clean" : `${git.changed} changed file${git.changed === 1 ? "" : "s"}`,
+          git.linked ? "linked worktree" : null,
+        ]
+          .filter((part) => part !== null)
+          .join(" · ");
+
   return (
     <>
-      <Layout
-        height="fill"
-        padding={4}
-        contentWidth={860}
-        header={
-          <LayoutHeader>
-            <VStack gap={1}>
-              <HStack hAlign="between" vAlign="center" gap={2}>
-                <Heading level={1}>{ws.label}</Heading>
-                <HStack gap={1}>
-                  <Button
-                    label="Refresh"
-                    variant="ghost"
-                    icon={<Icon icon={RefreshCw} size="sm" />}
-                    isIconOnly
-                    onClick={() => void refresh()}
-                  />
-                  {git !== null && !ws.missing && (
-                    <MoreMenu
-                      label="Workspace actions"
-                      items={[
-                        { label: "New worktree…", onClick: () => setNewWorktree(true) },
-                        ...(git.linked
-                          ? [{ label: "Remove this worktree…", onClick: () => setRemoving("ask") }]
-                          : []),
-                      ]}
-                    />
-                  )}
-                  <Button
-                    label="New agent here"
-                    variant="primary"
-                    icon={<Icon icon={Plus} size="sm" />}
-                    onClick={() => open({ workspaceId: ws.id })}
-                  />
-                </HStack>
-              </HStack>
-              <Text type="supporting">
-                <Code>{ws.path}</Code>
-                {ws.missing ? " — this folder no longer exists" : ""}
-              </Text>
-              {git !== null && (
-                <Text type="supporting">
-                  {[
-                    git.branch === null ? `detached at ${git.head ?? "?"}` : `on ${git.branch}`,
-                    git.upstream === null
-                      ? "no upstream"
-                      : `${git.ahead} ahead, ${git.behind} behind ${git.upstream}`,
-                    git.changed === 0
-                      ? "clean"
-                      : `${git.changed} changed file${git.changed === 1 ? "" : "s"}`,
-                    git.linked ? "linked worktree" : null,
-                  ]
-                    .filter((part) => part !== null)
-                    .join(" · ")}
-                </Text>
-              )}
-            </VStack>
-          </LayoutHeader>
+      <PageHeader
+        route={route}
+        title={ws.label}
+        subtitle={
+          <span className="font-mono">
+            {ws.path}
+            {ws.missing ? " — this folder no longer exists" : ""}
+          </span>
         }
-        content={
-          <LayoutContent>
-            <VStack gap={5}>
-              <VStack gap={1}>
-                <Text type="label">{`Agents · ${agents.length}`}</Text>
-                {agents.length === 0 ? (
-                  <EmptyState
-                    title="No agents here yet"
-                    isCompact
-                    actions={<Button label="New agent here" onClick={() => open({ workspaceId: ws.id })} />}
-                  />
-                ) : (
-                  <List hasDividers>
-                    {agents.map((agent) => {
-                      const dot = statusDot(agent, now);
-                      return (
-                        <ListItem
-                          key={agent.id}
-                          href={`/a/${agent.id}`}
-                          label={title(agent)}
-                          description={`${dot.label} · ${state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}`}
-                          startContent={
-                            <StatusDot variant={dot.variant} label={dot.label} isPulsing={dot.pulsing} />
-                          }
-                          endContent={<Text type="supporting">{ago(agent.summary.lastActivityAt, now)}</Text>}
-                        />
-                      );
-                    })}
-                  </List>
-                )}
-              </VStack>
-              {git !== null && !ws.missing && (
-                <VStack gap={1}>
-                  <Text type="label">Changes</Text>
-                  <ChangesView workspaceId={ws.id} />
-                </VStack>
-              )}
-              {worktrees.length > 0 && (
-                <VStack gap={1}>
-                  <Text type="label">{`Worktrees · ${worktrees.length}`}</Text>
-                  <List hasDividers>
-                    {worktrees.map((w) => (
-                      <ListItem key={w.id} href={`/w/${w.id}`} label={w.label} description={w.path} />
-                    ))}
-                  </List>
-                </VStack>
-              )}
-            </VStack>
-          </LayoutContent>
+        actions={
+          <>
+            <Button variant="ghost" size="icon" aria-label="Refresh" onClick={() => void refresh()}>
+              <RefreshCw />
+            </Button>
+            {git !== null && !ws.missing && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Workspace actions">
+                    <Ellipsis />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setNewWorktree(true)}>
+                    <GitBranch /> New worktree…
+                  </DropdownMenuItem>
+                  {git.linked && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => setRemoving("ask")}>
+                      <Trash2 /> Remove this worktree…
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button size="sm" onClick={() => open({ workspaceId: ws.id })}>
+              <Plus /> <span className="hidden sm:inline">New agent here</span>
+              <span className="sm:hidden">New agent</span>
+            </Button>
+          </>
         }
       />
-      <NewWorktreeDialog isOpen={newWorktree} onClose={() => setNewWorktree(false)} workspaceId={ws.id} />
-      <AlertDialog
-        isOpen={removing === "ask"}
-        onOpenChange={(isOpen) => (isOpen ? undefined : setRemoving(null))}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-4xl flex-col gap-6 px-3 py-4 md:px-6 md:py-6">
+          {facts !== null && (
+            <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+              <GitBranch className="size-3.5" /> {facts}
+            </p>
+          )}
+          <Section label={`Agents · ${agents.length}`}>
+            {agents.length === 0 ? (
+              <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+                <p className="text-sm text-muted-foreground">No agents here yet.</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => open({ workspaceId: ws.id })}
+                >
+                  New agent here
+                </Button>
+              </div>
+            ) : (
+              <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+                {agents.map((agent) => {
+                  const dot = statusDot(agent, now);
+                  return (
+                    <li key={agent.id}>
+                      <RouterLink
+                        href={`/a/${agent.id}`}
+                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-accent/60"
+                      >
+                        <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{title(agent)}</div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {`${dot.label} · ${state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}`}
+                          </div>
+                        </div>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {ago(agent.summary.lastActivityAt, now)}
+                        </span>
+                      </RouterLink>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Section>
+          {git !== null && !ws.missing && (
+            <Section label="Changes">
+              <div className="h-[min(70dvh,640px)] overflow-hidden rounded-lg border bg-card">
+                <ChangesView workspaceId={ws.id} />
+              </div>
+            </Section>
+          )}
+          {worktrees.length > 0 && (
+            <Section label={`Worktrees · ${worktrees.length}`}>
+              <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+                {worktrees.map((w) => (
+                  <li key={w.id}>
+                    <RouterLink href={`/w/${w.id}`} className="flex flex-col px-3 py-2.5 hover:bg-accent/60">
+                      <span className="flex items-center gap-2 text-sm font-medium">
+                        <GitBranch className="size-3.5 text-muted-foreground" /> {w.label}
+                      </span>
+                      <span className="truncate font-mono text-xs text-muted-foreground">{w.path}</span>
+                    </RouterLink>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+        </div>
+      </div>
+      <NewWorktreeDialog open={newWorktree} onClose={() => setNewWorktree(false)} workspaceId={ws.id} />
+      <Confirm
+        open={removing === "ask"}
+        onCancel={() => setRemoving(null)}
         title="Remove this worktree?"
         description={`Deletes the checkout at ${ws.path}. The branch ${git?.branch ?? ""} is kept, so nothing committed is lost. Agents here stop.`}
-        actionLabel="Remove"
-        isActionLoading={busy}
+        action="Remove"
+        busy={busy}
         onAction={() => void remove(false)}
       />
-      <AlertDialog
-        isOpen={removing === "dirty"}
-        onOpenChange={(isOpen) => (isOpen ? undefined : setRemoving(null))}
+      <Confirm
+        open={removing === "dirty"}
+        onCancel={() => setRemoving(null)}
         title="It has uncommitted changes"
         description="Removing it now throws away the uncommitted changes in this checkout. Commit them first if you want to keep them."
-        actionLabel="Discard changes and remove"
-        isActionLoading={busy}
+        action="Discard changes and remove"
+        busy={busy}
         onAction={() => void remove(true)}
       />
     </>
   );
 }
 
+function Section({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-1.5">
+      <h2 className="px-1 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{label}</h2>
+      {children}
+    </section>
+  );
+}
+
+function Confirm({
+  open,
+  onCancel,
+  title: heading,
+  description,
+  action,
+  busy,
+  onAction,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  title: string;
+  description: string;
+  action: string;
+  busy: boolean;
+  onAction: () => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{heading}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-white hover:bg-destructive/90"
+            disabled={busy}
+            onClick={(event) => {
+              event.preventDefault();
+              onAction();
+            }}
+          >
+            {busy && <LoaderCircle className="animate-spin" />} {action}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function NewWorktreeDialog({
-  isOpen,
+  open,
   onClose,
   workspaceId,
 }: {
-  isOpen: boolean;
+  open: boolean;
   onClose: () => void;
   workspaceId: string;
 }) {
   const client = useClient();
-  const toast = useToast();
   const [branch, setBranch] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -240,8 +318,7 @@ function NewWorktreeDialog({
         id: workspaceId,
         ...(branch.trim() === "" ? {} : { branch: branch.trim() }),
       });
-      if (hook !== null && !hook.ok)
-        toast({ body: `The setup hook failed: ${hook.output.slice(-300)}`, type: "error" });
+      if (hook !== null && !hook.ok) toast.error(`The setup hook failed: ${hook.output.slice(-300)}`);
       onClose();
       setBranch("");
       navigate(`/w/${workspace.id}`);
@@ -252,45 +329,40 @@ function NewWorktreeDialog({
     }
   };
   return (
-    <Dialog
-      isOpen={isOpen}
-      onOpenChange={(open) => (open ? undefined : onClose())}
-      purpose="form"
-      width={480}
-    >
-      <Layout
-        header={
-          <DialogHeader
-            title="New worktree"
-            subtitle="A new branch in its own checkout, from origin's default branch."
-            onOpenChange={(open) => (open ? undefined : onClose())}
+    <Dialog open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent className="sm:max-w-md">
+        <form
+          className="contents"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void create();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>New worktree</DialogTitle>
+            <DialogDescription>
+              A new branch in its own checkout, from origin's default branch.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            aria-label="Branch"
+            value={branch}
+            autoFocus
+            onChange={(event) => setBranch(event.currentTarget.value)}
+            placeholder="rowrow/… (a random name when empty)"
+            className="font-mono"
           />
-        }
-        content={
-          <LayoutContent>
-            <VStack gap={2}>
-              <TextInput
-                label="Branch"
-                value={branch}
-                onChange={setBranch}
-                placeholder="rowrow/… (a random name when empty)"
-                width="100%"
-                hasAutoFocus
-                onEnter={() => void create()}
-              />
-              {error !== null && <ErrorText>{error}</ErrorText>}
-            </VStack>
-          </LayoutContent>
-        }
-        footer={
-          <LayoutFooter>
-            <HStack gap={2} hAlign="end">
-              <Button label="Cancel" variant="secondary" onClick={onClose} />
-              <Button label="Create" variant="primary" isLoading={busy} onClick={() => void create()} />
-            </HStack>
-          </LayoutFooter>
-        }
-      />
+          {error !== null && <ErrorText>{error}</ErrorText>}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <LoaderCircle className="animate-spin" />} Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
   );
 }

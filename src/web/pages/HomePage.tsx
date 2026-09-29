@@ -1,23 +1,20 @@
 // Home: every agent, the ones that need you first (PRINCIPLES.md, product 1). On a phone
 // this is the screen you open from the home screen icon.
-import { Button } from "@astryxdesign/core/Button";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Icon } from "@astryxdesign/core/Icon";
-import { Layout, LayoutContent, LayoutHeader } from "@astryxdesign/core/Layout";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Heading, Text } from "@astryxdesign/core/Text";
+import { Button } from "@/components/ui/button";
 import { Bot, Plus } from "lucide-react";
 import { useMemo } from "react";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
+import { EmptyState } from "../components/EmptyState.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
+import { PageHeader } from "../components/Shell.tsx";
+import { StatusDot } from "../components/StatusDot.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
+import { RouterLink, type Route } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import { useNow } from "../lib/use-now.ts";
 
-export function HomePage() {
+export function HomePage({ route }: { route: Route }) {
   const state = useApp((s) => s.state) as AppState;
   const open = useNewAgent((s) => s.open);
   const now = useNow(15_000);
@@ -39,53 +36,44 @@ export function HomePage() {
   ];
 
   return (
-    <Layout
-      height="fill"
-      padding={4}
-      contentWidth={860}
-      header={
-        <LayoutHeader>
-          <HStack hAlign="between" vAlign="center">
-            <Heading level={1}>Agents</Heading>
-            <Button
-              label="New agent"
-              variant="primary"
-              icon={<Icon icon={Plus} size="sm" />}
-              onClick={() => open({})}
-            />
-          </HStack>
-        </LayoutHeader>
-      }
-      content={
-        <LayoutContent>
-          {agents.length === 0 ? (
-            <EmptyState
-              icon={<Icon icon={Bot} size="lg" />}
-              title={
-                Object.keys(state.workspaces).length === 0 ? "Add a workspace to start" : "No agents yet"
-              }
-              description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
-              actions={<Button label="New agent" variant="primary" onClick={() => open({})} />}
-            />
-          ) : (
-            <VStack gap={5}>
-              {groups
-                .filter(([, list]) => list.length > 0)
-                .map(([name, list]) => (
-                  <VStack gap={1} key={name}>
-                    <Text type="label">{`${name} · ${list.length}`}</Text>
-                    <List hasDividers density="balanced">
-                      {list.map((agent) => (
-                        <AgentRow key={agent.id} agent={agent} state={state} now={now} />
-                      ))}
-                    </List>
-                  </VStack>
-                ))}
-            </VStack>
-          )}
-        </LayoutContent>
-      }
-    />
+    <>
+      <PageHeader
+        title="Agents"
+        route={route}
+        actions={
+          <Button size="sm" onClick={() => open({})}>
+            <Plus /> New agent
+          </Button>
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {agents.length === 0 ? (
+          <EmptyState
+            icon={<Bot />}
+            title={Object.keys(state.workspaces).length === 0 ? "Add a workspace to start" : "No agents yet"}
+            description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
+            actions={<Button onClick={() => open({})}>New agent</Button>}
+          />
+        ) : (
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-4 md:px-6 md:py-6">
+            {groups
+              .filter(([, list]) => list.length > 0)
+              .map(([name, list]) => (
+                <section key={name}>
+                  <h2 className="px-2 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                    {`${name} · ${list.length}`}
+                  </h2>
+                  <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+                    {list.map((agent) => (
+                      <AgentRow key={agent.id} agent={agent} state={state} now={now} />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -93,22 +81,41 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
   const dot = statusDot(agent, now);
   const ws = state.workspaces[agent.summary.workspaceId];
   const runtime = state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime;
+  const branch = ws?.git?.branch;
   const detail =
     agent.attention === "done" && agent.summary.lastError !== null
       ? agent.summary.lastError
       : (agent.summary.preview ?? "");
   return (
-    <ListItem
-      href={`/a/${agent.id}`}
-      label={title(agent)}
-      description={`${dot.label} · ${ws?.label ?? "?"}${ws?.git?.branch !== undefined && ws.git.branch !== null && ws.git.branch !== ws.label ? ` (${ws.git.branch})` : ""} · ${runtime}${detail === "" ? "" : ` — ${oneLine(detail)}`}`}
-      startContent={<StatusDot variant={dot.variant} label={dot.label} isPulsing={dot.pulsing} />}
-      endContent={<Text type="supporting">{ago(agent.summary.lastActivityAt, now)}</Text>}
-    />
+    <li>
+      <RouterLink
+        href={`/a/${agent.id}`}
+        className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
+      >
+        <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} className="mt-1.5" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{title(agent)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {ago(agent.summary.lastActivityAt, now)}
+            </span>
+          </div>
+          <div className="truncate text-xs text-muted-foreground">
+            <span className={dot.tone === "error" ? "text-destructive" : undefined}>{dot.label}</span>
+            {` · ${ws?.label ?? "?"}`}
+            {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
+            {` · ${runtime}`}
+          </div>
+          {detail !== "" && (
+            <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">{oneLine(detail)}</div>
+          )}
+        </div>
+      </RouterLink>
+    </li>
   );
 }
 
 function oneLine(text: string): string {
   const flat = text.replaceAll(/\s+/g, " ").trim();
-  return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat;
+  return flat.length > 240 ? `${flat.slice(0, 239)}…` : flat;
 }

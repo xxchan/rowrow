@@ -1,7 +1,7 @@
-import { Button } from "@astryxdesign/core/Button";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Button } from "@/components/ui/button";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { report } from "../lib/telemetry.ts";
+import { EmptyState } from "./EmptyState.tsx";
 
 interface State {
   readonly error: Error | null;
@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
       <EmptyState
         title="Something broke on this page"
         description={`${this.state.error.message}. It was reported to the server log (rowrow errors).`}
-        actions={<Button label="Reload" variant="primary" onClick={() => location.reload()} />}
+        actions={<Button onClick={() => location.reload()}>Reload</Button>}
       />
     );
   }

@@ -1,10 +1,8 @@
 // Select a passage the agent wrote, press "Comment", say what should change: the passage
 // and your comment join the review comments above the composer (roamgate #182).
-import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import * as stylex from "@stylexjs/stylex";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { addAnnotation } from "../lib/annotations.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
@@ -98,80 +96,56 @@ export function SelectionComment({
 
   if (!editing) {
     return (
-      <div ref={ui} {...stylex.props(styles.bubble, styles.at(picked.x, picked.y))}>
-        <Button label="Comment" size="sm" variant="primary" onClick={() => setEditing(true)} />
+      <div
+        ref={ui}
+        className="fixed z-30 -translate-x-1/2 translate-y-2"
+        style={{ left: picked.x, top: picked.y }}
+      >
+        <Button size="sm" className="shadow-lg" onClick={() => setEditing(true)}>
+          Comment
+        </Button>
       </div>
     );
   }
   // Under the passage; on a phone, at the top, where the keyboard can't cover it.
   const place = narrow
-    ? styles.top
-    : [
-        styles.beside,
-        styles.at(
-          Math.min(Math.max(16, picked.x - 160), window.innerWidth - 336),
-          Math.min(picked.y + 8, window.innerHeight - 220),
-        ),
-      ];
+    ? { top: 16, left: 16, right: 16 }
+    : {
+        width: 320,
+        left: Math.min(Math.max(16, picked.x - 160), window.innerWidth - 336),
+        top: Math.min(picked.y + 8, window.innerHeight - 220),
+      };
   return (
-    <div ref={ui} {...stylex.props(styles.editor, place)}>
-      <VStack gap={2}>
-        <Text type="supporting" maxLines={2}>{`“${picked.text}”`}</Text>
-        <TextArea
-          label="Comment"
-          isLabelHidden
-          value={comment}
-          onChange={setComment}
-          rows={3}
-          width="100%"
-          hasAutoFocus
-          placeholder="What should change?"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              save();
-            } else if (event.key === "Escape") close();
-          }}
-        />
-        <HStack gap={1} hAlign="end">
-          <Button label="Cancel" size="sm" variant="ghost" onClick={close} />
-          <Button
-            label="Comment"
-            size="sm"
-            variant="primary"
-            isDisabled={comment.trim() === ""}
-            onClick={save}
-          />
-        </HStack>
-      </VStack>
+    <div
+      ref={ui}
+      className={cn(
+        "fixed z-30 flex flex-col gap-2 rounded-xl border bg-popover p-3 text-popover-foreground shadow-xl",
+      )}
+      style={place}
+    >
+      <p className="line-clamp-2 text-xs text-muted-foreground">{`“${picked.text}”`}</p>
+      <Textarea
+        aria-label="Comment"
+        value={comment}
+        onChange={(event) => setComment(event.currentTarget.value)}
+        rows={3}
+        autoFocus
+        placeholder="What should change?"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          } else if (event.key === "Escape") close();
+        }}
+      />
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={close}>
+          Cancel
+        </Button>
+        <Button size="sm" disabled={comment.trim() === ""} onClick={save}>
+          Comment
+        </Button>
+      </div>
     </div>
   );
 }
-
-const styles = stylex.create({
-  at: (left: number, top: number) => ({ left, top }),
-  bubble: {
-    position: "fixed",
-    zIndex: 20,
-    transform: "translate(-50%, 8px)",
-  },
-  editor: {
-    position: "fixed",
-    zIndex: 20,
-    padding: 12,
-    borderRadius: "var(--radius-container)",
-    backgroundColor: "var(--color-background-popover)",
-    boxShadow: "var(--shadow-high)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--color-border)",
-  },
-  beside: {
-    width: 320,
-  },
-  top: {
-    top: 16,
-    left: 16,
-    right: 16,
-  },
-});

@@ -54,8 +54,7 @@ export function useRoute(): Route {
 
 /**
  * An <a> that navigates inside the app for plain clicks on local links (and lets the
- * browser handle modified clicks, new tabs and external links). Given to Astryx through
- * LinkProvider, so every Astryx link and nav item routes through it.
+ * browser handle modified clicks, new tabs and external links). Every in-app link uses it.
  */
 export const RouterLink = forwardRef<HTMLAnchorElement, AnchorHTMLAttributes<HTMLAnchorElement>>(
   function RouterLink(props, ref) {

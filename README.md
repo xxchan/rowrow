@@ -111,7 +111,7 @@ A server per machine (Node 24) owns agents through oar and keeps each agent's ap
 log in SQLite. Status, attention and transcripts are pure folds over that log, shared by
 the server, the web app and the CLI. Browsers hold one WebSocket (oRPC) for live state;
 the CLI and agents use the same procedures over HTTP (OpenAPI at `/api/openapi.json`). The
-web app is React with Meta's [Astryx](https://astryx.atmeta.com) design system.
+web app is React with Tailwind and [shadcn/ui](https://ui.shadcn.com) components.
 
 - [PRINCIPLES.md](PRINCIPLES.md): the rules that settle arguments
 - [docs/architecture.md](docs/architecture.md): the system design
