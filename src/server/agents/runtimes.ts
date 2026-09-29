@@ -28,11 +28,17 @@ export class Runtimes {
   private readonly models = new Map<string, { at: number; models: ModelInfo[]; error: string | null }>();
   private readonly skillsCache = new Map<string, { at: number; skills: SkillInfo[]; error: string | null }>();
 
-  constructor(options: { readonly testRuntime: boolean; readonly probe: boolean }) {
+  constructor(options: {
+    readonly testRuntime: boolean;
+    readonly probe: boolean;
+    /** Runtimes to know besides oar's built-in ones (tests). */
+    readonly extra?: readonly Runtime[];
+  }) {
     const list: { runtime: Runtime; test: boolean }[] = options.probe
       ? builtins.list().map((runtime) => ({ runtime, test: false }))
       : [];
     if (options.testRuntime) list.push({ runtime: scriptedDemoRuntime(), test: true });
+    for (const runtime of options.extra ?? []) list.push({ runtime, test: false });
     for (const { runtime, test } of list) {
       this.known.set(runtime.id, {
         runtime,
@@ -54,9 +60,17 @@ export class Runtimes {
     return [...this.known.values()].map((known) => known.info);
   }
 
-  /** Probe every runtime's installation (in parallel, bounded by a timeout each). */
-  async refresh(): Promise<RuntimeInfo[]> {
-    await Promise.all([...this.known.values()].map(async (known) => this.probe(known)));
+  /**
+   * Probe every runtime's installation (in parallel, bounded by a timeout each). `probed` is
+   * called as each one is known, so a slow CLI (kimi can take seconds) doesn't hide the rest.
+   */
+  async refresh(probed?: () => void): Promise<RuntimeInfo[]> {
+    await Promise.all(
+      [...this.known.values()].map(async (known) => {
+        await this.probe(known);
+        probed?.();
+      }),
+    );
     return this.list();
   }
 

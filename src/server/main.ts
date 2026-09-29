@@ -206,8 +206,7 @@ export async function startServer(
     uploadsDir: paths.uploads,
     loginUrl: (code) => `${publicUrl}/auth/redeem?code=${code}`,
     refreshRuntimes: async () => {
-      await runtimes.refresh();
-      syncRuntimes();
+      await runtimes.refresh(syncRuntimes);
     },
   });
 
@@ -246,8 +245,7 @@ export async function startServer(
   // Probing runtimes runs each CLI; don't hold up the server for it.
   void (async (): Promise<void> => {
     if (options.probeRuntimes) await augmentPathFromLoginShell();
-    await runtimes.refresh();
-    syncRuntimes();
+    await runtimes.refresh(syncRuntimes);
   })().catch((error: unknown) => log.error("runtime.refresh_failed", { err: serializeError(error) }));
 
   log.info("server.started", { url, publicUrl, ms: Date.now() - startedAt });

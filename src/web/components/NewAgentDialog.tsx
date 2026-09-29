@@ -148,6 +148,25 @@ export function NewAgentForm({
   const [isolate, setIsolate] = useState(initial?.isolate ?? false);
   const [branch, setBranch] = useState("");
   const [adding, setAdding] = useState(variant === "dialog" && workspaces.length === 0);
+  // Opened while the server was still probing runtimes (a slow CLI can take seconds after it
+  // starts): take the default as they arrive, until one is chosen. Adjusted during render,
+  // as React recommends for state that follows a changing input.
+  const [seenRuntimes, setSeenRuntimes] = useState(runtimes);
+  if (seenRuntimes !== runtimes) {
+    setSeenRuntimes(runtimes);
+    if (runtime === null && state !== null && runtimes.length > 0) {
+      const setup = resolveSetup(
+        state,
+        workspaceId === null || workspaceId === initial?.workspaceId
+          ? context
+          : { kind: "workspace", workspaceId },
+        loadPrefs(),
+      );
+      setRuntime(setup.runtime);
+      setModel(setup.model);
+      setEffort(setup.effort);
+    }
+  }
   const [chip, setChipState] = useState<ChipName | null>(null);
   const openChip = useRef<ChipName | null>(null);
   const setChip = (name: ChipName | null): void => {
