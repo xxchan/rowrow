@@ -90,3 +90,8 @@ export function formatTokens(n: number): string {
 export function versionNumber(version: string): string {
   return /\d+(?:\.\d+)+(?:-[\w.]+)?/.exec(version)?.[0] ?? version;
 }
+
+/** What "Default" means for a model or effort: rowrow passes none, so the CLI decides. */
+export function defaultNote(runtimeName: string): string {
+  return `${runtimeName}'s own choice: its settings file, or its built-in default`;
+}

@@ -53,7 +53,7 @@ import { SelectionComment } from "../components/SelectionComment.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
-import { statusDot, title } from "../lib/format.ts";
+import { defaultNote, statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
@@ -549,6 +549,9 @@ function ModelDialog({
             </div>
           )}
         </div>
+        {(model === DEFAULT || effort === DEFAULT) && (
+          <p className="text-xs text-muted-foreground">Default: {defaultNote(runtimeName)}.</p>
+        )}
         {models?.error !== null && models?.error !== undefined && (
           <p className="text-xs text-muted-foreground">Models: {models.error}</p>
         )}

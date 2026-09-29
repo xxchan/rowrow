@@ -23,7 +23,7 @@ import { Check, Cpu, Folder, FolderGit2, GitBranch, LoaderCircle, Plus } from "l
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { create } from "zustand";
 import type { ModelInfo } from "../../shared/schemas.ts";
-import { versionNumber } from "../lib/format.ts";
+import { defaultNote, versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup, type NewAgentContext } from "../lib/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
@@ -400,6 +400,7 @@ export function NewAgentForm({
             onCloseAutoFocus={backToPrompt}
           >
             <ModelMenu
+              runtimeName={runtimeInfo?.name ?? "The agent"}
               loaded={loaded}
               model={model}
               effort={effectiveEffort}
@@ -574,6 +575,7 @@ function Chip({ className, ...props }: ComponentProps<typeof Button>) {
 
 /** Models, then the chosen model's effort levels. ←/→ change the effort while the filter is empty. */
 function ModelMenu({
+  runtimeName,
   loaded,
   model,
   effort,
@@ -581,6 +583,7 @@ function ModelMenu({
   onModel,
   onEffort,
 }: {
+  runtimeName: string;
   loaded: { models: ModelInfo[]; error: string | null } | null;
   model: string | null;
   effort: string | null;
@@ -622,8 +625,11 @@ function ModelMenu({
             <CommandEmpty>No model matches.</CommandEmpty>
             <CommandGroup heading="Model">
               <CommandItem value="__default" keywords={["Default"]} onSelect={() => pick(null)}>
-                Default
-                {model === null && <Check className="ml-auto" />}
+                <span className="flex min-w-0 flex-col">
+                  Default
+                  <span className="text-xs text-muted-foreground">{defaultNote(runtimeName)}</span>
+                </span>
+                {model === null && <Check className="ml-auto shrink-0" />}
               </CommandItem>
               {unlisted && (
                 <CommandItem value={model} onSelect={() => pick(model)}>
