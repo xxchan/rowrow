@@ -123,7 +123,8 @@ export const log = {
   warn: (evt: string, fields?: Readonly<Record<string, unknown>>): void => write("warn", evt, fields),
   error: (evt: string, fields?: Readonly<Record<string, unknown>>): void => write("error", evt, fields),
   /** Write an entry that already has its shape (browser events arriving through telemetry.report). */
-  entry: (level: Level, evt: string, fields: Readonly<Record<string, unknown>>): void => write(level, evt, fields),
+  entry: (level: Level, evt: string, fields: Readonly<Record<string, unknown>>): void =>
+    write(level, evt, fields),
 };
 
 // ─── Reading ─────────────────────────────────────────────────────────────────
@@ -156,7 +157,8 @@ export function onLog(listener: (entry: LogEntry) => void): () => void {
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
-const SECRET_KEYS = /^(token|password|secret|cookie|authorization|code|auth|p256dh)$/i;
+// Field names whose values are credentials. Login codes only ever appear inside URLs (SECRET_PARAMS).
+const SECRET_KEYS = /^(token|password|secret|cookie|authorization|p256dh|cliToken|agentToken)$/i;
 const SECRET_PARAMS = /([?&](?:code|token|key)=)[^&#\s"]+/gi;
 
 function sanitize(fields: Readonly<Record<string, unknown>> | undefined): Record<string, unknown> {
@@ -177,7 +179,10 @@ function scrub(value: unknown): unknown {
 
 export function serializeError(error: unknown): Record<string, unknown> {
   if (!(error instanceof Error)) return { message: String(error) };
-  const out: Record<string, unknown> = { type: error.name, message: error.message.replace(SECRET_PARAMS, "$1[redacted]") };
+  const out: Record<string, unknown> = {
+    type: error.name,
+    message: error.message.replace(SECRET_PARAMS, "$1[redacted]"),
+  };
   if (error.stack !== undefined) out["stack"] = error.stack;
   const code = (error as { code?: unknown }).code;
   if (code !== undefined) out["code"] = code;
@@ -185,7 +190,12 @@ export function serializeError(error: unknown): Record<string, unknown> {
   return out;
 }
 
-const COLOR: Record<Level, string> = { debug: "\x1b[90m", info: "\x1b[36m", warn: "\x1b[33m", error: "\x1b[31m" };
+const COLOR: Record<Level, string> = {
+  debug: "\x1b[90m",
+  info: "\x1b[36m",
+  warn: "\x1b[33m",
+  error: "\x1b[31m",
+};
 
 function pretty(entry: LogEntry): string {
   const { time, level, evt, msg, ...rest } = entry;

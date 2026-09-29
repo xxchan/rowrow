@@ -19,6 +19,8 @@ export interface AgentSummary {
   readonly title: string | null;
   /** The model you asked for; null means the runtime's default. */
   readonly model: string | null;
+  /** The reasoning effort you asked for; null means the runtime's default. */
+  readonly effort: string | null;
   readonly archived: boolean;
   readonly createdAt: number;
   /** The live run, while one is attached. */
@@ -29,6 +31,8 @@ export interface AgentSummary {
   readonly status: AgentStatus;
   /** The model the runtime reported it is using. */
   readonly reportedModel: string | null;
+  /** The reasoning effort the runtime reported (claude reports none). */
+  readonly reportedEffort: string | null;
   /** Runtime→app requests (an approval, a question) of the live run that nobody answered yet. */
   readonly pending: readonly PendingRequestSummary[];
   /** The latest turn the runtime ended, with its own outcome. */
@@ -62,12 +66,14 @@ export function initialSummary(): AgentSummary {
     runtime: "",
     title: null,
     model: null,
+    effort: null,
     archived: false,
     createdAt: 0,
     run: null,
     sessionId: null,
     status: initialStatus,
     reportedModel: null,
+    reportedEffort: null,
     pending: [],
     lastTurn: null,
     lastCompletionSeq: -1,
@@ -101,6 +107,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         workspaceId: entry.workspaceId,
         runtime: entry.runtime,
         model: entry.model ?? null,
+        effort: entry.effort ?? null,
         title: entry.title ?? null,
         createdAt: entry.at,
       };
@@ -110,13 +117,16 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         ...s,
         ...(changes.title === undefined ? {} : { title: changes.title }),
         ...(changes.model === undefined ? {} : { model: changes.model }),
+        ...(changes.effort === undefined ? {} : { effort: changes.effort }),
         ...(changes.archived === undefined ? {} : { archived: changes.archived }),
       };
     }
     case "input":
       return { ...s, inputs: s.inputs + 1 };
     case "input.result":
-      return entry.landed === "failed" ? { ...s, lastError: entry.reason ?? "the input could not be delivered" } : s;
+      return entry.landed === "failed"
+        ? { ...s, lastError: entry.reason ?? "the input could not be delivered" }
+        : s;
     case "run.started":
       return {
         ...s,
@@ -135,7 +145,9 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
     case "host.error":
       return { ...s, lastError: entry.message };
     case "oar":
-      return s.run?.runId === entry.runId ? foldRecord(s, s.run.sessionId, entry.record, entry.seq, entry.at) : s;
+      return s.run?.runId === entry.runId
+        ? foldRecord(s, s.run.sessionId, entry.record, entry.seq, entry.at)
+        : s;
   }
 }
 
@@ -152,12 +164,20 @@ function endRun(s: AgentSummary, entry: EntryOf<"run.ended">): AgentSummary {
     pending: [],
     textOpen: false,
     stopping: false,
-    status: cutTurn ? { kind: "idle", lastTurnOutcome: { kind: "failed", reason, failure: "runtime_exited" } } : s.status,
+    status: cutTurn
+      ? { kind: "idle", lastTurnOutcome: { kind: "failed", reason, failure: "runtime_exited" } }
+      : s.status,
     ...(failed ? { lastError: reason, lastCompletionSeq: entry.seq } : {}),
   };
 }
 
-function foldRecord(s: AgentSummary, sessionId: string, record: RawEvent, seq: number, at: number): AgentSummary {
+function foldRecord(
+  s: AgentSummary,
+  sessionId: string,
+  record: RawEvent,
+  seq: number,
+  at: number,
+): AgentSummary {
   const status = reduceStatus(s.status, record, sessionId);
   let next: AgentSummary = status === s.status ? s : { ...s, status };
   const root = record.sessionId === sessionId && record.agentPath.length === 0;
@@ -184,7 +204,11 @@ function foldRecord(s: AgentSummary, sessionId: string, record: RawEvent, seq: n
       for (const event of record.body.events) {
         if (event.kind === "text_delta") {
           const text = next.textOpen ? (next.preview ?? "") + event.text : event.text;
-          next = { ...next, preview: text.length > PREVIEW_CHARS ? text.slice(-PREVIEW_CHARS) : text, textOpen: true };
+          next = {
+            ...next,
+            preview: text.length > PREVIEW_CHARS ? text.slice(-PREVIEW_CHARS) : text,
+            textOpen: true,
+          };
           continue;
         }
         switch (event.kind) {
@@ -198,6 +222,9 @@ function foldRecord(s: AgentSummary, sessionId: string, record: RawEvent, seq: n
             break;
           case "model":
             next = { ...next, reportedModel: event.model };
+            break;
+          case "effort":
+            next = { ...next, reportedEffort: event.effort };
             break;
           case "usage":
             if (event.usage.tokens !== undefined) next = { ...next, usage: event.usage.tokens };
@@ -214,7 +241,8 @@ function foldRecord(s: AgentSummary, sessionId: string, record: RawEvent, seq: n
             break;
         }
         // Usage and model reports interleave with text on some runtimes; they don't end a text run.
-        if (event.kind !== "usage" && event.kind !== "model" && next.textOpen) next = { ...next, textOpen: false };
+        if (event.kind !== "usage" && event.kind !== "model" && event.kind !== "effort" && next.textOpen)
+          next = { ...next, textOpen: false };
       }
       return next;
   }
@@ -225,7 +253,9 @@ function describeEnd(reason: string, code: number | null | undefined): string {
     case "crashed":
       return "rowrow stopped while this agent was running";
     case "exited":
-      return code === null || code === undefined ? "the agent process exited" : `the agent process exited with code ${code}`;
+      return code === null || code === undefined
+        ? "the agent process exited"
+        : `the agent process exited with code ${code}`;
     default:
       return `the run ended (${reason})`;
   }
@@ -236,7 +266,12 @@ function describeEnd(reason: string, code: number | null | undefined): string {
 /** Why an agent needs you, in priority order (docs/architecture.md, "Attention and notifications"). */
 export type Attention = "blocked" | "done" | "working" | "idle";
 
-export const ATTENTION_RANK: Readonly<Record<Attention, number>> = { blocked: 4, done: 3, working: 2, idle: 1 };
+export const ATTENTION_RANK: Readonly<Record<Attention, number>> = {
+  blocked: 4,
+  done: 3,
+  working: 2,
+  idle: 1,
+};
 
 export function attentionOf(summary: AgentSummary, seenSeq: number): Attention {
   if (summary.pending.length > 0) return "blocked";

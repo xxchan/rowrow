@@ -79,8 +79,20 @@ export class AgentActor {
         // server died in between) the outcome is unknown, and we never deliver twice.
         const result = existing.result;
         return result?.kind === "input.result"
-          ? { inputId: input.inputId, landed: result.landed, ...(result.code === undefined ? {} : { code: result.code }), ...(result.reason === undefined ? {} : { reason: result.reason }), seq: existing.input.seq }
-          : { inputId: input.inputId, landed: "failed", code: "uncertain", reason: "an earlier attempt was cut off; check the transcript before resending", seq: existing.input.seq };
+          ? {
+              inputId: input.inputId,
+              landed: result.landed,
+              ...(result.code === undefined ? {} : { code: result.code }),
+              ...(result.reason === undefined ? {} : { reason: result.reason }),
+              seq: existing.input.seq,
+            }
+          : {
+              inputId: input.inputId,
+              landed: "failed",
+              code: "uncertain",
+              reason: "an earlier attempt was cut off; check the transcript before resending",
+              seq: existing.input.seq,
+            };
       }
       const entry = this.deps.log.append(this.id, {
         kind: "input",
@@ -99,7 +111,12 @@ export class AgentActor {
         ...(result.code === undefined ? {} : { code: result.code }),
         ...(result.reason === undefined ? {} : { reason: result.reason }),
       });
-      log.info("agent.input", { inputId: input.inputId, mode: input.mode, landed: result.landed, code: result.code });
+      log.info("agent.input", {
+        inputId: input.inputId,
+        mode: input.mode,
+        landed: result.landed,
+        code: result.code,
+      });
       return {
         inputId: input.inputId,
         landed: result.landed,
@@ -110,12 +127,18 @@ export class AgentActor {
     });
   }
 
-  private async deliver(input: SendInput): Promise<{ landed: SendResult["landed"]; runId?: string; code?: string; reason?: string }> {
+  private async deliver(
+    input: SendInput,
+  ): Promise<{ landed: SendResult["landed"]; runId?: string; code?: string; reason?: string }> {
     let run: LiveRun;
     try {
       run = await this.ensureRun();
     } catch (error) {
-      return { landed: "failed", code: "run_failed", reason: error instanceof Error ? error.message : String(error) };
+      return {
+        landed: "failed",
+        code: "run_failed",
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
     const { session, runId } = run;
     const options = { inputId: input.inputId };
@@ -154,6 +177,7 @@ export class AgentActor {
       cwd,
       env: this.deps.env(this.id),
       ...(summary.model === null ? {} : { model: summary.model }),
+      ...(summary.effort === null ? {} : { effort: summary.effort }),
     };
     let session: Session;
     let resumed: string | undefined;
@@ -167,8 +191,16 @@ export class AgentActor {
           // The runtime lost the conversation (or never persisted it). Start a new one; the
           // log keeps the history, and says what happened.
           const message = error instanceof Error ? error.message : String(error);
-          log.warn("agent.resume_failed", { runtime: summary.runtime, sessionId: summary.sessionId, err: serializeError(error) });
-          this.append({ kind: "host.error", code: "resume_failed", message: `could not resume the conversation, starting a new one: ${message}` });
+          log.warn("agent.resume_failed", {
+            runtime: summary.runtime,
+            sessionId: summary.sessionId,
+            err: serializeError(error),
+          });
+          this.append({
+            kind: "host.error",
+            code: "resume_failed",
+            message: `could not resume the conversation, starting a new one: ${message}`,
+          });
           session = await this.deps.runtimes.start(summary.runtime, base);
         }
       } else {
@@ -187,9 +219,15 @@ export class AgentActor {
       cwd,
       sessionId: session.id,
       ...(summary.model === null ? {} : { model: summary.model }),
+      ...(summary.effort === null ? {} : { effort: summary.effort }),
       ...(resumed === undefined ? {} : { resume: resumed }),
     });
-    log.info("agent.run.started", { run: runId, runtime: summary.runtime, resumed: resumed !== undefined, ms: Date.now() - started });
+    log.info("agent.run.started", {
+      run: runId,
+      runtime: summary.runtime,
+      resumed: resumed !== undefined,
+      ms: Date.now() - started,
+    });
     const run: LiveRun = { runId, session, stopping: false, unsubscribe: () => undefined };
     // From seq -1: records the runtime produced while starting are replayed, not lost.
     run.unsubscribe = session.rawEvents(
@@ -278,7 +316,9 @@ function landing(
   success: "prompted" | "queued",
   outcome: ControlOutcome,
 ): { landed: SendResult["landed"]; code?: string; reason?: string } {
-  return outcome.kind === "accepted" ? { landed: success } : { landed: "rejected", code: outcome.code, reason: outcome.reason };
+  return outcome.kind === "accepted"
+    ? { landed: success }
+    : { landed: "rejected", code: outcome.code, reason: outcome.reason };
 }
 
 /** oar's awaitIdle, bounded: an interrupt must not hang on a runtime that never ends its turn. */

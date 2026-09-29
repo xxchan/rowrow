@@ -74,14 +74,18 @@ export class Db {
   constructor(file: string) {
     if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
     this.sql = new DatabaseSync(file);
-    this.sql.exec("pragma journal_mode = wal; pragma synchronous = normal; pragma busy_timeout = 5000; pragma foreign_keys = on;");
+    this.sql.exec(
+      "pragma journal_mode = wal; pragma synchronous = normal; pragma busy_timeout = 5000; pragma foreign_keys = on;",
+    );
     this.migrate();
   }
 
   private migrate(): void {
-    const current = Number((this.sql.prepare("pragma user_version").get() as { user_version: number }).user_version);
+    const current = (this.sql.prepare("pragma user_version").get() as { user_version: number }).user_version;
     if (current > MIGRATIONS.length) {
-      throw new Error(`the database is from a newer rowrow (schema ${current}, this one knows ${MIGRATIONS.length})`);
+      throw new Error(
+        `the database is from a newer rowrow (schema ${current}, this one knows ${MIGRATIONS.length})`,
+      );
     }
     for (let version = current; version < MIGRATIONS.length; version++) {
       this.transaction(() => {

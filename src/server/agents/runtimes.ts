@@ -1,7 +1,13 @@
 // The runtimes rowrow can start agents with: oar's built-in ones (Claude Code, Codex, Grok,
 // Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
 // local and cheap; model lists may ask the runtime's provider, so they are cached.
-import { runtimes as builtins, type AvailableInstallation, type Runtime, type Session, type SessionOptions } from "@botiverse/oar";
+import {
+  runtimes as builtins,
+  type AvailableInstallation,
+  type Runtime,
+  type Session,
+  type SessionOptions,
+} from "@botiverse/oar";
 import type { ModelInfo, RuntimeInfo } from "../../shared/schemas.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import { scriptedDemoRuntime } from "./scripted.ts";
@@ -21,14 +27,23 @@ export class Runtimes {
   private readonly models = new Map<string, { at: number; models: ModelInfo[]; error: string | null }>();
 
   constructor(options: { readonly testRuntime: boolean; readonly probe: boolean }) {
-    const list: { runtime: Runtime; test: boolean }[] = options.probe ? builtins.list().map((runtime) => ({ runtime, test: false })) : [];
+    const list: { runtime: Runtime; test: boolean }[] = options.probe
+      ? builtins.list().map((runtime) => ({ runtime, test: false }))
+      : [];
     if (options.testRuntime) list.push({ runtime: scriptedDemoRuntime(), test: true });
     for (const { runtime, test } of list) {
       this.known.set(runtime.id, {
         runtime,
         test,
         installation: null,
-        info: { id: runtime.id, name: runtime.brand.name, installed: false, version: null, reason: "not probed yet", test },
+        info: {
+          id: runtime.id,
+          name: runtime.brand.name,
+          installed: false,
+          version: null,
+          reason: "not probed yet",
+          test,
+        },
       });
     }
   }
@@ -50,23 +65,44 @@ export class Runtimes {
       const snapshot =
         runtime.installation === undefined
           ? ({ kind: "available", via: "bundled" } as const)
-          : await withTimeout(runtime.installation(), PROBE_TIMEOUT_MS, `probing ${runtime.id} took too long`);
+          : await withTimeout(
+              runtime.installation(),
+              PROBE_TIMEOUT_MS,
+              `probing ${runtime.id} took too long`,
+            );
       if (snapshot.kind === "available") {
         known.installation = snapshot;
-        known.info = { ...known.info, installed: true, version: snapshot.via === "executable" ? (snapshot.version ?? null) : null, reason: null };
+        known.info = {
+          ...known.info,
+          installed: true,
+          version: snapshot.via === "executable" ? (snapshot.version ?? null) : null,
+          reason: null,
+        };
       } else {
         known.installation = null;
         known.info = {
           ...known.info,
           installed: false,
           version: null,
-          reason: snapshot.kind === "not_found" ? `${runtime.brand.name} is not installed (not found on PATH)` : snapshot.reason,
+          reason:
+            snapshot.kind === "not_found"
+              ? `${runtime.brand.name} is not installed (not found on PATH)`
+              : snapshot.reason,
         };
       }
-      log.info("runtime.probe", { runtime: runtime.id, installed: known.info.installed, version: known.info.version, ms: Date.now() - started });
+      log.info("runtime.probe", {
+        runtime: runtime.id,
+        installed: known.info.installed,
+        version: known.info.version,
+        ms: Date.now() - started,
+      });
     } catch (error) {
       known.installation = null;
-      known.info = { ...known.info, installed: false, reason: error instanceof Error ? error.message : String(error) };
+      known.info = {
+        ...known.info,
+        installed: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
       log.warn("runtime.probe_failed", { runtime: runtime.id, err: serializeError(error) });
     }
   }
@@ -80,7 +116,8 @@ export class Runtimes {
     const known = this.known.get(id);
     if (known === undefined) throw new Error(`unknown runtime "${id}"`);
     if (known.installation === null) await this.probe(known);
-    if (known.installation === null) throw new Error(known.info.reason ?? `${known.info.name} is not available`);
+    if (known.installation === null)
+      throw new Error(known.info.reason ?? `${known.info.name} is not available`);
     return known.runtime.session(known.installation, options);
   }
 
@@ -102,10 +139,21 @@ export class Runtimes {
             ? {
                 models: listed.models
                   .filter((model) => model.disabled === undefined)
-                  .map((model) => ({ id: model.id, name: model.displayName ?? model.id })),
+                  .map((model) => ({
+                    id: model.id,
+                    name: model.displayName ?? model.id,
+                    effortLevels: [...(model.effortLevels ?? [])],
+                    defaultEffort: model.defaultEffort ?? null,
+                  })),
                 error: null,
               }
-            : { models: [], error: listed.kind === "unauthenticated" ? `not signed in${listed.detail === undefined ? "" : `: ${listed.detail}`}` : listed.reason };
+            : {
+                models: [],
+                error:
+                  listed.kind === "unauthenticated"
+                    ? `not signed in${listed.detail === undefined ? "" : `: ${listed.detail}`}`
+                    : listed.reason,
+              };
       } catch (error) {
         result = { models: [], error: error instanceof Error ? error.message : String(error) };
       }

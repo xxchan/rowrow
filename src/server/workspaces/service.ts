@@ -10,6 +10,7 @@ import type { GitSummary, Workspace } from "../../shared/schemas.ts";
 import { readGitSummary } from "../git/summary.ts";
 import type { StateStore } from "../state/store.ts";
 import type { Db } from "../store/db.ts";
+import { notFound, UserError } from "../errors.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 
 interface Row {
@@ -54,15 +55,21 @@ export class Workspaces {
     try {
       real = fs.realpathSync(resolved);
     } catch {
-      throw new Error(`no such directory: ${resolved}`);
+      throw new UserError(`no such directory: ${resolved}`);
     }
-    if (!fs.statSync(real).isDirectory()) throw new Error(`not a directory: ${real}`);
+    if (!fs.statSync(real).isDirectory()) throw new UserError(`not a directory: ${real}`);
     const existing = this.list().find((w) => w.path === real);
     if (existing !== undefined) {
       if (existing.archived) this.update(existing.id, { archived: false });
       return this.get(existing.id) ?? existing;
     }
-    const row: Row = { id: newId("ws"), path: real, custom_label: label ?? null, created_at: Date.now(), archived: 0 };
+    const row: Row = {
+      id: newId("ws"),
+      path: real,
+      custom_label: label ?? null,
+      created_at: Date.now(),
+      archived: 0,
+    };
     this.db.run(
       "insert into workspaces (id, path, custom_label, created_at, archived) values (?, ?, ?, ?, 0)",
       row.id,
@@ -79,8 +86,10 @@ export class Workspaces {
 
   update(id: string, changes: { label?: string | null; archived?: boolean }): Workspace {
     const current = this.require(id);
-    if (changes.label !== undefined) this.db.run("update workspaces set custom_label = ? where id = ?", changes.label, id);
-    if (changes.archived !== undefined) this.db.run("update workspaces set archived = ? where id = ?", changes.archived ? 1 : 0, id);
+    if (changes.label !== undefined)
+      this.db.run("update workspaces set custom_label = ? where id = ?", changes.label, id);
+    if (changes.archived !== undefined)
+      this.db.run("update workspaces set archived = ? where id = ?", changes.archived ? 1 : 0, id);
     this.state.update("workspaces.update", (draft) => {
       const ws = draft.workspaces[id];
       if (ws === undefined) return;
@@ -103,7 +112,7 @@ export class Workspaces {
 
   require(id: string): Workspace {
     const ws = this.get(id);
-    if (ws === undefined) throw new Error(`no workspace ${id}`);
+    if (ws === undefined) throw notFound(`workspace ${id}`);
     return ws;
   }
 
@@ -114,6 +123,12 @@ export class Workspaces {
     const task = this.readAndStore(id).finally(() => this.refreshing.delete(id));
     this.refreshing.set(id, task);
     return task;
+  }
+
+  /** Cancel pending background refreshes (server shutdown). */
+  close(): void {
+    for (const timer of this.soon.values()) clearTimeout(timer);
+    this.soon.clear();
   }
 
   /** Refresh after things settle (a burst of turn ends becomes one git read). */
@@ -162,7 +177,11 @@ export class Workspaces {
     });
   }
 
-  browse(input?: string): { path: string; parent: string | null; entries: { name: string; path: string; repo: boolean }[] } {
+  browse(input?: string): {
+    path: string;
+    parent: string | null;
+    entries: { name: string; path: string; repo: boolean }[];
+  } {
     const dir = fs.realpathSync(resolvePath(input ?? "~"));
     const entries = fs
       .readdirSync(dir, { withFileTypes: true })

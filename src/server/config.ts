@@ -22,7 +22,9 @@ export interface ProfilePaths {
 
 export function profilePaths(home: string, profile: string): ProfilePaths {
   if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(profile)) {
-    throw new Error(`invalid profile name ${JSON.stringify(profile)}: use lowercase letters, digits and dashes`);
+    throw new Error(
+      `invalid profile name ${JSON.stringify(profile)}: use lowercase letters, digits and dashes`,
+    );
   }
   const dir = path.join(home, profile);
   return {

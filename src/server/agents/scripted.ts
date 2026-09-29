@@ -41,10 +41,10 @@ export function scriptedDemoRuntime(): Runtime {
         }
         case "/sleep": {
           const ms = Number(arg) || 1000;
-          await turn.tool("Bash", JSON.stringify({ command: `sleep ${ms / 1000}` }), async () => {
-            await sleep(ms, undefined, { signal: turn.signal });
-            return "";
-          });
+          // Not a tool call: oar 0.8.0's scriptedRuntime still emits a tool's end after the
+          // turn was aborted, which reads as a new turn (docs/upstream.md).
+          turn.think(`Sleeping ${ms} ms.`);
+          await sleep(ms, undefined, { signal: turn.signal });
           turn.say(`Slept ${ms} ms.`);
           return;
         }

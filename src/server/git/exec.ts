@@ -54,7 +54,8 @@ export async function git(args: readonly string[], options: GitOptions): Promise
         timedOut,
       };
       const ms = Date.now() - started;
-      if (timedOut || ms > SLOW_MS) log.warn("git.slow", { args: args.slice(0, 3), cwd: options.cwd, ms, timedOut });
+      if (timedOut || ms > SLOW_MS)
+        log.warn("git.slow", { args: args.slice(0, 3), cwd: options.cwd, ms, timedOut });
       resolve(result);
     };
     child.on("error", (error) => {

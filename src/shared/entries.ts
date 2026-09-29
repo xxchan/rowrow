@@ -32,6 +32,8 @@ export type RunEndReason =
 export interface AgentChanges {
   readonly title?: string | null;
   readonly model?: string | null;
+  /** Runtime-native reasoning effort; null returns to the runtime's default. */
+  readonly effort?: string | null;
   readonly archived?: boolean;
 }
 
@@ -41,6 +43,7 @@ export type EntryBody =
       readonly workspaceId: string;
       readonly runtime: string;
       readonly model?: string;
+      readonly effort?: string;
       readonly title?: string;
       readonly by: Actor;
     }
@@ -66,6 +69,7 @@ export type EntryBody =
       readonly runId: string;
       readonly runtime: string;
       readonly model?: string;
+      readonly effort?: string;
       readonly cwd: string;
       /** The runtime session this run resumed, when it did. */
       readonly resume?: string;

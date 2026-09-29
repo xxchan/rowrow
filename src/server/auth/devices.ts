@@ -55,7 +55,12 @@ export class Devices {
 
   /** Revoke the previous server's built-in credentials and mint fresh ones. */
   rotateBuiltins(): { cliToken: string; agentToken: string; agentDevice: DeviceRecord } {
-    this.db.run("update devices set revoked_at = ? where revoked_at is null and name in (?, ?)", Date.now(), LOCAL_CLI, AGENTS);
+    this.db.run(
+      "update devices set revoked_at = ? where revoked_at is null and name in (?, ?)",
+      Date.now(),
+      LOCAL_CLI,
+      AGENTS,
+    );
     const cli = this.mint(LOCAL_CLI, "cli");
     const agents = this.mint(AGENTS, "cli");
     return { cliToken: cli.token, agentToken: agents.token, agentDevice: agents.device };
@@ -64,7 +69,10 @@ export class Devices {
   /** The device a token belongs to, or null (unknown or revoked). */
   authenticate(token: string | undefined): DeviceRecord | null {
     if (token === undefined || !token.startsWith("rr_")) return null;
-    const row = this.db.get<Row>("select * from devices where token_hash = ? and revoked_at is null", hash(token));
+    const row = this.db.get<Row>(
+      "select * from devices where token_hash = ? and revoked_at is null",
+      hash(token),
+    );
     if (row === undefined) return null;
     const now = Date.now();
     if (now - (this.seen.get(row.id) ?? 0) > 60_000) {
@@ -76,7 +84,11 @@ export class Devices {
 
   list(currentId: string | null, pushDevices: ReadonlySet<string>): Device[] {
     return this.db
-      .all<Row>("select * from devices where revoked_at is null and name not in (?, ?) order by created_at", LOCAL_CLI, AGENTS)
+      .all<Row>(
+        "select * from devices where revoked_at is null and name not in (?, ?) order by created_at",
+        LOCAL_CLI,
+        AGENTS,
+      )
       .map((row) => ({
         id: row.id,
         name: row.name,
@@ -107,7 +119,13 @@ export class Devices {
   createLoginCode(name?: string): { code: string; expiresAt: number } {
     const code = randomBytes(18).toString("base64url");
     const expiresAt = Date.now() + LINK_TTL_MS;
-    this.db.run("insert into login_links (code_hash, name, created_at, expires_at) values (?, ?, ?, ?)", hash(code), name ?? null, Date.now(), expiresAt);
+    this.db.run(
+      "insert into login_links (code_hash, name, created_at, expires_at) values (?, ?, ?, ?)",
+      hash(code),
+      name ?? null,
+      Date.now(),
+      expiresAt,
+    );
     this.db.run("delete from login_links where expires_at < ?", Date.now() - 24 * 3600_000);
     log.info("auth.link.created", { expiresAt });
     return { code, expiresAt };
@@ -120,7 +138,9 @@ export class Devices {
       hash(code),
     );
     if (row === undefined || row.used_at !== null || row.expires_at < Date.now()) {
-      log.warn("auth.link.rejected", { reason: row === undefined ? "unknown" : row.used_at === null ? "expired" : "used" });
+      log.warn("auth.link.rejected", {
+        reason: row === undefined ? "unknown" : row.used_at === null ? "expired" : "used",
+      });
       return null;
     }
     this.db.run("update login_links set used_at = ? where code_hash = ?", Date.now(), hash(code));

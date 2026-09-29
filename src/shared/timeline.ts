@@ -87,16 +87,27 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
       const index = findRun(t.blocks, entry.runId);
       const base: RunBlock =
         index === -1
-          ? { kind: "run", runId: entry.runId, view: initialSessionView(), firstSeq: entry.seq, lastSeq: entry.seq }
+          ? {
+              kind: "run",
+              runId: entry.runId,
+              view: initialSessionView(),
+              firstSeq: entry.seq,
+              lastSeq: entry.seq,
+            }
           : (t.blocks[index] as RunBlock);
-      const run: RunBlock = { ...base, view: reduceSessionView(base.view, entry.record, entry.runId), lastSeq: entry.seq };
+      const run: RunBlock = {
+        ...base,
+        view: reduceSessionView(base.view, entry.record, entry.runId),
+        lastSeq: entry.seq,
+      };
       const blocks = index === -1 ? [...t.blocks, run] : replaceAt(t.blocks, index, run);
       let next: Timeline = { ...t, blocks };
       const { record } = entry;
       if (record.kind === "request" && record.direction === "toRuntime" && "inputId" in record.body) {
         const inputId = record.body.inputId;
         const input = inputId === undefined ? undefined : next.inputs.get(inputId);
-        if (input !== undefined && !input.delivered) next = replaceInput(next, input, { ...input, delivered: true });
+        if (input !== undefined && !input.delivered)
+          next = replaceInput(next, input, { ...input, delivered: true });
       }
       return next;
     }
@@ -111,7 +122,9 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
       return { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
     case "agent.updated":
       // Only a model change reads as part of the conversation; renames and archiving don't.
-      return entry.changes.model === undefined ? t : { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
+      return entry.changes.model === undefined
+        ? t
+        : { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
     case "agent.created":
       return t;
   }

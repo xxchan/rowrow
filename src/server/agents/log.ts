@@ -39,7 +39,10 @@ export class AgentLog {
   head(agentId: string): number {
     const cached = this.heads.get(agentId);
     if (cached !== undefined) return cached;
-    const row = this.db.get<{ seq: number | null }>("select max(seq) as seq from entries where agent_id = ?", agentId);
+    const row = this.db.get<{ seq: number | null }>(
+      "select max(seq) as seq from entries where agent_id = ?",
+      agentId,
+    );
     const head = row?.seq ?? -1;
     this.heads.set(agentId, head);
     return head;
@@ -110,7 +113,11 @@ export class AgentLog {
   /** The input entry with this id and its result, for idempotent sends. */
   findInput(agentId: string, inputId: string): { input?: Entry; result?: Entry } {
     const found: { input?: Entry; result?: Entry } = {};
-    for (const entry of this.rows("select body from entries where agent_id = ? and input_id = ? order by seq", agentId, inputId)) {
+    for (const entry of this.rows(
+      "select body from entries where agent_id = ? and input_id = ? order by seq",
+      agentId,
+      inputId,
+    )) {
       if (entry.kind === "input") found.input = entry;
       else if (entry.kind === "input.result") found.result = entry;
     }
@@ -122,7 +129,11 @@ export class AgentLog {
    * Returns the unsubscribe function.
    */
   follow(agentId: string, after: number, listener: Listener): () => void {
-    for (const entry of this.rows("select body from entries where agent_id = ? and seq > ? order by seq", agentId, after)) {
+    for (const entry of this.rows(
+      "select body from entries where agent_id = ? and seq > ? order by seq",
+      agentId,
+      after,
+    )) {
       listener(entry);
     }
     let set = this.listeners.get(agentId);

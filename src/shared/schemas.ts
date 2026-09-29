@@ -72,7 +72,10 @@ export const InputMode = z.enum(["auto", "queue", "interrupt"]);
 export const SendResult = z.object({
   inputId: z.string(),
   landed: z.enum(["prompted", "steered", "queued", "rejected", "failed"]),
-  code: z.string().optional().describe("Why it was rejected or failed, as one word (oar's rejection code or a rowrow code)."),
+  code: z
+    .string()
+    .optional()
+    .describe("Why it was rejected or failed, as one word (oar's rejection code or a rowrow code)."),
   reason: z.string().optional(),
   seq: z.number().describe("The log entry recording the input."),
 });
@@ -104,6 +107,10 @@ export type RuntimeInfo = z.infer<typeof RuntimeInfo>;
 export const ModelInfo = z.object({
   id: z.string().describe("What to pass as `model`."),
   name: z.string(),
+  effortLevels: z
+    .array(z.string())
+    .describe("What `effort` accepts with this model; empty when the runtime has no effort setting."),
+  defaultEffort: z.string().nullable(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
@@ -148,7 +155,16 @@ export type DiffScope = z.infer<typeof DiffScope>;
 export const ChangedFile = z.object({
   path: z.string(),
   oldPath: z.string().nullable(),
-  status: z.enum(["added", "modified", "deleted", "renamed", "copied", "untracked", "conflicted", "typechange"]),
+  status: z.enum([
+    "added",
+    "modified",
+    "deleted",
+    "renamed",
+    "copied",
+    "untracked",
+    "conflicted",
+    "typechange",
+  ]),
   additions: z.number().nullable().describe("null for binary files."),
   deletions: z.number().nullable(),
 });
@@ -156,7 +172,10 @@ export type ChangedFile = z.infer<typeof ChangedFile>;
 
 export const Changes = z.object({
   scope: DiffScope,
-  base: z.string().nullable().describe("What the changes are compared against: a commit, a snapshot, or null."),
+  base: z
+    .string()
+    .nullable()
+    .describe("What the changes are compared against: a commit, a snapshot, or null."),
   baseLabel: z.string().nullable(),
   files: z.array(ChangedFile),
   truncated: z.boolean(),

@@ -17,7 +17,10 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
     switch (block.kind) {
       case "input":
         if (!block.delivered) {
-          const state = block.result === undefined ? "pending" : `${block.result.landed}${block.result.reason === undefined ? "" : `: ${block.result.reason}`}`;
+          const state =
+            block.result === undefined
+              ? "pending"
+              : `${block.result.landed}${block.result.reason === undefined ? "" : `: ${block.result.reason}`}`;
           out.push(`> [${actorLabel(block.input.by)}, ${state}] ${block.input.text}`);
         }
         break;
@@ -38,7 +41,9 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         for (const message of block.view.messages) out.push(...renderMessage(message, timeline, toolChars));
         if (block.ended !== undefined) {
           const { reason, code, error } = block.ended;
-          out.push(`── run ended: ${reason}${code === undefined || code === null ? "" : ` (code ${code})`}${error === undefined ? "" : `: ${error}`} ──`);
+          out.push(
+            `── run ended: ${reason}${code === undefined || code === null ? "" : ` (code ${code})`}${error === undefined ? "" : `: ${error}`} ──`,
+          );
         }
         break;
       }
@@ -62,7 +67,8 @@ function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: numb
       const lines: string[] = [];
       for (const section of message.sections) {
         const indent = "  ".repeat(section.agentPath.length + 1);
-        if (section.agentPath.length > 0) lines.push(`${"  ".repeat(section.agentPath.length)}↳ ${section.agentPath.join(" / ")}`);
+        if (section.agentPath.length > 0)
+          lines.push(`${"  ".repeat(section.agentPath.length)}↳ ${section.agentPath.join(" / ")}`);
         for (const part of section.parts) lines.push(...renderPart(part, indent, toolChars));
       }
       const { outcome } = message;
@@ -85,11 +91,16 @@ function renderPart(part: ViewPart, indent: string, toolChars: number): string[]
     case "text":
       return part.text.split("\n").map((line) => `${indent}${line}`);
     case "reasoning":
-      return part.content.kind === "text" ? [`${indent}(thinking) ${clip(part.content.text.replaceAll("\n", " "), 200)}`] : [`${indent}(thinking)`];
+      return part.content.kind === "text"
+        ? [`${indent}(thinking) ${clip(part.content.text.replaceAll("\n", " "), 200)}`]
+        : [`${indent}(thinking)`];
     case "tool": {
       const mark = part.result === "running" ? "…" : part.result === "failed" ? "✗" : "⏺";
-      const lines = [`${indent}${mark} ${part.tool}${toolChars > 0 && part.input !== undefined ? `: ${clip(oneLine(part.input), toolChars)}` : ""}`];
-      if (toolChars > 0 && part.output !== undefined && part.output !== "") lines.push(`${indent}  ⎿ ${clip(oneLine(part.output), toolChars)}`);
+      const lines = [
+        `${indent}${mark} ${part.tool}${toolChars > 0 && part.input !== undefined ? `: ${clip(oneLine(part.input), toolChars)}` : ""}`,
+      ];
+      if (toolChars > 0 && part.output !== undefined && part.output !== "")
+        lines.push(`${indent}  ⎿ ${clip(oneLine(part.output), toolChars)}`);
       return lines;
     }
     case "notice":

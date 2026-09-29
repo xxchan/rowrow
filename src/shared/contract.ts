@@ -78,12 +78,21 @@ const state = {
 
 const workspaces = {
   add: oc
-    .route({ summary: "Register a directory (usually a git checkout) as a workspace. Returns the existing one if the path is already registered." })
+    .route({
+      summary:
+        "Register a directory (usually a git checkout) as a workspace. Returns the existing one if the path is already registered.",
+    })
     .input(z.object({ path: z.string().min(1), label: z.string().optional() }))
     .output(Workspace),
   update: oc
     .route({ summary: "Rename (label; null restores the derived name) or archive a workspace." })
-    .input(z.object({ id: workspaceId, label: z.string().nullable().optional(), archived: z.boolean().optional() }))
+    .input(
+      z.object({
+        id: workspaceId,
+        label: z.string().nullable().optional(),
+        archived: z.boolean().optional(),
+      }),
+    )
     .output(Workspace),
   refresh: oc
     .route({ summary: "Re-read a workspace's git facts (branch, upstream, changed files) now." })
@@ -114,7 +123,12 @@ const workspaces = {
         base: z.string().optional().describe("Commit-ish to branch from."),
       }),
     )
-    .output(z.object({ workspace: Workspace, hook: z.object({ ran: z.boolean(), ok: z.boolean(), output: z.string() }).nullable() })),
+    .output(
+      z.object({
+        workspace: Workspace,
+        hook: z.object({ ran: z.boolean(), ok: z.boolean(), output: z.string() }).nullable(),
+      }),
+    ),
   removeWorktree: oc
     .route({
       summary:
@@ -135,6 +149,12 @@ const agents = {
         workspaceId,
         runtime: z.string().describe("Runtime id: claude, codex, grok, kimi, pi (see runtimes.list)."),
         model: z.string().optional().describe("Runtime-native model id; the runtime's default when omitted."),
+        effort: z
+          .string()
+          .optional()
+          .describe(
+            "Reasoning effort, one of the model's effortLevels (runtimes.models); the runtime's default when omitted.",
+          ),
         title: z.string().max(200).optional(),
         input: z.object({ inputId: z.string().uuid(), text: z.string().min(1).max(200_000) }).optional(),
       }),
@@ -155,23 +175,29 @@ const agents = {
     )
     .output(SendResult),
   abort: oc
-    .route({ summary: "Interrupt the agent's running turn. The turn's outcome arrives in the log as the runtime reports it." })
+    .route({
+      summary:
+        "Interrupt the agent's running turn. The turn's outcome arrives in the log as the runtime reports it.",
+    })
     .input(z.object({ agentId }))
     .output(z.object({ accepted: z.boolean(), reason: z.string().optional() })),
   stop: oc
-    .route({ summary: "Stop the agent's live run (its process). The conversation stays; the next input resumes it." })
+    .route({
+      summary: "Stop the agent's live run (its process). The conversation stays; the next input resumes it.",
+    })
     .input(z.object({ agentId }))
     .output(ok),
   update: oc
     .route({
       summary:
-        "Rename an agent, change its model (the live run restarts on the new model, resuming the conversation), or archive it (stops its run).",
+        "Rename an agent, change its model or reasoning effort (the live run restarts with them, resuming the conversation), or archive it (stops its run).",
     })
     .input(
       z.object({
         agentId,
         title: z.string().max(200).nullable().optional(),
         model: z.string().nullable().optional(),
+        effort: z.string().nullable().optional(),
         archived: z.boolean().optional(),
       }),
     )
@@ -213,13 +239,24 @@ const agents = {
         agentId,
         until: z.array(z.enum(["blocked", "done", "working", "idle"])).optional(),
         afterSeq: z.number().int().optional().describe("Only count a state reached after this log position."),
-        timeoutMs: z.number().int().positive().max(24 * 3600_000).optional(),
+        timeoutMs: z
+          .number()
+          .int()
+          .positive()
+          .max(24 * 3600_000)
+          .optional(),
       }),
     )
     .output(z.object({ agent: AgentState, timedOut: z.boolean() })),
   view: oc
     .route({ summary: "The agent's transcript as plain text: the same fold the UI renders." })
-    .input(z.object({ agentId, turns: z.number().int().positive().optional(), toolChars: z.number().int().min(0).optional() }))
+    .input(
+      z.object({
+        agentId,
+        turns: z.number().int().positive().optional(),
+        toolChars: z.number().int().min(0).optional(),
+      }),
+    )
     .output(z.object({ text: z.string(), headSeq: z.number() })),
 };
 
@@ -252,7 +289,10 @@ const devices = {
   whoami: oc.route({ summary: "The device (credential) making this request." }).output(Device),
   list: oc.route({ summary: "Signed-in devices." }).output(z.array(Device)),
   pair: oc
-    .route({ summary: "A one-time sign-in link for another browser (show it as a QR code on your phone). Expires in 10 minutes." })
+    .route({
+      summary:
+        "A one-time sign-in link for another browser (show it as a QR code on your phone). Expires in 10 minutes.",
+    })
     .input(z.object({ name: z.string().max(100).optional() }))
     .output(LoginLink),
   rename: oc
@@ -276,7 +316,9 @@ const notify = {
     )
     .output(ok),
   unsubscribe: oc.route({ summary: "Stop Web Push for this device." }).output(ok),
-  test: oc.route({ summary: "Send a test notification to this device." }).output(z.object({ sent: z.number() })),
+  test: oc
+    .route({ summary: "Send a test notification to this device." })
+    .output(z.object({ sent: z.number() })),
 };
 
 const presence = {
