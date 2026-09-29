@@ -22,7 +22,7 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ComponentProps, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import type { AgentState, AppState, Workspace } from "../../shared/schemas.ts";
@@ -31,6 +31,7 @@ import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
 import { onAttention, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
+import { AgentContextMenu, AgentDialogs, WorkspaceContextMenu } from "./AgentActions.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
@@ -71,6 +72,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       <NewAgentDialog route={route} />
       <CommandMenu route={route} />
       <ShortcutsDialog />
+      <AgentDialogs />
       <Toaster position="top-center" />
     </div>
   );
@@ -148,23 +150,24 @@ function Nav({ route }: { route: Route }) {
     const dot = statusDot(agent);
     const ws = showWorkspace ? state.workspaces[agent.summary.workspaceId]?.label : undefined;
     return (
-      <NavRow
-        key={agent.id}
-        href={`/a/${agent.id}`}
-        selected={agent.id === selectedAgent}
-        indent={depth === null ? 8 : indent(depth)}
-      >
-        <AgentIcon
-          runtime={agent.summary.runtime}
-          label={state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}
-          className="size-3.5"
-        />
-        <span className="min-w-0 flex-1 truncate">
-          {title(agent)}
-          {ws !== undefined && <span className="text-muted-foreground"> · {ws}</span>}
-        </span>
-        <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
-      </NavRow>
+      <AgentContextMenu key={agent.id} agent={agent}>
+        <NavRow
+          href={`/a/${agent.id}`}
+          selected={agent.id === selectedAgent}
+          indent={depth === null ? 8 : indent(depth)}
+        >
+          <AgentIcon
+            runtime={agent.summary.runtime}
+            label={state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}
+            className="size-3.5"
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {title(agent)}
+            {ws !== undefined && <span className="text-muted-foreground"> · {ws}</span>}
+          </span>
+          <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
+        </NavRow>
+      </AgentContextMenu>
     );
   };
 
@@ -180,11 +183,13 @@ function Nav({ route }: { route: Route }) {
     const dot = worst === undefined || worst.attention === "idle" ? null : statusDot(worst);
     const Icon = ws.git === null ? Folder : ws.git.linked ? GitBranch : FolderGit2;
     const row = (
-      <NavRow href={`/w/${ws.id}`} selected={ws.id === selectedWorkspace} indent={indent(depth)}>
-        <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate">{ws.label}</span>
-        {dot !== null && <StatusDot tone={dot.tone} label={dot.label} />}
-      </NavRow>
+      <WorkspaceContextMenu workspace={ws}>
+        <NavRow href={`/w/${ws.id}`} selected={ws.id === selectedWorkspace} indent={indent(depth)}>
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{ws.label}</span>
+          {dot !== null && <StatusDot tone={dot.tone} label={dot.label} />}
+        </NavRow>
+      </WorkspaceContextMenu>
     );
     if (own.length === 0 && worktrees.length === 0) return <div key={ws.id}>{row}</div>;
     return (
@@ -310,7 +315,10 @@ function NavRow({
   selected,
   indent,
   children,
-}: {
+  className,
+  style,
+  ...props
+}: ComponentProps<typeof RouterLink> & {
   href: string;
   selected: boolean;
   /** Left padding in px: where the row's content starts. */
@@ -319,13 +327,15 @@ function NavRow({
 }) {
   return (
     <RouterLink
+      {...props}
       href={href}
       aria-current={selected ? "page" : undefined}
       className={cn(
         "flex h-9 items-center gap-2 rounded-md pr-2 text-[13px] hover:bg-sidebar-accent md:h-8",
         selected && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+        className,
       )}
-      style={{ paddingLeft: indent }}
+      style={{ ...style, paddingLeft: indent }}
     >
       {children}
     </RouterLink>

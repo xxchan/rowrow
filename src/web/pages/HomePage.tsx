@@ -12,6 +12,7 @@ import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { RouterLink, type Route } from "../lib/router.ts";
+import { AgentContextMenu } from "../components/AgentActions.tsx";
 import { useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { useNow } from "../lib/use-now.ts";
@@ -118,38 +119,40 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
       : (agent.summary.preview ?? "");
   return (
     <li>
-      <RouterLink
-        href={`/a/${agent.id}`}
-        className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
-      >
-        <span className="mt-0.5">
-          <AgentAvatar
-            runtime={agent.summary.runtime}
-            runtimeName={runtime}
-            tone={dot.tone}
-            label={dot.label}
-            pulsing={dot.pulsing}
-            ring="ring-card"
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm font-medium">{title(agent)}</span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {ago(agent.summary.lastActivityAt, now)}
-            </span>
+      <AgentContextMenu agent={agent}>
+        <RouterLink
+          href={`/a/${agent.id}`}
+          className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
+        >
+          <span className="mt-0.5">
+            <AgentAvatar
+              runtime={agent.summary.runtime}
+              runtimeName={runtime}
+              tone={dot.tone}
+              label={dot.label}
+              pulsing={dot.pulsing}
+              ring="ring-card"
+            />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">{title(agent)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {ago(agent.summary.lastActivityAt, now)}
+              </span>
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              <span className={dot.tone === "error" ? "text-destructive" : undefined}>{dot.label}</span>
+              {` · ${ws?.label ?? "?"}`}
+              {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
+              {` · ${runtime}`}
+            </div>
+            {detail !== "" && (
+              <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">{oneLine(detail)}</div>
+            )}
           </div>
-          <div className="truncate text-xs text-muted-foreground">
-            <span className={dot.tone === "error" ? "text-destructive" : undefined}>{dot.label}</span>
-            {` · ${ws?.label ?? "?"}`}
-            {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
-            {` · ${runtime}`}
-          </div>
-          {detail !== "" && (
-            <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">{oneLine(detail)}</div>
-          )}
-        </div>
-      </RouterLink>
+        </RouterLink>
+      </AgentContextMenu>
     </li>
   );
 }

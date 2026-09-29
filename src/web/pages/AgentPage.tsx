@@ -3,43 +3,21 @@
 // attention on every device (docs/decisions.md, D-008).
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  ArrowDown,
-  Archive,
-  ArchiveRestore,
-  ChevronsRight,
-  Cpu,
-  Ellipsis,
-  FileDiff,
-  FolderOpen,
-  LoaderCircle,
-  Pencil,
-  Power,
-} from "lucide-react";
+import { ArrowDown, ChevronsRight, Ellipsis, FileDiff, LoaderCircle } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { useStickToBottom } from "use-stick-to-bottom";
-import type { AgentState, AppState, ModelInfo } from "../../shared/schemas.ts";
+import type { AgentState, AppState } from "../../shared/schemas.ts";
+import { openAgentDialog, useAgentActions } from "../components/AgentActions.tsx";
+import { MenuActions } from "../components/MenuActions.tsx";
 import { needsYou } from "../components/CommandMenu.tsx";
 import { Composer } from "../components/Composer.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -53,7 +31,7 @@ import { SelectionComment } from "../components/SelectionComment.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
-import { defaultNote, statusDot, title } from "../lib/format.ts";
+import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
@@ -88,8 +66,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const ws = state.workspaces[summary.workspaceId];
   const dot = statusDot(agent, now);
   const head = transcript.timeline.headSeq;
-  const [renaming, setRenaming] = useState(false);
-  const [switching, setSwitching] = useState(false);
+  const actions = useAgentActions(agent, { here: true });
   // The next agent that needs you, one tap away (⌘J on a keyboard).
   const waiting = needsYou(state).filter((a) => a.id !== agent.id);
   const nextUp = waiting[0];
@@ -121,15 +98,6 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   };
   const changed = ws?.git?.changed ?? 0;
 
-  const act = async (label: string, run: () => Promise<unknown>): Promise<void> => {
-    try {
-      await run();
-    } catch (error) {
-      toast.error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
-      report("warn", "agent.action_failed", error, { action: label, agentId: agent.id });
-    }
-  };
-
   // Who and where; what it runs on (model, effort, context) sits by the composer.
   const runtime = state.runtimes[summary.runtime]?.name ?? summary.runtime;
   const branch = ws?.git?.branch;
@@ -140,7 +108,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
       : `${ws.label}${branch === null || branch === undefined || branch === ws.label ? "" : ` (${branch})`}`,
   ].filter((fact): fact is string => fact !== null);
 
-  const chat = <Chat agent={agent} onSwitchModel={() => setSwitching(true)} />;
+  const chat = <Chat agent={agent} onSwitchModel={() => openAgentDialog("model", agent.id)} />;
   return (
     <>
       <PageHeader
@@ -195,40 +163,11 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
                   <Ellipsis />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                {ws !== undefined && (
-                  <DropdownMenuItem onSelect={() => navigate(`/w/${ws.id}`)}>
-                    <FolderOpen /> Open workspace {ws.label}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onSelect={() => setRenaming(true)}>
-                  <Pencil /> Rename
-                </DropdownMenuItem>
-                {!summary.archived && (
-                  <DropdownMenuItem onSelect={() => setSwitching(true)}>
-                    <Cpu /> Model and effort…
-                  </DropdownMenuItem>
-                )}
-                {summary.run !== null && client !== null && (
-                  <DropdownMenuItem
-                    onSelect={() => void act("Stop", () => client.agents.stop({ agentId: agent.id }))}
-                  >
-                    <Power /> Stop the agent process
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuSeparator />
-                {client !== null && (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      void act(summary.archived ? "Unarchive" : "Archive", () =>
-                        client.agents.update({ agentId: agent.id, archived: !summary.archived }),
-                      )
-                    }
-                  >
-                    {summary.archived ? <ArchiveRestore /> : <Archive />}
-                    {summary.archived ? "Unarchive" : "Archive"}
-                  </DropdownMenuItem>
-                )}
+              <DropdownMenuContent align="end" className="w-60">
+                <MenuActions
+                  actions={actions}
+                  parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
           </>
@@ -281,32 +220,6 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
           </SheetContent>
         </Sheet>
       )}
-      {switching && (
-        <ModelDialog
-          agent={agent}
-          runtimeName={runtime}
-          onClose={() => setSwitching(false)}
-          onApply={(chosenModel, chosenEffort) =>
-            client === null
-              ? undefined
-              : void act("Switch model", () =>
-                  client.agents.update({ agentId: agent.id, model: chosenModel, effort: chosenEffort }),
-                )
-          }
-        />
-      )}
-      <RenameDialog
-        open={renaming}
-        onOpenChange={setRenaming}
-        current={summary.title ?? ""}
-        onRename={(next) =>
-          client === null
-            ? undefined
-            : void act("Rename", () =>
-                client.agents.update({ agentId: agent.id, title: next === "" ? null : next }),
-              )
-        }
-      />
     </>
   );
 }
@@ -397,181 +310,5 @@ function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () =
       <Composer agent={agent} onSwitchModel={onSwitchModel} />
       <SelectionComment container={chatRef} workspaceId={agent.summary.workspaceId} agentId={agent.id} />
     </div>
-  );
-}
-
-function RenameDialog({
-  open,
-  onOpenChange,
-  current,
-  onRename,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  current: string;
-  onRename: (title: string) => void;
-}) {
-  const [value, setValue] = useState(current);
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) setValue(current);
-        onOpenChange(next);
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
-        <form
-          className="contents"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onRename(value.trim());
-            onOpenChange(false);
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Rename agent</DialogTitle>
-            <DialogDescription>Leave it empty to name it after its first message.</DialogDescription>
-          </DialogHeader>
-          <Input
-            aria-label="Title"
-            value={value}
-            autoFocus
-            onChange={(event) => setValue(event.currentTarget.value)}
-          />
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit">Rename</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/** Radix Select items can't have an empty value; this one means "the runtime's default". */
-const DEFAULT = "__default";
-
-/** Switch the agent's model or effort: its run restarts with them and the conversation carries on. */
-function ModelDialog({
-  agent,
-  runtimeName,
-  onClose,
-  onApply,
-}: {
-  agent: AgentState;
-  runtimeName: string;
-  onClose: () => void;
-  onApply: (model: string | null, effort: string | null) => void;
-}) {
-  const client = useClient();
-  const { summary } = agent;
-  const [models, setModels] = useState<{ list: ModelInfo[]; error: string | null } | null>(null);
-  const [model, setModel] = useState(summary.model ?? DEFAULT);
-  const [effort, setEffort] = useState(summary.effort ?? DEFAULT);
-
-  useEffect(() => {
-    if (client === null) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await client.runtimes.models({ runtime: summary.runtime });
-        if (!cancelled) setModels({ list: result.models, error: result.error });
-      } catch (error) {
-        if (!cancelled)
-          setModels({ list: [], error: error instanceof Error ? error.message : String(error) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [client, summary.runtime]);
-
-  const efforts = models?.list.find((m) => m.id === model)?.effortLevels ?? [];
-  const current = summary.reportedModel ?? summary.model ?? "the default model";
-  return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Model and effort</DialogTitle>
-          <DialogDescription>{`${runtimeName}, now on ${current}. The next message continues the conversation with what you pick.`}</DialogDescription>
-        </DialogHeader>
-        <div className="flex gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <Label htmlFor="switch-model">Model</Label>
-            <Select
-              value={model}
-              onValueChange={(value) => {
-                setModel(value);
-                setEffort(DEFAULT);
-              }}
-            >
-              <SelectTrigger id="switch-model" className="w-full">
-                {models === null ? (
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <LoaderCircle className="animate-spin" /> Loading models
-                  </span>
-                ) : (
-                  <SelectValue />
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={DEFAULT}>Default</SelectItem>
-                {summary.model !== null && !(models?.list ?? []).some((m) => m.id === summary.model) && (
-                  <SelectItem value={summary.model}>{summary.model}</SelectItem>
-                )}
-                {(models?.list ?? []).map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {efforts.length > 0 && (
-            <div className="flex w-36 flex-col gap-1.5">
-              <Label htmlFor="switch-effort">Effort</Label>
-              <Select value={effort} onValueChange={setEffort}>
-                <SelectTrigger id="switch-effort" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={DEFAULT}>Default</SelectItem>
-                  {efforts.map((level) => (
-                    <SelectItem key={level} value={level}>
-                      {level}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
-        {(model === DEFAULT || effort === DEFAULT) && (
-          <p className="text-xs text-muted-foreground">Default: {defaultNote(runtimeName)}.</p>
-        )}
-        {models?.error !== null && models?.error !== undefined && (
-          <p className="text-xs text-muted-foreground">Models: {models.error}</p>
-        )}
-        {agent.attention === "working" && (
-          <p className="text-xs text-warning">It's in the middle of a turn: switching stops that turn.</p>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              onApply(model === DEFAULT ? null : model, effort === DEFAULT ? null : effort);
-              onClose();
-            }}
-          >
-            Switch
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

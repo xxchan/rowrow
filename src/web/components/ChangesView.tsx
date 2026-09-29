@@ -41,6 +41,7 @@ import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ErrorText } from "./ErrorText.tsx";
 import { FileDiffRow } from "./FileDiffRow.tsx";
+import { MenuActions, type MenuAction } from "./MenuActions.tsx";
 
 const SCOPE_KEY = "rowrow.changesScope";
 
@@ -368,6 +369,17 @@ function ChangedFileRow({
     });
   }, [client, workspaceId, scope, file.path, agentId]);
   const actions = onAction === undefined || file.stamp === undefined ? [] : actionsFor(file);
+  const menu: MenuAction[] = actions.map((action) => ({
+    label:
+      action === "discardUnstaged"
+        ? "Discard unstaged changes…"
+        : action === "deleteUntracked"
+          ? "Delete file…"
+          : ACTION_LABEL[action],
+    icon: null,
+    destructive: action === "discardUnstaged" || action === "deleteUntracked",
+    run: () => onAction?.(action),
+  }));
   const staged =
     file.staged === true ? (
       <span className="shrink-0 rounded bg-success/15 px-1 text-[10px] font-medium text-success">
@@ -385,6 +397,7 @@ function ChangedFileRow({
       }
       onRemove={(id) => removeAnnotations(new Set([id]))}
       badge={staged}
+      menu={menu}
       actions={
         actions.length === 0 || onAction === undefined ? undefined : (
           <DropdownMenu>
@@ -399,21 +412,10 @@ function ChangedFileRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {actions.map((action) => (
-                <DropdownMenuItem
-                  key={action}
-                  variant={
-                    action === "discardUnstaged" || action === "deleteUntracked" ? "destructive" : "default"
-                  }
-                  onSelect={() => onAction(action)}
-                >
-                  {action === "discardUnstaged"
-                    ? "Discard unstaged changes…"
-                    : action === "deleteUntracked"
-                      ? "Delete file…"
-                      : ACTION_LABEL[action]}
-                </DropdownMenuItem>
-              ))}
+              <MenuActions
+                actions={menu}
+                parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         )

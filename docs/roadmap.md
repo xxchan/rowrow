@@ -19,6 +19,9 @@ file when something lands.
   workspace; and **agent icons** (each runtime's mark, with its state on the corner).
 
 - **Keyboard shortcuts sheet**: `?` anywhere, or the keyboard button beside Settings.
+- **Right-click menus** (long press on touch): an agent's actions on its rows in the nav and
+  on Home (the same list as its ⋯ menu), a workspace's (new agent here, copy path), and a
+  changed file's (copy path, stage, discard).
 
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.

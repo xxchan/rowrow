@@ -76,6 +76,38 @@ test("a long menu in the new-agent dialog scrolls", async ({ page, rowrow }) => 
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 });
 
+test("right-click an agent or a workspace for what you can do to it", async ({
+  page,
+  context,
+  rowrow,
+}, info) => {
+  test.skip(info.project.name === "phone", "a right-click; a long press opens the same menu");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: rowrow.url });
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.client.agents.create({ workspaceId: ws.id, runtime: "scripted", title: "old name" });
+  await rowrow.open(page);
+  const main = page.getByRole("main");
+
+  await main.getByRole("link", { name: /old name/ }).click({ button: "right" });
+  await page
+    .getByRole("menu", { name: "Actions for old name" })
+    .getByRole("menuitem", { name: "Rename…" })
+    .click();
+  const rename = page.getByRole("dialog", { name: "Rename agent" });
+  await rename.getByLabel("Title").fill("new name");
+  await rename.getByRole("button", { name: "Rename" }).click();
+  await expect(main.getByRole("link", { name: /new name/ })).toBeVisible();
+
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  await nav.getByRole("link", { name: ws.label, exact: true }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Copy path" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(ws.path);
+
+  await main.getByRole("link", { name: /new name/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Archive" }).click();
+  await expect(main.getByRole("link", { name: /new name/ })).toBeHidden();
+});
+
 test("⌘K: say what a new agent should do, and it starts", async ({ page, rowrow }, info) => {
   test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
   await rowrow.client.workspaces.add({ path: rowrow.repo() });
@@ -187,6 +219,14 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   await inspector.getByRole("button", { name: "Actions for notes.txt" }).click();
   await page.getByRole("menuitem", { name: "Stage" }).click();
   await expect(inspector.getByText("staged", { exact: true })).toBeVisible();
+  // Right-click the row for the same actions.
+  if (info.project.name !== "phone") {
+    await inspector.getByRole("button", { name: /^\S notes\.txt/ }).click({ button: "right" });
+    const menu = page.getByRole("menu", { name: "Actions for notes.txt" });
+    await expect(menu.getByRole("menuitem", { name: "Copy path" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "Unstage" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  }
 
   // Find a line, open it.
   await inspector.getByRole("tab", { name: "Files" }).click();
