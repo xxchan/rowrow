@@ -284,7 +284,8 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
   const [sub = "", ref = "", ...rest] = args;
   if (sub === "new") {
     const { state } = await client.state.get();
-    const ws = resolveWorkspace(state, ref);
+    // A workspace by id or label, or any directory path (registered on the fly).
+    const ws = findWorkspace(state, ref) ?? (await client.workspaces.add({ path: path.resolve(ref) }));
     const text = rest.join(" ");
     const { agent, sent } = await client.agents.create({
       workspaceId: ws.id,
@@ -410,19 +411,17 @@ function resolveAgent(state: AppState, ref: string): AgentState {
   );
 }
 
-function resolveWorkspace(state: AppState, ref: string): { id: string } {
-  const list = Object.values(state.workspaces);
-  if (ref === "") throw new Error("which workspace? (an id, label, or path; rowrow ws lists them)");
+function findWorkspace(state: AppState, ref: string): { id: string } | null {
+  if (ref === "") throw new Error("which workspace? (an id, a label, or a path)");
   const exact = state.workspaces[ref];
   if (exact !== undefined) return exact;
   const full = path.resolve(ref);
-  const matches = list.filter((w) => w.path === full || w.label === ref || w.id.startsWith(ref));
-  if (matches.length === 1 && matches[0] !== undefined) return matches[0];
-  throw new Error(
-    matches.length === 0
-      ? `no workspace matches "${ref}" (add it: rowrow ws add ${ref})`
-      : `"${ref}" matches several workspaces`,
+  const matches = Object.values(state.workspaces).filter(
+    (w) => w.path === full || w.label === ref || w.id.startsWith(ref),
   );
+  if (matches.length > 1)
+    throw new Error(`"${ref}" matches several workspaces: ${matches.map((w) => w.id).join(", ")}`);
+  return matches[0] ?? null;
 }
 
 function byAttention(a: AgentState, b: AgentState): number {

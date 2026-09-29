@@ -183,7 +183,7 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
                     resizable={panel.props}
                     label="Resize the changes panel"
                   />
-                  <LayoutPanel width={panel.size} padding={3} label="Changes">
+                  <LayoutPanel width={panel.size} padding={3} label="Changes" role="region">
                     <ChangesView workspaceId={ws.id} />
                   </LayoutPanel>
                 </>

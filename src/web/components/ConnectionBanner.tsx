@@ -2,7 +2,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { useNow } from "../lib/use-now.ts";
 import { connection } from "../lib/connection.ts";
-import { ago } from "../lib/format.ts";
+import { duration } from "../lib/format.ts";
 import { useConnection } from "../lib/store.ts";
 
 /** Says so when the server is out of reach; everything shown is then as of that moment. */
@@ -15,8 +15,8 @@ export function ConnectionBanner() {
     <Banner
       status="warning"
       container="section"
-      title={`Can't reach the rowrow server (since ${ago(status.since, now)} ago)`}
-      description={`What you see may be out of date. Retrying ${retryIn > 0 ? `in ${retryIn}s` : "now"}.`}
+      title="Can't reach the rowrow server"
+      description={`Offline for ${duration(now - status.since)}; what you see may be out of date. Retrying ${retryIn > 0 ? `in ${retryIn}s` : "now"}.`}
       endContent={
         <Button label="Retry now" size="sm" variant="secondary" onClick={() => connection.retryNow()} />
       }

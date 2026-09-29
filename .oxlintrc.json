@@ -34,7 +34,7 @@
     "import/no-unassigned-import": [
       "error",
       {
-        "allow": ["**/*.css"]
+        "allow": ["**/*.css", "../src/cli/main.ts"]
       }
     ]
   },
