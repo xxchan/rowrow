@@ -78,6 +78,39 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
   await expect(panel.getByText("export const hello = 1;")).toBeVisible();
 });
 
+test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "writes notes",
+    input: { inputId: randomUUID(), text: "/echo The cache is flushed hourly." },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+
+  // Your own message isn't something to review.
+  const mine = page.locator('[data-author="you"]').getByText("/echo The cache is flushed hourly.");
+  await mine.selectText();
+  await mine.dispatchEvent("mouseup");
+  await expect(page.getByRole("button", { name: "Comment" })).toHaveCount(0);
+
+  const reply = page.locator('[data-author="agent"]').getByText("The cache is flushed hourly.");
+  await reply.selectText();
+  await reply.dispatchEvent("mouseup");
+  await page.getByRole("button", { name: "Comment" }).click();
+  await page.getByRole("textbox", { name: "Comment" }).fill("Say which cache.");
+  await page.getByRole("button", { name: "Comment" }).click();
+
+  await page.getByRole("button", { name: /review comment/ }).click();
+  await page.getByRole("button", { name: "Add to message" }).click();
+  const composer = page.getByRole("textbox", { name: "Message input" });
+  await expect(composer).toContainText("About what you wrote:");
+  await expect(composer).toContainText("> The cache is flushed hourly.");
+  await expect(composer).toContainText("Say which cache.");
+  await expect(page.getByRole("button", { name: /review comment/ })).toHaveCount(0);
+});
+
 test("⌘K jumps to an agent by name; ⌘J goes to the next one that needs you", async ({
   page,
   rowrow,

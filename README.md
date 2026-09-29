@@ -31,7 +31,8 @@ first-class client.
 - **See what they changed, and answer in place.** The *last turn* diff shows exactly what
   an agent's latest turn changed (snapshots at its start and end, stored outside your
   repository), apart from your own work; uncommitted and whole-branch scopes too. Comment
-  on diff lines and the comments become one review message in the agent's composer.
+  on diff lines, or select a passage the agent wrote and comment on that: your comments
+  become one review message in the agent's composer.
 - **Hand them anything.** Paste or drop a screenshot or a log; it's uploaded to the
   machine and mentioned by path.
 - **Parallel work in worktrees.** One click makes a git worktree on a fresh branch from
@@ -111,7 +112,6 @@ web app is React with Meta's [Astryx](https://astryx.atmeta.com) design system.
 
 Early and moving fast: no compatibility promises before 1.0. Agents currently run without
 approval prompts (as with oar's defaults), so give them repositories you'd give a
-colleague, ideally in worktrees. Approvals from your phone are next, together with review
-annotations sent back to the agent.
+colleague, ideally in worktrees. Approvals from your phone are next.
 
 Apache-2.0

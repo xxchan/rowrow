@@ -15,12 +15,13 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileDiff } from "lucide-react";
 import { useNarrow } from "../lib/use-narrow.ts";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ChangesView } from "../components/ChangesView.tsx";
 import { Composer } from "../components/Composer.tsx";
+import { SelectionComment } from "../components/SelectionComment.tsx";
 import { Transcript } from "../components/Transcript.tsx";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
@@ -60,6 +61,7 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
   }, [client, looking, head, agent.id, agent.seenSeq, transcript.loading]);
 
   const narrow = useNarrow();
+  const chatRef = useRef<HTMLDivElement>(null);
   const [showChanges, setShowChanges] = useState(() => localStorage.getItem(CHANGES_KEY) === "1");
   const toggleChanges = (): void => {
     setShowChanges((open) => {
@@ -192,29 +194,32 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
           : {})}
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            <ChatLayout composer={<Composer agent={agent} />} xstyle={styles.chat}>
-              <ChatMessageList
-                isStreaming={summary.status.kind === "running"}
-                {...(transcript.hasMore && client !== null
-                  ? { scrollToTopAction: () => loadOlder(client, agent.id) }
-                  : {})}
-                emptyState={
-                  transcript.loading ? (
-                    <Spinner label="Loading the conversation" />
-                  ) : (
-                    <EmptyState
-                      title="Nothing yet"
-                      description="Write the first message below. The agent starts working in its workspace when it arrives."
-                      isCompact
-                    />
-                  )
-                }
-              >
-                {transcript.timeline.blocks.length === 0 ? null : (
-                  <Transcript timeline={transcript.timeline} runtime={summary.runtime} />
-                )}
-              </ChatMessageList>
-            </ChatLayout>
+            <div ref={chatRef} {...stylex.props(styles.chat)}>
+              <ChatLayout composer={<Composer agent={agent} />} xstyle={styles.chat}>
+                <ChatMessageList
+                  isStreaming={summary.status.kind === "running"}
+                  {...(transcript.hasMore && client !== null
+                    ? { scrollToTopAction: () => loadOlder(client, agent.id) }
+                    : {})}
+                  emptyState={
+                    transcript.loading ? (
+                      <Spinner label="Loading the conversation" />
+                    ) : (
+                      <EmptyState
+                        title="Nothing yet"
+                        description="Write the first message below. The agent starts working in its workspace when it arrives."
+                        isCompact
+                      />
+                    )
+                  }
+                >
+                  {transcript.timeline.blocks.length === 0 ? null : (
+                    <Transcript timeline={transcript.timeline} runtime={summary.runtime} />
+                  )}
+                </ChatMessageList>
+              </ChatLayout>
+              <SelectionComment container={chatRef} workspaceId={summary.workspaceId} agentId={agent.id} />
+            </div>
           </LayoutContent>
         }
       />

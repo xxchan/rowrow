@@ -14,10 +14,12 @@ import type { AgentState, SendResult } from "../../shared/schemas.ts";
 import type { InputMode } from "../../shared/entries.ts";
 import { setDraft, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
+import { ReviewDrawer } from "./ReviewDrawer.tsx";
 
 const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
 export function Composer({ agent }: { agent: AgentState }) {
+  const workspaceId = agent.summary.workspaceId;
   const client = useClient();
   const draft = useDrafts((s) => s.byAgent[agent.id] ?? "");
   const pendingId = useRef<{ text: string; inputId: string } | null>(null);
@@ -126,6 +128,7 @@ export function Composer({ agent }: { agent: AgentState }) {
           <Button label="Queue" size="sm" variant="ghost" onClick={() => void send(draft, "queue")} />
         ) : undefined
       }
+      drawer={<ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />}
       headerActions={
         <>
           <Button

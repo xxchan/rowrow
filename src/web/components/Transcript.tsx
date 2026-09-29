@@ -142,7 +142,7 @@ const Message = memo(function Message({
       return <ChatSystemMessage>{noticeText(message.notice)}</ChatSystemMessage>;
     case "turn":
       return (
-        <ChatMessage sender="assistant">
+        <ChatMessage sender="assistant" data-author="agent">
           {message.sections.map((section, index) => (
             <Section
               key={index}
@@ -190,7 +190,7 @@ function UserMessage({
     .filter((part) => part !== null)
     .join(" · ");
   return (
-    <ChatMessage sender="user">
+    <ChatMessage sender="user" data-author="you">
       <ChatMessageBubble
         metadata={
           <ChatMessageMetadata
