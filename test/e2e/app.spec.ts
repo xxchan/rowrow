@@ -232,20 +232,24 @@ test("the service worker shows what the server pushes", async ({ page, context, 
   });
   await cdp.send("ServiceWorker.enable");
   const message = { title: "Fix the flaky test", body: "Done · acme", url: "/a/ag_x", tag: "ag_x" };
-  await cdp.send("ServiceWorker.deliverPushMessage", {
-    origin: rowrow.url,
-    registrationId: await registrationId,
-    data: JSON.stringify(message),
-  });
-  // Starting a stopped worker can take a while on a loaded machine.
+  const id = await registrationId;
+  // A push that reaches a worker that isn't running yet can be dropped (seen on CI), so deliver
+  // until it shows; the tag makes a repeat replace the notification, not add another.
   await expect
     .poll(
-      async () =>
-        page.evaluate(async () => {
+      async () => {
+        await cdp.send("ServiceWorker.deliverPushMessage", {
+          origin: rowrow.url,
+          registrationId: id,
+          data: JSON.stringify(message),
+        });
+        await page.waitForTimeout(500);
+        return page.evaluate(async () => {
           const registration = await navigator.serviceWorker.ready;
           return (await registration.getNotifications()).map((n) => [n.title, n.body, n.tag]);
-        }),
-      { timeout: 15_000 },
+        });
+      },
+      { timeout: 20_000, intervals: [500] },
     )
     .toEqual([[message.title, message.body, message.tag]]);
 });
