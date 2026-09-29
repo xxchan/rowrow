@@ -1,5 +1,6 @@
 // Starting an agent from the browser: the remembered setup (D-023) and the calls that start
 // one. The new-agent dialog, the home page's composer and the command menu all come here.
+import type { Attachment } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { Client } from "./connection.ts";
 import {
@@ -46,8 +47,9 @@ export interface StartRequest extends AgentSetup {
   readonly runtime: string;
   /** For a new worktree; empty picks a name. */
   readonly branch: string;
-  /** The first message; empty starts it without one. */
+  /** The first message; empty (with no attachments) starts it without one. */
   readonly text: string;
+  readonly attachments?: readonly Attachment[];
 }
 
 /** Start an agent (in a new worktree first, when asked) and remember its setup. Returns its id. */
@@ -67,7 +69,17 @@ export async function startAgent(client: Client, request: StartRequest): Promise
     runtime: request.runtime,
     ...(request.model === null ? {} : { model: request.model }),
     ...(request.effort === null ? {} : { effort: request.effort }),
-    ...(request.text === "" ? {} : { input: { inputId: newInputId(), text: request.text } }),
+    ...(request.text === "" && (request.attachments?.length ?? 0) === 0
+      ? {}
+      : {
+          input: {
+            inputId: newInputId(),
+            text: request.text,
+            ...(request.attachments === undefined || request.attachments.length === 0
+              ? {}
+              : { attachments: [...request.attachments] }),
+          },
+        }),
   });
   if (sent !== null && (sent.landed === "failed" || sent.landed === "rejected"))
     report("warn", "agent.first_input_not_delivered", undefined, {

@@ -19,19 +19,29 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Check, Cpu, Folder, FolderGit2, GitBranch, LoaderCircle, Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
+import { Check, Cpu, Folder, FolderGit2, GitBranch, LoaderCircle, Paperclip, Plus } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
 import { create } from "zustand";
 import type { ModelInfo } from "../../shared/schemas.ts";
+import { attachFiles, clearFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
 import { defaultNote, versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup, type NewAgentContext } from "../lib/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
-import { useApp, useClient } from "../lib/store.ts";
+import { useApp, useClient, usePendingAttachments } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { AddWorkspace } from "./AddWorkspace.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
+import { ComposerAttachments } from "./Attachments.tsx";
 import { ErrorText } from "./ErrorText.tsx";
 
 /** On a touch screen Return is a newline, as in the composer. */
@@ -147,6 +157,29 @@ export function NewAgentForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prompt = useRef<HTMLTextAreaElement>(null);
+  // The first message's files: the dialog and the home page's form each keep their own.
+  const filesKey = `new-agent:${variant}`;
+  const attached = usePendingAttachments(filesKey);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const attach = (files: readonly File[]): void => {
+    if (client === null || files.length === 0) return;
+    setError(null);
+    attachFiles(client, filesKey, files);
+    prompt.current?.focus();
+  };
+  const onDrop = (event: DragEvent): void => {
+    setDragging(false);
+    const files = filesOf(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    attach(files);
+  };
+  const onDragOver = (event: DragEvent): void => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    setDragging(true);
+  };
 
   const selected = workspaces.find((w) => w.id === workspaceId);
   const canIsolate = selected?.git !== null && selected?.git !== undefined;
@@ -194,7 +227,12 @@ export function NewAgentForm({
   const submit = async (forceIsolate: boolean): Promise<void> => {
     if (client === null || workspaceId === null || runtime === null || busy) return;
     const text = draft.trim();
-    if (variant === "inline" && text === "") return;
+    if (variant === "inline" && text === "" && attached.length === 0) return;
+    const ready = readyFiles(filesKey);
+    if ("problem" in ready) {
+      setError(ready.problem);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -206,7 +244,9 @@ export function NewAgentForm({
         isolate: canIsolate && (isolate || forceIsolate),
         branch: branch.trim(),
         text,
+        attachments: ready.attachments,
       });
+      clearFiles(filesKey);
       onDone(true);
       navigate(`/a/${id}`);
     } catch (err) {
@@ -261,7 +301,9 @@ export function NewAgentForm({
   });
   const inline = variant === "inline";
   const promptLabel = inline ? "What should a new agent do?" : "First message";
-  const disabled = busy || workspaceId === null || runtime === null || (inline && draft.trim() === "");
+  const empty = draft.trim() === "" && attached.length === 0;
+  const uploading = attached.some((file) => file.state === "uploading");
+  const disabled = busy || uploading || workspaceId === null || runtime === null || (inline && empty);
 
   const chips = (
     <div className={cn("flex flex-wrap items-center gap-1.5", inline ? "px-3 pb-3" : "px-4 pb-3")}>
@@ -421,6 +463,26 @@ export function NewAgentForm({
         </Popover>
       )}
 
+      <Chip
+        aria-label="Attach files"
+        title="Attach files (or paste, or drop)"
+        className="text-muted-foreground"
+        onClick={() => fileInput.current?.click()}
+      >
+        <Paperclip />
+        {inline ? null : <span className="max-md:sr-only">Attach</span>}
+      </Chip>
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          const picked = [...(event.currentTarget.files ?? [])];
+          event.currentTarget.value = "";
+          attach(picked);
+        }}
+      />
       {canIsolate && (
         <Chip
           aria-pressed={isolated}
@@ -462,6 +524,12 @@ export function NewAgentForm({
         autoFocus={!inline}
         value={draft}
         onChange={(event) => onDraft(event.currentTarget.value)}
+        onPaste={(event) => {
+          const files = filesOf(event.clipboardData);
+          if (files.length === 0) return;
+          event.preventDefault();
+          attach(files);
+        }}
         placeholder={inline ? promptLabel : "What should it do? (optional: you can also write to it later)"}
         className={cn(
           "resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent",
@@ -489,13 +557,20 @@ export function NewAgentForm({
     return (
       <form
         aria-label="Start an agent"
-        className="rounded-lg border bg-card transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:ring-[3px] focus-within:ring-ring/15"
+        className={cn(
+          "rounded-lg border bg-card transition-[border-color,box-shadow] focus-within:border-ring/60 focus-within:ring-[3px] focus-within:ring-ring/15",
+          dragging && "border-primary bg-primary/5",
+        )}
         onKeyDown={onKeyDown}
+        onDragOver={onDragOver}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
         onSubmit={(event) => {
           event.preventDefault();
           void submit(false);
         }}
       >
+        <ComposerAttachments items={attached} onRemove={(id) => detachFile(filesKey, id)} />
         {textarea}
         <div className="flex items-start">
           <div className="min-w-0 flex-1">{chips}</div>
@@ -511,8 +586,11 @@ export function NewAgentForm({
 
   return (
     <form
-      className="flex min-w-0 flex-col"
+      className={cn("flex min-w-0 flex-col", dragging && "bg-primary/5")}
       onKeyDown={onKeyDown}
+      onDragOver={onDragOver}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
       onSubmit={(event) => {
         event.preventDefault();
         void submit(false);
@@ -526,6 +604,9 @@ export function NewAgentForm({
             : `In ${selected.path}${isolated ? ", on a new worktree" : ""}, on this machine.`}
         </DialogDescription>
       </DialogHeader>
+      <div className="[&>[role=group]]:px-4">
+        <ComposerAttachments items={attached} onRemove={(id) => detachFile(filesKey, id)} />
+      </div>
       {textarea}
       {chips}
       {branchInput}
@@ -549,7 +630,7 @@ export function NewAgentForm({
           </Button>
           <Button type="submit" disabled={disabled}>
             {busy && <LoaderCircle className="animate-spin" />}
-            {draft.trim() === "" ? "Create" : "Create and send"}
+            {empty ? "Create" : "Create and send"}
           </Button>
         </div>
       </div>

@@ -203,7 +203,9 @@ message says what to do next.
 - **Review.** Comments on diff lines collect per workspace in the browser and compile into
   one "Review feedback" message that fills the agent's composer; you send it.
 - **Files.** Pasted, dropped or picked files are uploaded to the profile's `uploads/`
-  (kept a week) and mentioned by absolute path, which every runtime can read.
+  (kept a week) and wait as tiles above the composer. A message carries them as
+  attachments: the runtime reads their absolute paths listed before your text, and images
+  also as its own image input when it takes images (D-024).
 - **Inspector.** A workspace can also be looked into and tidied up through the API (and
   `rowrow ws log|show|search|read|pr`; the web UI for it is still to come):
   - *File actions* stage, unstage, discard unstaged edits, delete untracked files or mark a

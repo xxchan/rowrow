@@ -189,7 +189,9 @@ export class AgentService {
     if (agent.summary.title === null && agent.summary.inputs === 0) {
       this.deps.log.append(agentId, {
         kind: "agent.updated",
-        changes: { title: titleFrom(input.text) },
+        changes: {
+          title: titleFrom(input.text.trim() === "" ? (input.attachments?.[0]?.name ?? "") : input.text),
+        },
         by: { kind: "system" },
       });
     }

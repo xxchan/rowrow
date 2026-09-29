@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { contract } from "../shared/contract.ts";
-import type { Entry } from "../shared/entries.ts";
+import type { Attachment, Entry } from "../shared/entries.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
 import type { AgentState, AppState, LogEntry } from "../shared/schemas.ts";
@@ -32,8 +32,8 @@ Service (keeps the server running: starts at login, restarts after a crash)
 
 Agents
   rowrow agents [--all]            list agents, the ones that need you first
-  rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--wait]
-  rowrow agent send <agent> <text…> [--queue | --interrupt] [--wait]
+  rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
+  rowrow agent send <agent> <text…> [--attach FILE]… [--queue | --interrupt] [--wait]
   rowrow agent wait <agent> [--until done,blocked,idle] [--timeout 10m]
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
@@ -118,6 +118,7 @@ async function main(argv: string[]): Promise<void> {
       names: { type: "boolean" },
       content: { type: "boolean" },
       refresh: { type: "boolean" },
+      attach: { type: "string", multiple: true },
     },
   });
   const str = (name: string): string | undefined => {
@@ -125,6 +126,10 @@ async function main(argv: string[]): Promise<void> {
     return typeof value === "string" ? value : undefined;
   };
   const bool = (name: string): boolean => flags[name] === true;
+  const strings = (name: string): string[] => {
+    const value = flags[name];
+    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+  };
   const json = bool("json");
   const [command = "help", ...rest] = positionals;
 
@@ -237,7 +242,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       case "agent":
-        await agentCommand(client, rest, { str, bool, json, out, trace });
+        await agentCommand(client, rest, { str, bool, strings, json, out, trace });
         return;
       case "ws":
       case "workspaces": {
@@ -254,7 +259,7 @@ async function main(argv: string[]): Promise<void> {
             [listing.path, ...listing.entries.map((e) => `  ${e.repo ? "●" : " "} ${e.name}`)].join("\n"),
           );
         } else if (sub === "log" || sub === "show" || sub === "search" || sub === "read" || sub === "pr") {
-          await inspectCommand(client, sub, args, { str, bool, json, out, trace });
+          await inspectCommand(client, sub, args, { str, bool, strings, json, out, trace });
         } else {
           const { state } = await client.state.get();
           const list = Object.values(state.workspaces);
@@ -322,9 +327,20 @@ async function main(argv: string[]): Promise<void> {
 interface Helpers {
   str(name: string): string | undefined;
   bool(name: string): boolean;
+  strings(name: string): string[];
   json: boolean;
   out(value: unknown, human: () => string): void;
   trace: string;
+}
+
+/** Upload local files (--attach) for a message; the server keeps them 7 days. */
+async function upload(client: Client, files: readonly string[]): Promise<Attachment[]> {
+  const attachments: Attachment[] = [];
+  for (const file of files) {
+    const bytes = await fs.promises.readFile(file);
+    attachments.push(await client.files.upload({ file: new File([bytes], path.basename(file)) }));
+  }
+  return attachments;
 }
 
 async function agentCommand(client: Client, args: string[], h: Helpers): Promise<void> {
@@ -334,12 +350,15 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
     // A workspace by id or label, or any directory path (registered on the fly).
     const ws = findWorkspace(state, ref) ?? (await client.workspaces.add({ path: path.resolve(ref) }));
     const text = rest.join(" ");
+    const attachments = await upload(client, h.strings("attach"));
     const { agent, sent } = await client.agents.create({
       workspaceId: ws.id,
       runtime: h.str("runtime") ?? "claude",
       ...(h.str("model") === undefined ? {} : { model: h.str("model") }),
       ...(h.str("title") === undefined ? {} : { title: h.str("title") }),
-      ...(text === "" ? {} : { input: { inputId: newInputId(), text } }),
+      ...(text === "" && attachments.length === 0
+        ? {}
+        : { input: { inputId: newInputId(), text, ...(attachments.length === 0 ? {} : { attachments }) } }),
     });
     if (h.bool("wait") && sent !== null) {
       const waited = await client.agents.wait({
@@ -363,7 +382,14 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
   switch (sub) {
     case "send": {
       const mode = h.bool("queue") ? "queue" : h.bool("interrupt") ? "interrupt" : "auto";
-      const result = await client.agents.send({ agentId, inputId: newInputId(), text: rest.join(" "), mode });
+      const attachments = await upload(client, h.strings("attach"));
+      const result = await client.agents.send({
+        agentId,
+        inputId: newInputId(),
+        text: rest.join(" "),
+        ...(attachments.length === 0 ? {} : { attachments }),
+        mode,
+      });
       if (
         h.bool("wait") &&
         (result.landed === "prompted" || result.landed === "steered" || result.landed === "queued")

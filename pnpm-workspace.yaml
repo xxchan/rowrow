@@ -1,6 +1,8 @@
-# Install scripts are off unless listed. These two come with oar's pi runtime and are not needed.
+# Install scripts are off unless listed. These come with oar's pi runtime and are not needed
+# (esbuild runs from its per-platform package without its postinstall check).
 allowBuilds:
   "@google/genai": false
+  esbuild: false
   protobufjs: false
 minimumReleaseAgeExclude:
   - "@oxfmt/binding-android-arm-eabi@0.71.0"
@@ -42,4 +44,4 @@ minimumReleaseAgeExclude:
   - hono@4.13.10
   - oxfmt@0.71.0
   - oxlint@1.86.0
-  - "@botiverse/oar@0.8.0"
+  - "@botiverse/oar@0.10.0"

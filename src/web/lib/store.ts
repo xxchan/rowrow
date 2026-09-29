@@ -5,7 +5,7 @@
 import { applyPatches, enablePatches } from "immer";
 import { useEffect } from "react";
 import { create } from "zustand";
-import type { Entry } from "../../shared/entries.ts";
+import type { Attachment, Entry } from "../../shared/entries.ts";
 import type { AgentState, AppState, StateMessage } from "../../shared/schemas.ts";
 import type { Attention } from "../../shared/summary.ts";
 import { initialTimeline, reduceTimeline, timelineOf, type Timeline } from "../../shared/timeline.ts";
@@ -184,4 +184,37 @@ export async function loadOlder(client: Client, agentId: string): Promise<void> 
 export const useDrafts = create<{ byAgent: Readonly<Record<string, string>> }>(() => ({ byAgent: {} }));
 export function setDraft(agentId: string, text: string): void {
   useDrafts.setState((s) => ({ byAgent: { ...s.byAgent, [agentId]: text } }));
+}
+
+/** A file on its way into a message to an agent. */
+export interface PendingAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  /** An object URL of the picked image, so it shows before (and without) a round trip. */
+  readonly preview: string | null;
+  readonly state: "uploading" | "ready" | "failed";
+  /** What files.upload returned, once it has. */
+  readonly uploaded?: Attachment;
+  readonly error?: string;
+}
+
+/** Files attached to each agent's next message, like drafts in memory only. */
+export const useAttachments = create<{ byAgent: Readonly<Record<string, readonly PendingAttachment[]>> }>(
+  () => ({ byAgent: {} }),
+);
+const NO_ATTACHMENTS: readonly PendingAttachment[] = [];
+export function attachmentsOf(agentId: string): readonly PendingAttachment[] {
+  return useAttachments.getState().byAgent[agentId] ?? NO_ATTACHMENTS;
+}
+export function usePendingAttachments(agentId: string): readonly PendingAttachment[] {
+  return useAttachments((s) => s.byAgent[agentId] ?? NO_ATTACHMENTS);
+}
+export function setAttachments(
+  agentId: string,
+  change: (list: readonly PendingAttachment[]) => readonly PendingAttachment[],
+): void {
+  useAttachments.setState((s) => ({
+    byAgent: { ...s.byAgent, [agentId]: change(s.byAgent[agentId] ?? NO_ATTACHMENTS) },
+  }));
 }

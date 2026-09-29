@@ -29,6 +29,17 @@ export type RunEndReason =
   | "shutdown" // the server shut down
   | "crashed"; // the server died without closing it; recorded at the next boot
 
+/** A file someone attached to an input: uploaded to the server (files.upload), referred to by path. */
+export interface Attachment {
+  /** Absolute path on the server, under the profile's uploads/. */
+  readonly path: string;
+  /** The file's name as it was picked, pasted or dropped. */
+  readonly name: string;
+  /** Its MIME type, "" when the browser didn't know. */
+  readonly type: string;
+  readonly size: number;
+}
+
 export interface AgentChanges {
   readonly title?: string | null;
   readonly model?: string | null;
@@ -51,7 +62,9 @@ export type EntryBody =
   | {
       readonly kind: "input";
       readonly inputId: string;
+      /** What the person wrote. The runtime got it with the attachments listed first (agents/input.ts). */
       readonly text: string;
+      readonly attachments?: readonly Attachment[];
       readonly mode: InputMode;
       readonly by: Actor;
       readonly trace?: string;

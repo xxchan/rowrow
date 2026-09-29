@@ -69,6 +69,26 @@ export const AgentState = z.custom<AgentState>();
 
 export const InputMode = z.enum(["auto", "queue", "interrupt"]);
 
+export const Attachment = z.object({
+  path: z.string().describe("Absolute path on the server, as files.upload returned it."),
+  name: z.string().max(255).describe("The file's name as it was picked, pasted or dropped."),
+  type: z.string().max(255).describe('Its MIME type, "" when unknown.'),
+  size: z.number().int().nonnegative(),
+});
+
+/** The files that go with an input (agents.send, agents.create). */
+export const Attachments = z
+  .array(Attachment)
+  .max(20)
+  .optional()
+  .describe(
+    "Files uploaded with files.upload. The agent gets their paths listed before the text; png, jpeg, gif and webp images also go as the runtime's own image input when it takes images.",
+  );
+
+/** Text, attachments, or both: an input needs one of them. */
+export const hasContent = (input: { text: string; attachments?: readonly unknown[] | undefined }): boolean =>
+  input.text.trim() !== "" || (input.attachments?.length ?? 0) > 0;
+
 export const SendResult = z.object({
   inputId: z.string(),
   landed: z.enum(["prompted", "steered", "queued", "rejected", "failed"]),
