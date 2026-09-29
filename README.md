@@ -32,7 +32,7 @@ rowrow service install         # again after switching Node versions
 
 [herdr](https://herdr.dev)-style workspaces (a long-lived server owns your agents, and
 every screen answers *who needs me now?*), but with a rich web UI instead of a TUI and
-tmux keys. It installs on your phone's home screen; an iOS app is on the way.
+tmux keys. On a phone, use the web app from the home screen or the native iOS app.
 
 It's local first: your phone connects straight to your machine, over your LAN or
 Tailscale. There is no relay, account or cloud, so it works where remote-control apps that
@@ -61,6 +61,15 @@ push notifications. On a trusted LAN, `--host 0.0.0.0` also works (plain HTTP, n
 
 Every request needs a device credential, and anyone signed in can run commands on this
 machine: guard your pairing links.
+
+### The iOS app
+
+A native app for what you do on a phone: an inbox sorted by who needs you (swipe to reply
+or mark seen), conversations that open at the latest answer with the agent's work folded
+behind it, notifications you can reply to from the lock screen, a dictation-first composer,
+and reviewing changes line by line. Build it from `ios/` with Xcode ([docs/ios.md](docs/ios.md)),
+then scan the same pairing code. Notifications need your own APNs key
+(`rowrow push apns …`); Apple sees only that an agent finished, never what it said.
 
 ## CLI
 

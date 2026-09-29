@@ -69,6 +69,9 @@ subscriptions would hit, and compresses well (permessage-deflate) for phones.
 **Revisit when** oRPC's WebSocket link can't express something we need (for example
 per-message backpressure), or a second non-JavaScript client appears.
 
+> Revisited in D-026: the iOS app, the second non-JavaScript client, uses the HTTP routes
+> and server-sent events, like the CLI; presence got an HTTP form.
+
 ## D-004 oar comes from npm; unreleased oar changes are linked locally (2026-09-29)
 
 **Decision.** rowrow depends on the published `@botiverse/oar` (0.8.0 has everything v0.1
@@ -117,6 +120,9 @@ turn it joins midway) keep long sessions cheap to open on a phone.
 
 **Revisit when** measured payloads on a phone make first paint slow even with windows
 and compression.
+
+> Still holds for the iOS app (D-027): it folds in the client too, with the server's own code
+> run in JavaScriptCore.
 
 ## D-007 The agent is the durable unit; a workspace is a directory (2026-09-29)
 
@@ -562,3 +568,106 @@ change is recognized on macOS (launchd's `XPC_SERVICE_NAME`), but under systemd 
 
 **Revisit when** rowrow can update itself, or people ask for no outbound request at all by
 default.
+
+## D-026 A native iOS app, over the contract's HTTP routes, paired like any device (2026-09-29)
+
+**Context.** The phone gets a PWA today: the desktop's screens at 375 px, notifications only
+after *Add to Home Screen*, no notification actions, and a browser tab's lifecycle. A phone's
+job in rowrow is different from a desk's: be told, triage, read one answer, reply by voice,
+move on (docs/ios.md). D-003 said to revisit the transport when a second non-JavaScript
+client appears.
+
+**Decision.** A SwiftUI app (`ios/`, iOS 26), designed for that loop rather than ported:
+an inbox sorted by who needs you with swipe actions and a quick-reply sheet, conversations
+that open at the latest turn and fold each turn's work behind its answer, notifications you
+can answer, and a dictation-first composer. It uses the same contract as every client:
+
+- **Transport**: the OpenAPI routes (`POST /api/<group>/<name>`, streams as server-sent
+  events), like the CLI, not oRPC's WebSocket protocol, which is a library's internals
+  rather than a published interface. Two streams at most, only in the foreground.
+- **Presence over HTTP**: an HTTP client names its `state.watch` stream (`connection`), and
+  `presence.update` with that name describes it until it ends, scoped to the device that
+  named it.
+- **Pairing**: the same one-time link a browser opens; the app trades its code for a bearer
+  token (`POST /auth/token`) kept in the Keychain. Devices have a third kind, `app`.
+- **Code**: a local Swift package (`RowrowCore`) holds everything but views, so `swift test`
+  runs it on the Mac, against a real server started from the checkout.
+
+**Why.** A phone gets native gestures, notification actions, dictation, the Keychain and a
+real background lifecycle. HTTP and SSE are the interface the server already documents and
+tests; URLSession speaks them without a dependency. A bearer token is how every non-browser
+client authenticates here (D-009), and the pairing link keeps "no passwords".
+
+**Limits.** The app is built from source (your team, your bundle id) until someone
+publishes it; presence rides on a stream a suspended app may leave half-open, so the app says
+it stopped looking before going to the background. Android is not planned.
+
+**Revisit when** the app ships through TestFlight or the App Store (bundle id, push key and
+kit compatibility become a support question), or oRPC publishes its peer protocol (one
+socket instead of two streams).
+
+## D-027 The iOS app folds transcripts with the server's own code, in JavaScriptCore (2026-09-29)
+
+**Context.** Transcripts fold in the client (D-006) with oar's `reduceSessionView` and
+rowrow's timeline fold, about 1,500 lines of TypeScript that change with every oar release.
+A native client could port them to Swift (two folds to keep equal), have the server send a
+rendered view (a diff protocol of its own, and every streamed byte sent again), or run the
+same code.
+
+**Decision.** The server serves its folds as one script (`/kit.js`, built from
+`src/kit/kit.ts` into `dist/kit/kit.js` by `pnpm build`, rebuilt by `pnpm dev`, shipped in
+the npm package). The app runs it in JavaScriptCore on a background actor and feeds it the
+slim entries it streams, exactly as the web app does. The kit's output is a flat list of
+transcript items with stable ids (`src/shared/transcript-model.ts`), and after each change
+only the items that changed (the fold shares structure, so unchanged items are skipped by
+identity). It also carries the other shared words and rules the app needs: agents' state
+words (`src/shared/describe.ts`), new-agent setup (`src/shared/new-agent-setup.ts`) and review
+feedback (`src/shared/feedback.ts`), moved out of `src/web` for it.
+
+**Why.** One fold, as PRINCIPLES.md (engineering 1) asks: the app reads a log the way that
+server's web app does, including after the server upgrades and changes its log, without
+an app update. The wire stays cursor-resumable slim entries (each byte sent once), and the
+item deltas keep the native side cheap while text streams. The kit has no DOM, timers or
+console, and tests run the built bundle in a bare `vm` context to keep it that way.
+
+**Limits.** The app depends on the item shape (`TRANSCRIPT_MODEL_VERSION`), not on entries;
+a change to items needs the version bumped and the app updated. JavaScriptCore in an app has
+no JIT: opening a very long window is slower than in Safari, and the kit keeps the window's
+entries in memory.
+
+**Revisit when** folding on the phone is measurably slow, or a second native client
+appears (then generate Swift from the item schema, or port the folds with shared golden
+tests).
+
+## D-028 Push to the iOS app through APNs with your key, encrypted for the device (2026-09-29)
+
+**Context.** Apple delivers pushes to an app only from its developer's key, and only
+through APNs. rowrow is local first (PRINCIPLES.md, product 7): no relay, and a third party
+in the path must be optional, off by default and say so. Web Push already sends through the
+browser vendors' push services, which is acceptable because RFC 8291 encrypts each message
+for the device. APNs has no such encryption: Apple can read an alert's text, and ours would
+carry agent titles and the tail of what they wrote.
+
+**Decision.** The server sends straight to APNs (HTTP/2, an ES256 provider token signed with
+your key; `rowrow push apns` or `notify.configureApns` stores the key in the profile, mode
+0600). Nothing is sent until you give it a key. The app registers its device token with a
+256-bit key it keeps in the Keychain (`notify.subscribeApns`); the server seals what each
+notification says with that key (AES-256-GCM) and sends Apple a generic alert ("rowrow: An
+agent finished."), the agent's opaque id for grouping, and the sealed words, and the app's
+notification service extension opens them on the phone. Pushes are skipped for devices
+that are looking (presence), collapse per agent, set the badge, carry Reply and Mark as
+Seen, and when agents are seen elsewhere a quiet push clears their notifications.
+
+**Why.** It is the only way to reach an app on a sleeping phone without a relay of ours;
+each person's server signs with their own key, so nobody operates anything. Sealing the
+words gives the app what Web Push gives browsers: the push service learns that something
+happened, not what.
+
+**Limits.** Needs a paid Apple Developer membership and a key from the team that signs the
+app. Apple still sees when you get notified and a device token. The extension can't be
+exercised with `simctl push`; it's tested through its crypto (the server's seal, opened by
+CryptoKit). Live Activities can't be sealed, so they would carry no names.
+
+**Revisit when** the app is published (then one key per app, and a relay would be the
+only way for others' servers to reach it: opt-in, never required), or Apple adds end-to-end
+encrypted pushes.

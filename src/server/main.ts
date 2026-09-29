@@ -13,6 +13,7 @@ import { startHttp } from "./api/server.ts";
 import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
+import { Apns } from "./notify/apns.ts";
 import { Notifier } from "./notify/notifier.ts";
 import { Presence } from "./notify/presence.ts";
 import { Push } from "./notify/push.ts";
@@ -87,6 +88,7 @@ export async function startServer(
   const devices = new Devices(db);
   const builtins = devices.rotateBuiltins();
   const push = new Push(db, paths.vapidFile);
+  const apns = new Apns(db, paths.apnsFile, options.apnsOrigin);
   const presence = new Presence();
   let url = "";
   let publicUrl = "";
@@ -105,6 +107,7 @@ export async function startServer(
     exposed: !isLoopback(options.host),
     pushKey: push.publicKey,
     update: updates?.current ?? null,
+    apns: apns.configured,
   });
 
   const state = new StateStore({
@@ -189,7 +192,11 @@ export async function startServer(
   housekeeping();
   const pruneTimer = setInterval(housekeeping, 6 * 3600_000);
   pruneTimer.unref();
-  const notifier = new Notifier(agents, workspaces, presence, push);
+  const notifier = new Notifier(agents, workspaces, presence, push, apns);
+  apns.onChange = () =>
+    state.update("host", (draft) => {
+      draft.host = host();
+    });
 
   const router = createRouter({
     host,
@@ -201,6 +208,7 @@ export async function startServer(
     runtimes,
     devices,
     push,
+    apns,
     presence,
     git,
     uploadsDir: paths.uploads,
@@ -219,6 +227,7 @@ export async function startServer(
     port: options.port,
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
+    kitFile: options.kitFile ?? path.join(root, "dist/kit/kit.js"),
     version,
   });
   url = http.url;
@@ -261,6 +270,7 @@ export async function startServer(
         log.info("server.stopping", {});
         notifier.close();
         updates?.stop();
+        apns.close();
         clearInterval(pruneTimer);
         workspaces.close();
         await agents.shutdown();

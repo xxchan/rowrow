@@ -18,6 +18,8 @@ export interface ProfilePaths {
   /** Written while the server runs: its address and a token for the local CLI (mode 0600). */
   readonly serverFile: string;
   readonly vapidFile: string;
+  /** The APNs key for pushing to the iOS app, when you gave one (mode 0600, D-028). */
+  readonly apnsFile: string;
 }
 
 export function profilePaths(home: string, profile: string): ProfilePaths {
@@ -36,6 +38,7 @@ export function profilePaths(home: string, profile: string): ProfilePaths {
     uploads: path.join(dir, "uploads"),
     serverFile: path.join(dir, "server.json"),
     vapidFile: path.join(dir, "vapid.json"),
+    apnsFile: path.join(dir, "apns.json"),
   };
 }
 
@@ -64,6 +67,10 @@ export interface ServerOptions {
    * when running the installed package (not a checkout); null: never ask.
    */
   readonly updateRegistry?: string | null;
+  /** Send APNs pushes here instead of Apple (tests: a local HTTP/2 server). */
+  readonly apnsOrigin?: string;
+  /** The kit to serve at /kit.js; the package's dist/kit/kit.js unless given (tests build their own). */
+  readonly kitFile?: string;
 }
 
 export function isLoopback(host: string): boolean {

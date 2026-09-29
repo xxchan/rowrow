@@ -2,7 +2,9 @@
 //
 //   GET  /healthz             liveness, no auth
 //   GET  /auth/redeem?code=…  one-time login link → session cookie → the app
+//   POST /auth/token          the same link's code → a bearer token, for the iOS app (D-026)
 //   POST /auth/logout         sign this browser out
+//   GET  /kit.js              src/shared's folds for the iOS app to run (D-027), no auth: it's code
 //   GET  /rpc  (Upgrade)      the WebSocket every browser uses (oRPC)
 //   POST /rpc/*               the same procedures over HTTP (the typed CLI client, tests)
 //   *    /api/*               the same procedures as OpenAPI routes (curl, agents); spec at /api/openapi.json
@@ -18,7 +20,7 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { getRequestListener } from "@hono/node-server";
 import { Hono, type Context as HonoContext } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http, { type IncomingMessage } from "node:http";
 import https from "node:https";
@@ -47,6 +49,8 @@ export interface HttpOptions {
   readonly port: number;
   readonly tls?: { readonly cert: string; readonly key: string };
   readonly webDir?: string;
+  /** The kit (dist/kit/kit.js), when built. */
+  readonly kitFile?: string;
   readonly version: string;
 }
 
@@ -119,6 +123,38 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
     return c.redirect("/", 302);
   });
 
+  // The iOS app holds its credential like the CLI does, as a bearer token (in the Keychain):
+  // it trades the same one-time code a browser would open for one.
+  app.post("/auth/token", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ code: "BAD_REQUEST", message: 'Send JSON: {"code": "…", "name": "…"}.' }, 400);
+    }
+    const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    const code = typeof fields["code"] === "string" ? fields["code"] : "";
+    const name =
+      typeof fields["name"] === "string" && fields["name"].trim() !== ""
+        ? fields["name"].trim().slice(0, 100)
+        : undefined;
+    const redeemed = options.devices.redeem(code, c.req.header("user-agent"), {
+      kind: "app",
+      ...(name === undefined ? {} : { name }),
+    });
+    if (redeemed === null)
+      return c.json(
+        {
+          code: "INVALID_LINK",
+          message:
+            "This sign-in link was already used, or it expired (links last 10 minutes). Get a new one with `rowrow pair`, or from Pair a device on a device that is signed in.",
+        },
+        400,
+      );
+    log.info("auth.login", { device: redeemed.device.id, name: redeemed.device.name, kind: "app" });
+    return c.json({ token: redeemed.token, device: { id: redeemed.device.id, name: redeemed.device.name } });
+  });
+
   app.post("/auth/logout", (c) => {
     const context = auth(getCookie(c, COOKIE), undefined);
     if (context !== null) options.devices.revoke(context.device.id);
@@ -127,6 +163,8 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
   });
 
   app.get("/api/openapi.json", (c) => c.json(spec));
+
+  app.get("/kit.js", (c) => serveKit(c, options.kitFile));
 
   const bearer = (c: HonoContext): string | undefined => {
     const header = c.req.header("authorization");
@@ -246,6 +284,30 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
       });
     },
   };
+}
+
+let kitCache: {
+  readonly file: string;
+  readonly mtimeMs: number;
+  readonly body: Buffer;
+  readonly etag: string;
+} | null = null;
+
+/** The kit, with an ETag so the app downloads it again only when it changed. */
+function serveKit(c: HonoContext, file: string | undefined): Response {
+  if (file === undefined || !fs.existsSync(file))
+    return c.text("the kit isn't built: run `pnpm build` (or `pnpm dev`, which keeps it built)\n", 404);
+  const { mtimeMs } = fs.statSync(file);
+  if (kitCache?.file !== file || kitCache.mtimeMs !== mtimeMs) {
+    const body = fs.readFileSync(file);
+    const etag = `"${createHash("sha256").update(body).digest("hex").slice(0, 32)}"`;
+    kitCache = { file, mtimeMs, body, etag };
+  }
+  const headers = { etag: kitCache.etag, "cache-control": "no-cache" };
+  if (c.req.header("if-none-match") === kitCache.etag) return new Response(null, { status: 304, headers });
+  return new Response(new Uint8Array(kitCache.body), {
+    headers: { ...headers, "content-type": "text/javascript; charset=utf-8" },
+  });
 }
 
 function unauthorized(c: HonoContext): Response {

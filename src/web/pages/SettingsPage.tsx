@@ -162,7 +162,7 @@ export function SettingsPage({ route }: { route: Route }) {
                       )}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {`${device.kind === "cli" ? "command line" : "browser"}${device.push ? " · notifications on" : ""} · last seen ${device.lastSeenAt === null ? "never" : `${ago(device.lastSeenAt)} ago`}`}
+                      {`${device.kind === "cli" ? "command line" : device.kind === "app" ? "iOS app" : "browser"}${device.push ? " · notifications on" : ""} · last seen ${device.lastSeenAt === null ? "never" : `${ago(device.lastSeenAt)} ago`}`}
                     </div>
                   </div>
                   <Button

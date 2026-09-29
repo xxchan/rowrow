@@ -1,0 +1,10 @@
+// Copy to Local.xcconfig (ignored by git) to sign the app for your own iPhone.
+
+// Your Apple Developer team id (Xcode → Settings → Accounts, or developer.apple.com → Membership).
+ROWROW_TEAM = ABCDE12345
+
+// A bundle id under your control. It is also the APNs topic: the server learns it from the app.
+ROWROW_BUNDLE_ID = com.example.rowrow
+
+// A free team can't use push notifications; uncomment to build without them.
+// ROWROW_ENTITLEMENTS = Config/Rowrow-NoPush.entitlements

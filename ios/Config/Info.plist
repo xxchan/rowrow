@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The keys build settings can't express; the rest come from INFOPLIST_KEY_* in the project. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Plain HTTP only to this Mac, the LAN (.local, bare host names) and IP addresses.
+		     Anything on the internet must be HTTPS (tailscale serve, a tunnel, --tls-cert). -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>rowrow</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>rowrow</string>
+			</array>
+		</dict>
+	</array>
+	<!-- The Keychain group the app shares with its notification service extension. -->
+	<key>RowrowKeychainGroup</key>
+	<string>$(AppIdentifierPrefix)$(ROWROW_BUNDLE_ID).shared</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+</dict>
+</plist>

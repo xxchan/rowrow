@@ -2,7 +2,8 @@
 // would (docs/decisions.md, D-018). Packs this checkout (prepack builds dist/web and lib/)
 // unless given a tarball, checks what's inside, installs it with npm into a throwaway prefix,
 // and drives the installed `rowrow`: --help, serve (scripted runtime, throwaway home), status,
-// /healthz, the web app at /, a workspace and an agent that answers, then a clean stop.
+// /healthz, the web app at /, the kit at /kit.js (the iOS app's fold, D-027), a workspace and
+// an agent that answers, then a clean stop.
 // Needs Node 24 with npm, git, and the network (npm installs the package's dependencies).
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -97,11 +98,12 @@ function inspect(file: string): void {
     "lib/cli/main.js",
     "lib/server/main.js",
     "dist/web/index.html",
+    "dist/kit/kit.js",
   ])
     check(files.includes(needed), `${needed} is missing`);
   const stray = files.filter(
     (name) =>
-      /^(src|test|scripts|docs|node_modules)\//.test(name) ||
+      /^(src|test|scripts|docs|ios|node_modules)\//.test(name) ||
       name.includes("/node_modules/") ||
       /\.(ts|map)$/.test(name) ||
       /\.test\./.test(name),
@@ -154,6 +156,10 @@ async function main(): Promise<void> {
     const asset = await fetch(`${url}${script}`);
     console.log(`GET / → ${page.status} ${page.headers.get("content-type")}, ${script} → ${asset.status}`);
     check(asset.ok && (asset.headers.get("content-type") ?? "").includes("javascript"), `${script}`);
+    const kit = await fetch(`${url}/kit.js`);
+    const kitSource = await kit.text();
+    console.log(`GET /kit.js → ${kit.status} ${kit.headers.get("content-type")}, ${kb(kitSource.length)}`);
+    check(kit.ok && kitSource.includes("rowrowKit"), "/kit.js isn't the kit");
 
     step("a workspace and an agent (scripted runtime)");
     const repo = path.join(tmp, "repo");

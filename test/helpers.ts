@@ -29,7 +29,14 @@ export interface TestServer {
 }
 
 export async function startTestServer(
-  options: { home?: string; idleTimeoutMs?: number; gh?: string; updateRegistry?: string } = {},
+  options: {
+    home?: string;
+    idleTimeoutMs?: number;
+    gh?: string;
+    updateRegistry?: string;
+    apnsOrigin?: string;
+    kitFile?: string;
+  } = {},
 ): Promise<TestServer> {
   const home = options.home ?? fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-test-"));
   const server = await startServer(
@@ -43,6 +50,8 @@ export async function startTestServer(
       idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
       ...(options.gh === undefined ? {} : { gh: options.gh }),
       ...(options.updateRegistry === undefined ? {} : { updateRegistry: options.updateRegistry }),
+      ...(options.apnsOrigin === undefined ? {} : { apnsOrigin: options.apnsOrigin }),
+      ...(options.kitFile === undefined ? {} : { kitFile: options.kitFile }),
     },
     process.env["ROWROW_TEST_LOG"] === "1" ? "pretty" : "off",
   );

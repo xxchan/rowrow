@@ -16,7 +16,13 @@ pnpm test:e2e       # builds the web app, then Playwright on a desktop and a pho
 pnpm test:package   # packs the npm package, installs it with npm in a temp prefix, and runs it
 pnpm rowrow …       # the CLI (node src/cli/main.ts …)
 pnpm shot <route>   # a screenshot of the real UI, signed in: --mobile, --dark, --profile dev (default)
+pnpm ios:test       # the iOS app's core (swift test), against a real server from this checkout
 ```
+
+The iOS app (`ios/`, [docs/ios.md](docs/ios.md)) builds with Xcode:
+`xcodebuild -project ios/Rowrow.xcodeproj -scheme Rowrow -destination 'platform=iOS Simulator,name=iPhone 17' build`.
+To try it in the simulator against `pnpm dev`, open the sign-in link as
+`xcrun simctl openurl booted "rowrow://pair?link=<the link, URL-encoded>"`.
 
 ## Verify your change like a user would
 
@@ -80,6 +86,14 @@ Don't change the user's data or agents while debugging unless they asked.
 - **Log events, not prose.** `log.info("agent.run.started", { runtime })` with a stable,
   dot-namespaced name. Never swallow an error: log it with context, or return it to the
   caller as a `UserError` whose message says what to do.
+- **The kit** (`src/kit`, D-027) is what the iOS app runs: `src/shared`'s folds and nothing
+  else, no DOM, timers or console. A change to transcript items (`src/shared/transcript-model.ts`)
+  bumps `TRANSCRIPT_MODEL_VERSION` and updates `ios/RowrowCore/Sources/RowrowCore/Transcript.swift`.
+- **The iOS app** uses the contract's HTTP routes like the CLI (D-026): a new capability is a
+  procedure first, then a typed call in `RowrowCore/Procedures.swift`. SwiftUI with system
+  components, Swift 6 concurrency, no third-party packages; everything but views lives in
+  `RowrowCore` so `swift test` covers it. Look at it in the simulator (Xcode, or
+  `xcrun simctl`) like the web app with `pnpm shot`.
 - **UI.** Tailwind classes and the components in `src/web/components/ui` (shadcn/ui on
   Radix, ours to edit; D-017). Colors are tokens (`bg-card`, `text-muted-foreground`,
   `bg-diff-add`…, defined in `src/web/index.css`), never raw colors. Keep accessible names
