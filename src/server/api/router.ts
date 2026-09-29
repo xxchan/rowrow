@@ -5,7 +5,7 @@
 // errors whose message says what went wrong.
 import { implement, ORPCError } from "@orpc/server";
 import { contract } from "../../shared/contract.ts";
-import { slimEntry, type Actor, type Entry } from "../../shared/entries.ts";
+import { slimEntry, type Actor, type Attachment, type Entry } from "../../shared/entries.ts";
 import { renderText } from "../../shared/render-text.ts";
 import type {
   BulkAction,
@@ -38,7 +38,7 @@ import type { StateStore } from "../state/store.ts";
 import { log, matches, newTraceId, onLog, queryLog, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import { channel } from "./channel.ts";
-import { saveUpload } from "./uploads.ts";
+import { checkAttachments, readUpload, saveUpload } from "./uploads.ts";
 
 export interface ApiContext {
   readonly device: DeviceRecord;
@@ -132,6 +132,15 @@ export function createRouter(s: Services) {
       );
     });
 
+  /** An input's attachments, checked to be uploads: `{ attachments }` for the send, or nothing. */
+  const attachmentsOf = (
+    attachments: readonly Attachment[] | undefined,
+  ): { attachments?: readonly Attachment[] } => {
+    if (attachments === undefined || attachments.length === 0) return {};
+    checkAttachments(s.uploadsDir, attachments);
+    return { attachments };
+  };
+
   return os.router({
     app: {
       info: os.app.info.handler(() => s.host()),
@@ -209,6 +218,7 @@ export function createRouter(s: Services) {
             : await s.agents.send(agent.id, {
                 inputId: input.input.inputId,
                 text: input.input.text,
+                ...attachmentsOf(input.input.attachments),
                 mode: "auto",
                 by: context.actor,
                 ...(context.trace === undefined ? {} : { trace: context.trace }),
@@ -219,6 +229,7 @@ export function createRouter(s: Services) {
         s.agents.send(input.agentId, {
           inputId: input.inputId,
           text: input.text,
+          ...attachmentsOf(input.attachments),
           mode: input.mode,
           by: context.actor,
           ...(context.trace === undefined ? {} : { trace: context.trace }),
@@ -348,6 +359,7 @@ export function createRouter(s: Services) {
 
     files: {
       upload: os.files.upload.handler(async ({ input }) => saveUpload(s.uploadsDir, input.file)),
+      get: os.files.get.handler(({ input }) => readUpload(s.uploadsDir, input.path)),
       search: os.files.search.handler(async ({ input }) =>
         s.git.search(input.workspaceId, input.query, input.kind),
       ),

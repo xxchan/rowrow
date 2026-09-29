@@ -8,6 +8,8 @@ import type { Entry } from "./entries.ts";
 import {
   AgentState,
   type AppState,
+  Attachment,
+  Attachments,
   BulkAction,
   Changes,
   ClientEvent,
@@ -18,6 +20,7 @@ import {
   EntryPage,
   FileAction,
   FileText,
+  hasContent,
   HostInfo,
   InputMode,
   LogEntry,
@@ -167,7 +170,10 @@ const agents = {
             "Reasoning effort, one of the model's effortLevels (runtimes.models); the runtime's default when omitted.",
           ),
         title: z.string().max(200).optional(),
-        input: z.object({ inputId: z.string().uuid(), text: z.string().min(1).max(200_000) }).optional(),
+        input: z
+          .object({ inputId: z.string().uuid(), text: z.string().max(200_000), attachments: Attachments })
+          .refine(hasContent, "send some text or an attachment")
+          .optional(),
       }),
     )
     .output(z.object({ agent: AgentState, sent: SendResult.nullable() })),
@@ -177,12 +183,15 @@ const agents = {
         "Send input to an agent. Starts (resumes) its run when none is live. mode auto: prompt when idle, steer or queue when busy; queue: hold for the next turn; interrupt: abort the running turn, then prompt. Idempotent on inputId: a retry returns the first result.",
     })
     .input(
-      z.object({
-        agentId,
-        inputId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
-        text: z.string().min(1).max(200_000),
-        mode: InputMode.default("auto"),
-      }),
+      z
+        .object({
+          agentId,
+          inputId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
+          text: z.string().max(200_000),
+          attachments: Attachments,
+          mode: InputMode.default("auto"),
+        })
+        .refine(hasContent, "send some text or an attachment"),
     )
     .output(SendResult),
   abort: oc
@@ -371,10 +380,16 @@ const files = {
   upload: oc
     .route({
       summary:
-        "Upload a file (a screenshot, a log) to the server. Returns its absolute path on the server, to mention in a message so the agent can read it. Kept for 7 days.",
+        "Upload a file (a screenshot, a log) to the server. Returns it as an attachment for agents.send (its absolute path on the server, which the agent reads). Kept for 7 days.",
     })
     .input(z.object({ file: z.file().max(25 * 1024 * 1024) }))
-    .output(z.object({ path: z.string(), name: z.string(), size: z.number(), type: z.string() })),
+    .output(Attachment),
+  get: oc
+    .route({
+      summary: "Download a file uploaded with files.upload (to show an attachment), by the path it returned.",
+    })
+    .input(z.object({ path: z.string() }))
+    .output(z.file()),
   search: oc
     .route({
       summary:

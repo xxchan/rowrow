@@ -2,7 +2,7 @@
 // agent reads instead of a screenshot. Same fold as the UI, so the text is what the UI
 // showed.
 import type { ViewMessage, ViewNotice, ViewPart } from "@botiverse/oar/observe";
-import type { Actor } from "./entries.ts";
+import type { Actor, Attachment } from "./entries.ts";
 import type { Timeline } from "./timeline.ts";
 
 export interface RenderTextOptions {
@@ -21,7 +21,10 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
             block.result === undefined
               ? "pending"
               : `${block.result.landed}${block.result.reason === undefined ? "" : `: ${block.result.reason}`}`;
-          out.push(`> [${actorLabel(block.input.by)}, ${state}] ${block.input.text}`);
+          out.push(
+            `> [${actorLabel(block.input.by)}, ${state}] ${block.input.text}`,
+            ...attachmentLines(block.input.attachments),
+          );
         }
         break;
       case "notice": {
@@ -52,14 +55,19 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
   return `${out.join("\n")}\n`;
 }
 
+function attachmentLines(attachments: readonly Attachment[] | undefined): string[] {
+  return (attachments ?? []).map((file) => `>   attached ${file.name}: ${file.path}`);
+}
+
 function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: number): string[] {
   switch (message.kind) {
     case "input": {
       const { input } = message;
-      const origin = input.inputId === undefined ? undefined : timeline.inputs.get(input.inputId)?.input.by;
-      const who = origin === undefined ? "input" : actorLabel(origin);
+      // What the person sent (their text and files), rather than the text the runtime got.
+      const origin = input.inputId === undefined ? undefined : timeline.inputs.get(input.inputId)?.input;
+      const who = origin === undefined ? "input" : actorLabel(origin.by);
       const state = input.state === "accepted" ? "" : `, ${input.state}`;
-      return [`> [${who}${state}] ${input.input}`];
+      return [`> [${who}${state}] ${origin?.text ?? input.input}`, ...attachmentLines(origin?.attachments)];
     }
     case "notice":
       return [`· ${noticeText(message.notice)}`];

@@ -3,11 +3,12 @@
 // owns the live run: an oar Session whose records it appends verbatim, started lazily on
 // input (resuming the runtime's own conversation) and stopped after an idle timeout.
 import { awaitIdle, type ControlOutcome, type Session } from "@botiverse/oar";
-import type { Actor, EntryBody, InputMode, RunEndReason } from "../../shared/entries.ts";
+import type { Actor, Attachment, EntryBody, InputMode, RunEndReason } from "../../shared/entries.ts";
 import { newId } from "../../shared/ids.ts";
 import type { SendResult } from "../../shared/schemas.ts";
 import type { AgentSummary } from "../../shared/summary.ts";
 import { log, serializeError, withContext } from "../telemetry/log.ts";
+import { runtimeImages, runtimeText } from "./input.ts";
 import type { AgentLog } from "./log.ts";
 import type { Runtimes } from "./runtimes.ts";
 
@@ -35,6 +36,7 @@ interface LiveRun {
 export interface SendInput {
   readonly inputId: string;
   readonly text: string;
+  readonly attachments?: readonly Attachment[];
   readonly mode: InputMode;
   readonly by: Actor;
   readonly trace?: string;
@@ -100,6 +102,9 @@ export class AgentActor {
         kind: "input",
         inputId: input.inputId,
         text: input.text,
+        ...(input.attachments === undefined || input.attachments.length === 0
+          ? {}
+          : { attachments: input.attachments }),
         mode: input.mode,
         by: input.by,
         ...(input.trace === undefined ? {} : { trace: input.trace }),
@@ -143,23 +148,27 @@ export class AgentActor {
       };
     }
     const { session, runId } = run;
-    const options = { inputId: input.inputId };
+    const attachments = input.attachments ?? [];
+    const text = runtimeText(input.text, attachments);
+    // A runtime without image input still gets every image's path in the text.
+    const images = session.capabilities.images ? runtimeImages(attachments) : [];
+    const options = { inputId: input.inputId, ...(images.length === 0 ? {} : { images }) };
     const running = session.status().value.kind === "running";
     if (!running) {
       await this.deps.beforeTurn?.(this.id);
-      return { runId, ...landing("prompted", await session.prompt(input.text, options)) };
+      return { runId, ...landing("prompted", await session.prompt(text, options)) };
     }
     switch (input.mode) {
       case "queue":
-        return { runId, ...landing("queued", await session.queue(input.text, options)) };
+        return { runId, ...landing("queued", await session.queue(text, options)) };
       case "interrupt": {
         await session.abort();
         await awaitIdleFor(session, 30_000);
         await this.deps.beforeTurn?.(this.id);
-        return { runId, ...landing("prompted", await session.prompt(input.text, options)) };
+        return { runId, ...landing("prompted", await session.prompt(text, options)) };
       }
       case "auto": {
-        const result = await session.steerOrQueue(input.text, options);
+        const result = await session.steerOrQueue(text, options);
         return result.landed === "rejected"
           ? { runId, landed: "rejected", code: result.code, reason: result.reason }
           : { runId, landed: result.landed };

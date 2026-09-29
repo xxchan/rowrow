@@ -6,4 +6,3 @@ listed here with its upstream fix, so the workaround can be deleted when the fix
 
 | Where | Gap | Workaround in rowrow | Upstream |
 | --- | --- | --- | --- |
-| oar 0.8.0 `scriptedRuntime` | A tool that settles after its turn was aborted still emits `tool_call_ended`; oar's status fold then adopts a phantom running turn. | The demo script's `/sleep` is not a tool call (`src/server/agents/scripted.ts`). | [botiverse/oar#25](https://github.com/botiverse/oar/pull/25) |

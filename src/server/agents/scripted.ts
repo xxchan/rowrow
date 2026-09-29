@@ -8,7 +8,9 @@
 //   /sleep <ms>             work for <ms> (abortable), then say so
 //   /stream <n>             say n chunks, 40 ms apart
 //   /fail <reason>          end the turn failed with <reason>
-// Anything else gets a short demo answer with a thought, a tool call and some Markdown.
+// Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
+// attachments, commands are read from the request after the list of files, and the answer
+// says which files and images arrived.
 import type { Runtime, SkillEntry } from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
 import fs from "node:fs/promises";
@@ -30,7 +32,7 @@ export function scriptedDemoRuntime(): Runtime {
     brand: { name: "Scripted demo", icon: null },
     model: "script-1",
     turn: async (turn) => {
-      const [first = "", ...rest] = turn.input.split("\n");
+      const [first = "", ...rest] = requestOf(turn.input).split("\n");
       const [command = "", ...args] = first.trim().split(/\s+/);
       const arg = args.join(" ");
       switch (command) {
@@ -50,8 +52,6 @@ export function scriptedDemoRuntime(): Runtime {
         }
         case "/sleep": {
           const ms = Number(arg) || 1000;
-          // Not a tool call: oar 0.8.0's scriptedRuntime still emits a tool's end after the
-          // turn was aborted, which reads as a new turn (docs/upstream.md).
           turn.think(`Sleeping ${ms} ms.`);
           await sleep(ms, undefined, { signal: turn.signal });
           turn.say(`Slept ${ms} ms.`);
@@ -85,6 +85,14 @@ export function scriptedDemoRuntime(): Runtime {
   };
 }
 
+/** The person's own text: with attachments the runtime reads a list of files first (agents/input.ts). */
+function requestOf(input: string): string {
+  if (!input.startsWith("# Files mentioned by the user:")) return input;
+  const marker = "## My request:\n\n";
+  const at = input.indexOf(marker);
+  return at === -1 ? "" : input.slice(at + marker.length);
+}
+
 async function demo(turn: ScriptedTurn): Promise<void> {
   turn.think("Reading the request and looking around the workspace.");
   await sleep(150, undefined, { signal: turn.signal });
@@ -92,8 +100,13 @@ async function demo(turn: ScriptedTurn): Promise<void> {
     const names = await fs.readdir(turn.options.cwd).catch(() => []);
     return names.slice(0, 20).join("\n");
   });
+  const files = [...turn.input.matchAll(/^## (.+): (\/.+)$/gm)].map((match) => match[1]);
   const answer = [
-    `You said: **${turn.input.slice(0, 200)}**`,
+    `You said: **${requestOf(turn.input).slice(0, 200)}**`,
+    ...(files.length === 0 ? [] : ["", `Files: ${files.join(", ")}`]),
+    ...(turn.images.length === 0
+      ? []
+      : ["", `Images (as image input): ${turn.images.map((image) => path.basename(image.path)).join(", ")}`]),
     "",
     "This is the scripted demo runtime: it runs no model and costs no tokens. Try:",
     "",

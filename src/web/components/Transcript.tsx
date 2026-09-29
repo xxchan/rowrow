@@ -16,9 +16,10 @@ import { code } from "@streamdown/code";
 import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
-import type { Actor } from "../../shared/entries.ts";
+import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import type { InputBlock, NoticeBlock, RunBlock, Timeline, TimelineBlock } from "../../shared/timeline.ts";
+import { SentAttachments } from "./Attachments.tsx";
 
 export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
   return (
@@ -123,9 +124,11 @@ const Message = memo(function Message({
     case "input": {
       const { input } = message;
       const origin = input.inputId === undefined ? undefined : timeline.inputs.get(input.inputId);
+      // What you sent (your text and files), rather than the text the runtime read.
       return (
         <UserMessage
-          text={input.input}
+          text={origin?.input.text ?? input.input}
+          attachments={origin?.input.attachments}
           by={origin?.input.by}
           at={origin?.input.at}
           landed={origin?.result?.landed}
@@ -160,12 +163,14 @@ const Message = memo(function Message({
 
 function UserMessage({
   text,
+  attachments,
   by,
   at,
   landed,
   state,
 }: {
   text: string;
+  attachments: readonly Attachment[] | undefined;
   by: Actor | undefined;
   at: number | undefined;
   landed: string | undefined;
@@ -182,9 +187,12 @@ function UserMessage({
   ].filter((part) => part !== null);
   return (
     <article data-author="you" aria-label="Your message" className="flex flex-col items-end gap-1 pl-10">
-      <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-secondary-foreground">
-        {text}
-      </div>
+      {attachments !== undefined && attachments.length > 0 && <SentAttachments attachments={attachments} />}
+      {text.trim() !== "" && (
+        <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-secondary-foreground">
+          {text}
+        </div>
+      )}
       <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">
         {state === "sending" ? (
           <LoaderCircle className="size-3 animate-spin" />
@@ -208,6 +216,7 @@ function PendingInput({ block }: { block: InputBlock }) {
     <>
       <UserMessage
         text={block.input.text}
+        attachments={block.input.attachments}
         by={block.input.by}
         at={block.input.at}
         landed={undefined}

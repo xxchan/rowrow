@@ -1,6 +1,8 @@
 // The app as a person uses it, on a desktop and a phone viewport. Each test gets its own
 // server and data (fixtures.ts); agents are the scripted runtime, so no tokens are spent.
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { expect, test } from "./fixtures.ts";
 
 test("a signed-out browser is asked to sign in, not shown an error", async ({ page, rowrow }) => {
@@ -426,3 +428,142 @@ test("the service worker shows what the server pushes", async ({ page, context, 
     )
     .toEqual([[message.title, message.body, message.tag]]);
 });
+
+test("paste an image and pick a file: they wait as tiles, go with the message, and show on it", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "files",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const input = page.getByLabel("Message input");
+  await expect(input).toBeEnabled();
+
+  // A 1×1 PNG, pasted the way a screenshot is.
+  const png = [...Buffer.from(ONE_PIXEL_PNG, "base64")];
+  await input.evaluate((element, bytes) => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array(bytes)], "shot.png", { type: "image/png" }));
+    element.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+  }, png);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Attach files" }).click();
+  await (
+    await chooser
+  ).setFiles([
+    { name: "notes.md", mimeType: "text/markdown", buffer: Buffer.from("# notes") },
+    { name: "extra.txt", mimeType: "text/plain", buffer: Buffer.from("not this one") },
+  ]);
+
+  const tiles = page.getByRole("group", { name: "Attachments" });
+  await expect(tiles.getByRole("img", { name: "shot.png" })).toBeVisible();
+  await expect(tiles.getByText("notes.md")).toBeVisible();
+  await tiles.getByRole("button", { name: "Remove extra.txt" }).click();
+  await expect(tiles.getByText("extra.txt")).toBeHidden();
+  await expect(tiles.getByLabel("Uploading")).toHaveCount(0);
+
+  await input.fill("/echo got them");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(tiles).toBeHidden();
+  await expect(page.getByText("got them", { exact: true })).toBeVisible();
+  const message = page.getByRole("article", { name: "Your message" });
+  await expect(message.getByText("/echo got them")).toBeVisible();
+  await expect(message.getByText("notes.md")).toBeVisible();
+  await expect(message.getByText("extra.txt")).toBeHidden();
+  await message.getByRole("button", { name: "Open shot.png" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "shot.png" }).getByRole("img", { name: "shot.png" }),
+  ).toBeVisible();
+
+  // The agent got its own text: the files listed first, the image as image input.
+  const { entries } = await rowrow.client.agents.entries({ agentId: agent.id, after: -1 });
+  const request = entries.find(
+    (e) => e.kind === "oar" && e.record.kind === "request" && e.record.body.kind === "prompt",
+  );
+  expect(request?.kind === "oar" && request.record.kind === "request" && request.record.body).toMatchObject({
+    input: expect.stringMatching(
+      /^# Files mentioned by the user:\n\n## shot\.png: .+\nImage attachment: true\n\n## notes\.md: /,
+    ),
+    images: [{ mediaType: "image/png" }],
+  });
+});
+
+test("a new agent's first message can carry files", async ({ page, rowrow }) => {
+  await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.open(page);
+  await page.getByRole("button", { name: "New agent" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New agent" });
+  await dialog.getByRole("button", { name: /^Agent: / }).click();
+  await page.getByRole("option", { name: /Scripted demo/ }).click();
+
+  const prompt = dialog.getByLabel("First message");
+  await prompt.evaluate(
+    (element, bytes) => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(bytes)], "shot.png", { type: "image/png" }));
+      element.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+      );
+    },
+    [...Buffer.from(ONE_PIXEL_PNG, "base64")],
+  );
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "Attach files" }).click();
+  await (
+    await chooser
+  ).setFiles([{ name: "plan.md", mimeType: "text/markdown", buffer: Buffer.from("# plan") }]);
+  const tiles = dialog.getByRole("group", { name: "Attachments" });
+  await expect(tiles.getByRole("img", { name: "shot.png" })).toBeVisible();
+  await expect(tiles.getByText("plan.md")).toBeVisible();
+  await expect(tiles.getByLabel("Uploading")).toHaveCount(0);
+
+  await prompt.fill("/echo started with files");
+  await dialog.getByRole("button", { name: "Create and send" }).click();
+  await expect(page).toHaveURL(/\/a\/ag_/);
+  await expect(page.getByText("started with files", { exact: true })).toBeVisible();
+  const message = page.getByRole("article", { name: "Your message" });
+  await expect(message.getByRole("button", { name: "Open shot.png" })).toBeVisible();
+  await expect(message.getByText("plan.md")).toBeVisible();
+});
+
+test("a video waits as its first frame and plays from the message", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "video",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Attach files" }).click();
+  // A real (tiny) video: the page must be allowed to decode it (media-src in the CSP).
+  const clip = fs.readFileSync(path.join(import.meta.dirname, "clip.webm"));
+  await (await chooser).setFiles([{ name: "repro.webm", mimeType: "video/webm", buffer: clip }]);
+  const tiles = page.getByRole("group", { name: "Attachments" });
+  const frame = tiles.getByLabel("repro.webm", { exact: true });
+  await expect
+    .poll(async () => frame.evaluate((video: HTMLVideoElement) => video.readyState))
+    .toBeGreaterThan(1);
+  await expect(tiles.getByLabel("Uploading")).toHaveCount(0);
+
+  await page.getByLabel("Message input").fill("/echo see the video");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("see the video", { exact: true })).toBeVisible();
+  await page
+    .getByRole("article", { name: "Your message" })
+    .getByRole("button", { name: "Play repro.webm" })
+    .click();
+  const player = page.getByRole("dialog", { name: "repro.webm" }).getByLabel("repro.webm", { exact: true });
+  await expect
+    .poll(async () => player.evaluate((video: HTMLVideoElement) => video.readyState))
+    .toBeGreaterThan(1);
+});
+
+const ONE_PIXEL_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

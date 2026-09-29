@@ -2,7 +2,8 @@
 // turn (or waits for the next one, when the runtime can't steer), "Queue" holds it for the
 // next turn, and Stop interrupts. A send that may not have arrived keeps its id, so trying
 // again can't deliver it twice (PRINCIPLES.md, engineering 2). On touch screens Return is a
-// newline (IME and dictation users need it) and the button sends.
+// newline (IME and dictation users need it) and the button sends. Pasted, dropped or picked
+// files upload at once and wait above the text as tiles; they go with the next message.
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -19,8 +20,18 @@ import {
 import type { InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult, SkillInfo } from "../../shared/schemas.ts";
-import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
+import { attachFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
+import {
+  attachmentsOf,
+  setAttachments,
+  setDraft,
+  useApp,
+  useClient,
+  useDrafts,
+  usePendingAttachments,
+} from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
+import { ComposerAttachments } from "./Attachments.tsx";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
 import { SessionInfo } from "./SessionInfo.tsx";
 
@@ -32,7 +43,8 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   const workspaceId = agent.summary.workspaceId;
   const client = useClient();
   const draft = useDrafts((s) => s.byAgent[agent.id] ?? "");
-  const pendingId = useRef<{ text: string; inputId: string } | null>(null);
+  const attached = usePendingAttachments(agent.id);
+  const pendingId = useRef<{ key: string; inputId: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const caret = useRef<number | null>(null);
@@ -83,7 +95,8 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
   const disabled = archived || client === null;
-  const empty = draft.trim() === "";
+  const empty = draft.trim() === "" && attached.length === 0;
+  const uploading = attached.some((file) => file.state === "uploading");
 
   // Grow with the text, up to a limit; then scroll inside.
   useLayoutEffect(() => {
@@ -99,17 +112,36 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
 
   const send = async (text: string, mode: InputMode): Promise<void> => {
     const trimmed = text.trim();
-    if (client === null || trimmed === "") return;
-    // Reuse the id of an attempt that may have reached the server (same text, not confirmed).
-    const inputId = pendingId.current?.text === trimmed ? pendingId.current.inputId : newInputId();
-    pendingId.current = { text: trimmed, inputId };
+    const files = attachmentsOf(agent.id);
+    if (client === null || (trimmed === "" && files.length === 0)) return;
+    const ready = readyFiles(agent.id);
+    if ("problem" in ready) {
+      setStatus({ type: "warning", message: ready.problem });
+      return;
+    }
+    const { attachments } = ready;
+    // Reuse the id of an attempt that may have reached the server (same message, not confirmed).
+    const key = JSON.stringify([trimmed, attachments.map((file) => file.path)]);
+    const inputId = pendingId.current?.key === key ? pendingId.current.inputId : newInputId();
+    pendingId.current = { key, inputId };
     setDraft(agent.id, "");
+    setAttachments(agent.id, () => []);
     setStatus(null);
+    const restore = (): void => {
+      setDraft(agent.id, text);
+      setAttachments(agent.id, (current) => [...files, ...current]);
+    };
     let result: SendResult;
     try {
-      result = await client.agents.send({ agentId: agent.id, inputId, text: trimmed, mode });
+      result = await client.agents.send({
+        agentId: agent.id,
+        inputId,
+        text: trimmed,
+        ...(attachments.length === 0 ? {} : { attachments }),
+        mode,
+      });
     } catch (error) {
-      setDraft(agent.id, text);
+      restore();
       setStatus({
         type: "error",
         message: `Not sent (${error instanceof Error ? error.message : String(error)}). Send again to retry; it won't be delivered twice.`,
@@ -118,14 +150,18 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
       return;
     }
     pendingId.current = null;
-    sentHistory.set(agent.id, [...(sentHistory.get(agent.id) ?? []), trimmed].slice(-50));
+    if (trimmed !== "") sentHistory.set(agent.id, [...(sentHistory.get(agent.id) ?? []), trimmed].slice(-50));
     if (result.landed === "rejected" || result.landed === "failed") {
-      setDraft(agent.id, text);
+      restore();
       setStatus({
         type: "error",
         message: `Not delivered: ${result.reason ?? result.code ?? result.landed}`,
       });
-    } else if (result.landed === "queued") {
+      return;
+    }
+    // Sent: the transcript shows the files from the server now.
+    for (const file of files) if (file.preview !== null) URL.revokeObjectURL(file.preview);
+    if (result.landed === "queued") {
       setStatus({ type: "warning", message: "Queued: it will be sent when the current turn ends." });
     }
   };
@@ -141,33 +177,12 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
     }
   };
 
-  /** Puts text at the caret (or the end), keeping the caret after it. */
-  const insert = (text: string): void => {
-    const current = useDrafts.getState().byAgent[agent.id] ?? "";
-    const input = inputRef.current;
-    const at = input === null || document.activeElement !== input ? current.length : input.selectionStart;
-    const end = input === null || document.activeElement !== input ? current.length : input.selectionEnd;
-    caret.current = at + text.length;
-    setDraft(agent.id, current.slice(0, at) + text + current.slice(end));
-  };
-
-  /** Upload files to the server and put their paths in the message (roamgate #70): every runtime reads files by path. */
-  const attach = async (files: readonly File[]): Promise<void> => {
+  /** Upload files as the next message's attachments (roamgate #70); they show as tiles meanwhile. */
+  const attach = (files: readonly File[]): void => {
     if (client === null || files.length === 0) return;
-    setStatus({ type: "busy", message: `Uploading ${files.map((f) => f.name || "a file").join(", ")}…` });
-    try {
-      for (const file of files) {
-        const saved = await client.files.upload({ file });
-        insert(`\`${saved.path}\` `);
-      }
-      setStatus(null);
-    } catch (error) {
-      setStatus({
-        type: "error",
-        message: `Upload failed: ${error instanceof Error ? error.message : String(error)}`,
-      });
-      report("warn", "composer.upload_failed", error, { agentId: agent.id });
-    }
+    setStatus(null);
+    attachFiles(client, agent.id, files);
+    inputRef.current?.focus();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -211,18 +226,18 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   };
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
-    const files = [...event.clipboardData.files];
+    const files = filesOf(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
-    void attach(files);
+    attach(files);
   };
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     setDragging(false);
-    const files = [...event.dataTransfer.files];
+    const files = filesOf(event.dataTransfer);
     if (files.length === 0) return;
     event.preventDefault();
-    void attach(files);
+    attach(files);
   };
 
   return (
@@ -276,6 +291,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
         onDrop={onDrop}
       >
         <ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />
+        <ComposerAttachments items={attached} onRemove={(id) => detachFile(agent.id, id)} />
         {draft === "" && !disabled && quickReplies.length > 0 && (
           <div
             role="group"
@@ -323,14 +339,14 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
                 variant="ghost"
                 size="icon"
                 className="size-8 text-muted-foreground"
-                aria-label="Attach a file"
+                aria-label="Attach files"
                 disabled={disabled}
                 onClick={() => fileRef.current?.click()}
               >
                 <Paperclip />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach a file (or paste, or drop)</TooltipContent>
+            <TooltipContent>Attach files (or paste, or drop)</TooltipContent>
           </Tooltip>
           <input
             ref={fileRef}
@@ -340,7 +356,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
             onChange={(event) => {
               const picked = [...(event.currentTarget.files ?? [])];
               event.currentTarget.value = "";
-              void attach(picked);
+              attach(picked);
             }}
           />
           <Tooltip>
@@ -387,7 +403,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
                 size="icon"
                 className="size-8 rounded-full"
                 aria-label="Send"
-                disabled={disabled || empty}
+                disabled={disabled || empty || uploading}
                 onClick={() => void send(draft, "auto")}
               >
                 <ArrowUp />
