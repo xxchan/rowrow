@@ -67,9 +67,10 @@ machine: guard your pairing links.
 A native app for what you do on a phone: an inbox sorted by who needs you (swipe to reply
 or mark seen), conversations that open at the latest answer with the agent's work folded
 behind it, notifications you can reply to from the lock screen, a dictation-first composer,
-and reviewing changes line by line. Build it from `ios/` with Xcode ([docs/ios.md](docs/ios.md)),
-then scan the same pairing code. Notifications need your own APNs key
-(`rowrow push apns …`); Apple sees only that an agent finished, never what it said.
+and reviewing changes line by line. Build it from `ios/` with Xcode, or let CI send it to
+TestFlight ([docs/ios.md](docs/ios.md)), then scan the same pairing code. Notifications
+need your own APNs key (`rowrow push apns …`); Apple sees only that an agent finished,
+never what it said.
 
 ## CLI
 

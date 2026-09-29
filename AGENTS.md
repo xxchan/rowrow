@@ -117,3 +117,5 @@ CI publishes to npm (D-018); nobody runs `npm publish` by hand.
    `pnpm check`, packs and smoke-tests the tarball, publishes it with provenance (npm
    trusted publishing, no token), and creates the GitHub release. A prerelease
    (`0.3.0-rc.1`) goes to npm's `next` tag.
+4. The same tag sends the iOS app to TestFlight (`.github/workflows/ios.yml`, D-029) once
+   the repository has an Apple team configured ([docs/ios.md](docs/ios.md) → TestFlight).

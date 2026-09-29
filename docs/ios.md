@@ -164,6 +164,50 @@ home) and pairs with it, replicates the app state through patches, downloads the
 folds a transcript, sends and follows a turn, uploads a file and reads a diff: the whole wire
 the app depends on. The server side of the app is in `test/ios.test.ts` (`pnpm check`).
 
+## TestFlight
+
+`.github/workflows/ios.yml` builds the app and runs `pnpm ios:test` for every change that
+can affect it. For a version tag (the one that publishes to npm, AGENTS.md → Releasing), or
+when you run the workflow by hand (Actions → ios → Run workflow, or `gh workflow run
+ios.yml`), it also archives the app and uploads it to App Store Connect, and TestFlight offers
+it to your testers once Apple has processed it. The app's version is the package's
+(`0.3.0-rc.1` becomes `0.3.0`), its build number the workflow's run. D-029 says why it
+signs the way it does.
+
+Once, with Apple (a paid Apple Developer membership):
+
+1. **The app.** Register its bundle id (developer.apple.com → Identifiers; running the app
+   on your iPhone from Xcode does it too), then App Store Connect → Apps → + → New App with
+   it. The notification extension's id (`<bundle id>.notifications`) and the capabilities are
+   registered by the first upload.
+2. **An API key.** App Store Connect → Users and Access → Integrations → App Store Connect
+   API → Team Keys → +, with the Admin role: through it Xcode makes the profiles and signs
+   with a distribution certificate Apple keeps. Download the `.p8` (you can only once) and
+   note its key id and the issuer id.
+3. **A development certificate** with its private key, as a `.p12` with a password (Xcode →
+   Settings → Accounts → Manage Certificates makes one; Keychain Access exports it). Make one
+   for CI so you can revoke it alone; it expires after a year.
+4. **A device.** Development profiles list devices, so the team needs one registered: running
+   the app on your iPhone from Xcode registers it.
+
+Then in the repository (secrets can also live in the `testflight` environment, which limits
+the refs that can use them):
+
+```bash
+gh variable set IOS_TEAM_ID --body ABCDE12345            # your team id (developer.apple.com → Membership)
+gh variable set IOS_BUNDLE_ID --body com.example.rowrow  # only when it isn't io.github.xxchan.rowrow
+gh secret set APP_STORE_CONNECT_KEY_ID --body XYZ987ABCD
+gh secret set APP_STORE_CONNECT_ISSUER_ID --body 00000000-0000-0000-0000-000000000000
+gh secret set APP_STORE_CONNECT_KEY < AuthKey_XYZ987ABCD.p8
+base64 -i ci.p12 | gh secret set IOS_SIGNING_CERTIFICATE
+gh secret set IOS_SIGNING_CERTIFICATE_PASSWORD
+```
+
+Until `IOS_TEAM_ID` is set, tags skip the upload (a fork's releases don't fail). App Store
+Connect holds each build for its export-compliance question (the app uses encryption: HTTPS,
+and AES-GCM for notifications) until someone answers it, or until the answer is declared
+with `ITSAppUsesNonExemptEncryption` in `ios/Config/Info.plist`.
+
 ## Limits and what's next
 
 - The notification service extension is unit-tested (it opens what the server seals) but

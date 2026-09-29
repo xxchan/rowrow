@@ -671,3 +671,33 @@ CryptoKit). Live Activities can't be sealed, so they would carry no names.
 **Revisit when** the app is published (then one key per app, and a relay would be the
 only way for others' servers to reach it: opt-in, never required), or Apple adds end-to-end
 encrypted pushes.
+
+## D-029 The iOS app goes to TestFlight from CI, on release tags (2026-09-30)
+
+**Context.** Phones get the app through TestFlight (D-026), which takes builds signed for
+distribution by the team that owns the app. rowrow's releases are version tags that CI
+publishes to npm (D-018). A fresh CI machine can sign in three known ways: archive unsigned
+and sign only at export (the export takes the archive's entitlements, so push and the
+Keychain group the notification extension shares would be lost); automatic signing with
+nothing installed (Xcode makes a new development certificate on every run); or certificates
+and profiles kept in secrets and renewed by hand (fastlane match and the like).
+
+**Decision.** `.github/workflows/ios.yml` builds the app and runs the Swift tests on every
+change that can affect it, and for a version tag (or when run by hand) archives with Xcode's
+automatic signing and uploads to App Store Connect. It needs an App Store Connect API key
+(Admin) and one Apple Development certificate: the archive is signed for development with
+that certificate, and the export re-signs it for distribution with a cloud-managed
+certificate whose key Apple keeps; Xcode registers the ids and makes the profiles through the
+key. The app's version is the package's (a prerelease's suffix dropped), its build number the
+workflow's run; nothing is committed back. Without `IOS_TEAM_ID` a tag skips the upload.
+
+**Why.** Nothing to renew but one development certificate a year, no distribution key on
+disk, no Ruby, and the same signing people get from Xcode. Tags keep TestFlight builds in
+step with the servers they talk to.
+
+**Limits.** The team needs a registered device (development profiles list them). Each build
+waits in App Store Connect for its export-compliance answer until the app declares it. The
+upload job holds the secrets, so it installs nothing from npm.
+
+**Revisit when** Xcode can sign archives without a local certificate, or the app goes to
+the App Store (then its versions, screenshots and review notes join the release).
