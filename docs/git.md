@@ -1,4 +1,4 @@
-# Git: worktrees, hooks, snapshots, changes
+# Git: worktrees, hooks, snapshots, changes, the inspector
 
 > Turn diffs: rowrow snapshots each agent's workspace when its turn starts and when it ends
 > (`src/server/workspaces/git-ops.ts`, docs/decisions.md D-015); `listChanges` compares
@@ -6,7 +6,8 @@
 
 What `src/server/git/` does and the rules it keeps. The overview is in
 [architecture.md](architecture.md#workspaces-and-git). Every git call goes through `exec.ts`
-(timeout that kills the process group, no pager or prompts, `LC_ALL=C`).
+(timeout that kills the process group, no pager or prompts, `LC_ALL=C`, never a shell);
+its `run` starts `gh` the same way.
 
 ## Branch names (`names.ts`)
 
@@ -157,6 +158,11 @@ are only meaningful to the store that made them.
 - **Line counts**: `null` for binary files. Untracked files are counted the way git would
   count a new file (lines; binary means a NUL in the first 8000 bytes), except files over
   8 MiB or past 64 MiB read per listing, which get `null`.
+- **Staged or not** (`working` only): each file also has `staged` (the index differs from
+  HEAD), `unstaged` (the worktree differs from the index; always for untracked and
+  conflicted files) and a `stamp` for the file actions below. Both come from
+  `git status --porcelain=v2 --no-renames` on the same index copy; a renamed row covers both
+  of its paths.
 - **Notes** instead of files: no snapshot yet, the current state can't be snapshotted (with
   the reason), the snapshot was pruned, no default branch, no common history, no commits.
 - **Limits**: 2000 files (`truncated: true`); patches cut at 512 KB on a line boundary
@@ -169,3 +175,121 @@ are only meaningful to the store that made them.
   concurrent `git commit`. So the worktree scopes run on a scratch copy of the index, and
   the turn scope compares trees. Output ignores external diff tools, textconv and prefix
   settings from the user's config.
+
+## File actions (`file-actions.ts`, `status.ts`)
+
+Narrow mutations of a working tree (roamgate #71), behind `git.fileAction` and
+`git.bulkAction` (D-016). The client never sends a git command: each action is one fixed
+git invocation.
+
+| Action | Applies to | git |
+| --- | --- | --- |
+| `stage` | unstaged edits, untracked files | `git add -- <paths>` |
+| `unstage` | staged changes (the edits stay in the file) | `git reset -q -- <paths>`: unlike `restore --staged`, it works before the first commit |
+| `discardUnstaged` | unstaged edits of tracked files; the staged version stays | `git restore --worktree -- <paths>` |
+| `deleteUntracked` | one untracked file or symlink | `git clean -f -q -- <path>` |
+| `markResolved` | a conflicted file with no line starting with `<<<<<<<` or `>>>>>>>` | `git add -- <path>` |
+| `stageAll`, `unstageAll`, `discardAllUnstaged` | the same, for every file it applies to | the same, with `--pathspec-from-file=- --pathspec-file-nul` |
+| `deleteAllUntracked` | every untracked file | `git clean`, 100 paths per run |
+
+- **Paths** are the list's: relative to the worktree's top, normalized (no empty, `.` or
+  `..` segments), not inside `.git` (any case), no NUL. They go after `--` in argv, with
+  `GIT_LITERAL_PATHSPECS=1`, so `-rf.txt`, `*.txt` or `:(top)x` name exactly those files.
+  git runs only on paths its own status reports for that action.
+- **Refused**: anything conflicted except `markResolved` (bulk actions never touch
+  conflicts); a nested repository (`dir/` in the list) for staging or deleting; a submodule
+  or an intent-to-add entry for discarding (`restore` would empty an intent-to-add file).
+  `git clean` deletes only untracked, unignored files, whatever a path became meanwhile.
+- **Stamps.** Every row of the working list has a stamp, `<state>.<content>`: `state`
+  hashes, for each of the row's paths, git's porcelain-v2 record (status letters, modes,
+  HEAD and index object ids; `--no-renames`, so a record depends on its own path only) and
+  the file's `lstat` (type, size, inode, mode, and modification and change times in
+  nanoseconds); `content` hashes the bytes (files up to 8 MiB, 64 MiB per listing; else
+  `-`). An action re-reads the state through an index copy and recomputes the stamp: the
+  state parts must be equal, and the content parts too when both have one. Otherwise it
+  fails with CONFLICT ("changed since this list was loaded: refresh and try again") and
+  changes nothing. A change time can't be set back by a program, so any write shows.
+- **Bulk actions** get the rows the client saw (path, oldPath, stamp). They also fail with
+  CONFLICT when a file they would touch isn't among those rows: it changed or appeared
+  since, or the list was cut at 2000 files.
+- **Retries** carry the old stamp and are refused as stale: an action is never applied twice.
+- **Locking.** Looking (the status, the stamps) uses an index copy; the action itself writes
+  the real index and takes `index.lock` like any git command, so an agent's concurrent
+  commit can make it fail ("try again in a moment"). Actions on one workspace run one at a
+  time. Afterwards the workspace's git facts are refreshed and the new working list is
+  returned.
+
+## History (`history.ts`)
+
+The current branch's commits and each commit's changes (roamgate #229), behind `git.log`,
+`git.commit` and `git.commitDiff`. Read-only.
+
+- **Pages**: `git log -z --format=… --skip=<n> --max-count=<limit + 1> <from> --`, 50 per
+  page (at most 200), newest first, with `--no-show-signature --encoding=UTF-8` and
+  mailmapped names. `from` is HEAD's commit id when the first page is read; the cursor,
+  `<from>:<skip>`, keeps later pages on that history even when the branch moves.
+- **What a commit is compared with**:
+
+| Commit | Base | `baseLabel` |
+| --- | --- | --- |
+| one parent | the parent | `Compared with its parent 1a2b3c4` |
+| a root commit | the empty tree (`git hash-object -t tree --stdin`: nothing is written; sha1 or sha256) | `Root commit: compared with the empty tree` |
+| a merge | its first parent | `Merge commit: compared with its first parent 1a2b3c4` |
+| a shallow clone's oldest commit | none: no files, a note | `This commit's parent isn't in this shallow clone…` |
+
+- Diffs are `git diff <base> <commit>` between trees, with the Changes flags and limits
+  (2000 files, patches cut at 512 KB, literal pathspecs): the index and the worktree are
+  never read, so uncommitted work can't leak into history.
+- **Commit ids only**: hex, full or abbreviated, resolved with `rev-parse --verify
+  <id>^{commit}`. No ranges or ref expressions, nothing that could be read as an option.
+- A shallow clone says so (`shallow: true`), and its last page notes that older commits
+  aren't here.
+
+## Search (`search.ts`)
+
+File names and contents across a checkout (roamgate #227), behind `files.search`, and the
+preview a result opens, `files.read` (D-018). Read-only; never takes the index lock
+(`GIT_OPTIONAL_LOCKS=0`).
+
+- **Names**: `git ls-files --cached --others --exclude-standard --deduplicate -z`, so tracked
+  and untracked files with .gitignore honored. A path matches when it contains every word
+  of the query. The file's own name matching first, then shorter paths; files deleted from
+  the worktree are skipped.
+- **Contents**: `git grep --untracked -I -n --no-column --full-name -z -F [-i] -e <query>`:
+  the same files, binary ones skipped, the query as a fixed string. Smart case: an
+  uppercase letter in the query makes it case-sensitive. Lines are cut to about 240
+  characters around the first match (`…` marks a cut).
+- **Bounds**: 200 names and 200 lines, sorted by path (and line), with `namesTruncated` and
+  `linesTruncated`. `git grep` is killed once its output passes 2 MiB, or after 10 s (a note
+  says so); what it found by then is kept.
+- **Preview**: a path relative to the top of the checkout, checked like a file action's; its
+  real path must stay inside the checkout and outside `.git` (a symlink leading out is
+  refused). Regular files only; a NUL in the first 8000 bytes is binary and refused; the
+  text stops at 1 MiB, on a line boundary (`truncated`).
+
+## Pull requests (`pull-request.ts`)
+
+The pull request of a checkout's current branch (roamgate #228), behind `git.pullRequest`,
+read with the GitHub CLI where the server runs (D-017). Read-only.
+
+1. Without the network: a detached HEAD is `detached`; no remote is `no-remote`; remotes that
+   are all local paths or other forges (GitLab, Bitbucket, Codeberg, sourcehut, Gitea) are
+   `unsupported`: GitHub only for now.
+2. `gh pr view --json number,title,url,state,isDraft,author,headRefName,baseRefName,reviewDecision,statusCheckRollup,updatedAt`
+   in the checkout, so gh's sign-in (github.com or an enterprise host) and its rules for
+   which PR belongs to the current branch apply. 15 s timeout; no prompts, no update checks.
+3. gh not found is `no-gh`; "none of the git remotes … known GitHub host" is `unsupported`;
+   "no pull requests found" is `none`; exit code 4 or an authentication message is
+   `signed-out`; anything else is `error` with gh's first line of output.
+
+- **State**: `OPEN` (a draft is `draft`), `MERGED`, `CLOSED`.
+- **Checks** fold check runs and commit statuses: `failing` if any failed (failure, timed
+  out, action required, startup failure, error), else `unknown` if any value isn't one
+  rowrow knows, else `pending` while any runs or is expected, else `cancelled` if any was
+  cancelled or went stale, else `passing` when there is at least one check (skipped and
+  neutral count as fine), else `none`. Missing data is never passing.
+- **Review**: GitHub's review decision: `approved`, `changes_requested`, `review_required`;
+  empty is `none` (no decision, not approved); anything else `unknown`.
+- Answers are cached per workspace and branch for a minute (an error for 10 s); `refresh`
+  asks again, and concurrent asks share one gh run. `checkedAt` says when gh answered.
+- `gh` is `ServerOptions.gh` (tests pass a fake script), else `gh` on PATH.

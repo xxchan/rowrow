@@ -3,17 +3,20 @@
 // - branch: everything since the merge base with the default branch, uncommitted included;
 // - turn: everything since the snapshot taken when the last turn started.
 // Looking never writes the repository or takes its index lock: worktree comparisons run
-// on a throwaway copy of the index, turn comparisons on snapshot trees.
+// on a throwaway copy of the index, turn comparisons on snapshot trees. In the working
+// scope each file also says whether it is staged and/or has unstaged edits, with a stamp
+// for the file actions (./file-actions.ts).
 import fs from "node:fs";
 import path from "node:path";
 import type { ChangedFile, Changes, DiffScope } from "../../shared/schemas.ts";
 import { log } from "../telemetry/log.ts";
 import { git, gitOk, type GitResult } from "./exec.ts";
-import { statusPath, type SnapshotStore } from "./snapshots.ts";
+import type { SnapshotStore } from "./snapshots.ts";
+import { parseStatusRecords, stampBudget, stampOf, STATUS_ARGS, type StatusRecord } from "./status.ts";
 
 export const MAX_FILES = 2000;
 export const MAX_PATCH_BYTES = 512 * 1024;
-const LIST_MAX_BYTES = 16 * 1024 * 1024;
+export const LIST_MAX_BYTES = 16 * 1024 * 1024;
 /** Untracked files are counted (and diffed) by reading them: not past this size... */
 const UNTRACKED_MAX_BYTES = 8 * 1024 * 1024;
 /** ...or past this much for one listing. */
@@ -21,7 +24,14 @@ const COUNT_BUDGET_BYTES = 64 * 1024 * 1024;
 
 // Plain, predictable output whatever the user's config says: no external diff tools or
 // textconv filters, standard a/ and b/ prefixes, renames detected.
-const DIFF = ["diff", "--no-ext-diff", "--no-textconv", "-M", "--src-prefix=a/", "--dst-prefix=b/"] as const;
+export const DIFF = [
+  "diff",
+  "--no-ext-diff",
+  "--no-textconv",
+  "-M",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+] as const;
 
 export interface ChangesInput {
   readonly dir: string;
@@ -83,22 +93,27 @@ export async function listChanges(input: ChangesInput): Promise<Changes> {
     );
     let files = parseDiff(diff.stdout);
     let truncated = full(diff.stdout);
+    let records: Map<string, StatusRecord> | null = null;
     if (c.kind === "worktree") {
       const status = ok(
-        await git(["status", "--porcelain=v2", "-z", "--untracked-files=all"], {
-          cwd: c.top,
-          env: c.env,
-          maxBytes: LIST_MAX_BYTES,
-        }),
+        await git(STATUS_ARGS, { cwd: c.top, env: c.env, maxBytes: LIST_MAX_BYTES }),
         "status",
       );
       truncated ||= full(status.stdout);
-      const { untracked, conflicted } = parseStatus(status.stdout);
+      records = parseStatusRecords(status.stdout);
       const listed = new Set(files.map((file) => file.path));
-      files = files.map((file) => (conflicted.has(file.path) ? { ...file, status: "conflicted" } : file));
-      for (const file of untracked) {
-        if (!listed.has(file))
-          files.push({ path: file, oldPath: null, status: "untracked", additions: null, deletions: null });
+      files = files.map((file) =>
+        records?.get(file.path)?.kind === "unmerged" ? { ...file, status: "conflicted" } : file,
+      );
+      for (const record of records.values()) {
+        if (record.kind === "untracked" && !listed.has(record.path))
+          files.push({
+            path: record.path,
+            oldPath: null,
+            status: "untracked",
+            additions: null,
+            deletions: null,
+          });
       }
       files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     }
@@ -107,8 +122,39 @@ export async function listChanges(input: ChangesInput): Promise<Changes> {
       truncated = true;
     }
     if (c.kind === "worktree") files = await countUntracked(c.top, files);
+    if (input.scope === "working" && c.kind === "worktree" && records !== null)
+      files = await describeWorking(c.top, files, records);
     return { scope: input.scope, base: c.base, baseLabel: c.baseLabel, files, truncated, note: null };
   });
+}
+
+/** A working-scope row's paths: the original path first for a rename or copy. */
+export function rowPaths(file: Pick<ChangedFile, "path" | "oldPath">): string[] {
+  return file.oldPath === null ? [file.path] : [file.oldPath, file.path];
+}
+
+/** Whether each file is staged, has unstaged edits, and its stamp for file actions. */
+async function describeWorking(
+  top: string,
+  files: readonly ChangedFile[],
+  records: ReadonlyMap<string, StatusRecord>,
+): Promise<ChangedFile[]> {
+  const budget = stampBudget();
+  const described: ChangedFile[] = [];
+  for (const file of files) {
+    const paths = rowPaths(file);
+    const own = paths.flatMap((p) => {
+      const record = records.get(p);
+      return record === undefined ? [] : [record];
+    });
+    described.push({
+      ...file,
+      staged: own.some((r) => r.kind === "changed" && r.x !== "."),
+      unstaged: own.some((r) => r.kind === "untracked" || r.kind === "unmerged" || r.y !== "."),
+      stamp: await stampOf(top, records, paths, budget),
+    });
+  }
+  return described;
 }
 
 /** The unified diff of one file in a scope, cut at 512 KB. */
@@ -157,10 +203,14 @@ async function workingComparison(top: string, env: Env): Promise<Comparison> {
   const head = await revParse(top, env, "HEAD^{commit}");
   if (head === null) {
     // A repository with no commits: everything is new, compared with the empty tree.
-    const empty = (
-      await gitOk(["hash-object", "-t", "tree", "--stdin"], { cwd: top, env, input: "" })
-    ).trim();
-    return { kind: "worktree", top, env, rev: empty, base: null, baseLabel: "no commits yet" };
+    return {
+      kind: "worktree",
+      top,
+      env,
+      rev: await emptyTree(top, env),
+      base: null,
+      baseLabel: "no commits yet",
+    };
   }
   const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: top, env });
   const baseLabel =
@@ -346,19 +396,6 @@ export function parseDiff(out: string): ChangedFile[] {
   return files.map((file) => ({ ...file, ...counts.get(file.path) }));
 }
 
-function parseStatus(out: string): { untracked: string[]; conflicted: Set<string> } {
-  const untracked: string[] = [];
-  const conflicted = new Set<string>();
-  const records = out.split("\0");
-  for (let i = 0; i < records.length; i++) {
-    const record = records[i] ?? "";
-    if (record.startsWith("? ")) untracked.push(record.slice(2));
-    else if (record.startsWith("u ")) conflicted.add(statusPath(record, 10));
-    else if (record.startsWith("2 ")) i += 1; // followed by the original path
-  }
-  return { untracked, conflicted };
-}
-
 // ─── Untracked files ─────────────────────────────────────────────────────────
 
 /** git counts a new file's lines as additions; untracked files are counted the same way here. */
@@ -434,7 +471,7 @@ async function untrackedPatch(top: string, file: string): Promise<FileDiff> {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** A path relative to the worktree that can't point outside it. */
-function checkPath(file: string): string {
+export function checkPath(file: string): string {
   const parts = file.split(/[\\/]/);
   if (file === "" || file.includes("\0") || path.isAbsolute(file) || parts.includes("..")) {
     throw new Error(`invalid path "${file}": it must be relative to the worktree, without ".."`);
@@ -443,7 +480,7 @@ function checkPath(file: string): string {
 }
 
 /** Cut a patch at the last whole line within the cap. */
-function clip(patch: string): FileDiff {
+export function clip(patch: string): FileDiff {
   const bytes = Buffer.from(patch, "utf8");
   if (bytes.length <= MAX_PATCH_BYTES) return { patch, truncated: false };
   const head = bytes.subarray(0, MAX_PATCH_BYTES);
@@ -451,7 +488,8 @@ function clip(patch: string): FileDiff {
   return { patch: head.subarray(0, end === -1 ? head.length : end + 1).toString("utf8"), truncated: true };
 }
 
-function ok(result: GitResult, command: string): GitResult {
+/** The result, or a readable error unless git exited 0. */
+export function ok(result: GitResult, command: string): GitResult {
   if (result.code !== 0)
     throw new Error(
       `git ${command} failed: ${result.timedOut ? "timed out" : result.stderr || `exit code ${result.code}`}`,
@@ -469,6 +507,11 @@ async function revParse(top: string, env: Env, rev: string): Promise<string | nu
   return result.code === 0 ? result.stdout.trim() : null;
 }
 
-function short(id: string): string {
+/** The empty tree's id in this repository's object format (sha1 or sha256); nothing is written. */
+export async function emptyTree(top: string, env: Env = {}): Promise<string> {
+  return (await gitOk(["hash-object", "-t", "tree", "--stdin"], { cwd: top, env, input: "" })).trim();
+}
+
+export function short(id: string): string {
   return id.slice(0, 7);
 }

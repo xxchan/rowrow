@@ -57,6 +57,8 @@ export interface ServerOptions {
   readonly idleTimeoutMs: number;
   /** Keep oar's installed-runtime probe out of the way (tests that need only the scripted runtime). */
   readonly probeRuntimes: boolean;
+  /** The GitHub CLI for pull request status: `gh` on PATH unless given (tests use a fake one). */
+  readonly gh?: string;
 }
 
 export function isLoopback(host: string): boolean {

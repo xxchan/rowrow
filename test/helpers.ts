@@ -29,7 +29,7 @@ export interface TestServer {
 }
 
 export async function startTestServer(
-  options: { home?: string; idleTimeoutMs?: number } = {},
+  options: { home?: string; idleTimeoutMs?: number; gh?: string } = {},
 ): Promise<TestServer> {
   const home = options.home ?? fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-test-"));
   const server = await startServer(
@@ -41,6 +41,7 @@ export async function startTestServer(
       testRuntime: true,
       probeRuntimes: false,
       idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
+      ...(options.gh === undefined ? {} : { gh: options.gh }),
     },
     process.env["ROWROW_TEST_LOG"] === "1" ? "pretty" : "off",
   );

@@ -7,18 +7,27 @@ import { z } from "zod";
 import type { Entry } from "./entries.ts";
 import {
   AgentState,
+  BulkAction,
   Changes,
   ClientEvent,
+  CommitChanges,
+  CommitPage,
   Device,
   DiffScope,
   EntryPage,
+  FileAction,
+  FileText,
   HostInfo,
   InputMode,
   LogEntry,
   LogFilter,
   LoginLink,
   ModelInfo,
+  PullRequestStatus,
   RuntimeInfo,
+  SearchKind,
+  SearchResult,
+  SeenFile,
   SendResult,
   Workspace,
   type AppState,
@@ -292,6 +301,61 @@ const git = {
     .route({ summary: "The unified diff of one file in a scope (see git.changes)." })
     .input(z.object({ workspaceId, scope: DiffScope, path: z.string(), agentId: z.string().optional() }))
     .output(z.object({ patch: z.string(), truncated: z.boolean() })),
+  fileAction: oc
+    .route({
+      summary:
+        "Change one file's git state in a workspace's working tree (a file git.changes lists in scope working): stage (git add), unstage (the edits stay in the file), discardUnstaged (drop edits that aren't staged; the staged version stays), deleteUntracked (remove an untracked file), markResolved (stage a conflicted file once its conflict markers are gone). Pass the file's path, oldPath for a rename, and the stamp git.changes gave it: if the file changed since, nothing happens and the call fails with CONFLICT (list again, then retry). Returns the paths git ran on and the new working-scope list.",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        action: FileAction,
+        path: SeenFile.shape.path,
+        oldPath: SeenFile.shape.oldPath,
+        stamp: SeenFile.shape.stamp,
+      }),
+    )
+    .output(z.object({ paths: z.array(z.string()), changes: Changes })),
+  bulkAction: oc
+    .route({
+      summary:
+        "A file action for every file at once: stageAll (every unstaged and untracked file), unstageAll, discardAllUnstaged (staged versions stay), deleteAllUntracked. Conflicted files are left alone. `files` are the rows of the working-scope list you acted on (path, oldPath, stamp): if the action would touch a file that isn't among them or that changed since, nothing happens and the call fails with CONFLICT.",
+    })
+    .input(z.object({ workspaceId, action: BulkAction, files: z.array(SeenFile).max(5000) }))
+    .output(z.object({ paths: z.array(z.string()), changes: Changes })),
+  log: oc
+    .route({
+      summary:
+        "A workspace's commit history: commits reachable from HEAD (the current branch), newest first, `limit` (default 50) at a time. Pass nextCursor back as `cursor` for the next page; a cursor keeps to the history it started from even if the branch moves.",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        cursor: z.string().max(200).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .output(CommitPage),
+  commit: oc
+    .route({
+      summary:
+        "One commit of a workspace's repository: full message, author and committer, dates, parents, and the files it changed with line counts. A normal commit is compared with its parent, a root commit with the empty tree, a merge commit with its first parent (baseLabel says which).",
+    })
+    .input(z.object({ workspaceId, sha: z.string().describe("A commit id (full or abbreviated hex).") }))
+    .output(CommitChanges),
+  commitDiff: oc
+    .route({
+      summary: "The unified diff of one file in a commit (compared as git.commit does), cut at 512 KB.",
+    })
+    .input(z.object({ workspaceId, sha: z.string(), path: z.string() }))
+    .output(z.object({ patch: z.string(), truncated: z.boolean() })),
+  pullRequest: oc
+    .route({
+      summary:
+        "The GitHub pull request of a workspace's current branch, read with the GitHub CLI where the server runs (gh pr view): number, title, state (open, draft, merged, closed), source and target branch, checks, review decision. Read-only. `state` says when there is none and why (detached HEAD, no remote, not GitHub, gh missing or signed out, an error). Answers are cached for a minute; `refresh` asks gh again.",
+    })
+    .input(z.object({ workspaceId, refresh: z.boolean().optional() }))
+    .output(PullRequestStatus),
 };
 
 const files = {
@@ -302,6 +366,26 @@ const files = {
     })
     .input(z.object({ file: z.file().max(25 * 1024 * 1024) }))
     .output(z.object({ path: z.string(), name: z.string(), size: z.number(), type: z.string() })),
+  search: oc
+    .route({
+      summary:
+        "Search a workspace's checkout: file paths containing every word of the query, and lines containing the query as a fixed string (case-insensitive unless it has an uppercase letter). Tracked and untracked files, .gitignore honored, binary files skipped. At most 200 of each; namesTruncated and linesTruncated say when there were more.",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        query: z.string().min(1).max(200),
+        kind: SearchKind.default("all").describe("names, content, or all (both)."),
+      }),
+    )
+    .output(SearchResult),
+  read: oc
+    .route({
+      summary:
+        "A text file of a workspace's checkout, by its path relative to the checkout's top (as git.changes and files.search give it). Refuses binary files, directories, and anything outside the checkout or inside .git; stops at 1 MiB (truncated).",
+    })
+    .input(z.object({ workspaceId, path: z.string().min(1).max(4096) }))
+    .output(FileText),
 };
 
 const devices = {
