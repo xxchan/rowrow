@@ -20,7 +20,7 @@ import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
-import { resolveSetup } from "../lib/new-agent-setup.ts";
+import { resolveSetup } from "../../shared/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";

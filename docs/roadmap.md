@@ -29,6 +29,11 @@ file when something lands.
 - **"A newer rowrow is out" banner** (D-025): the server asks npm twice a day and every
   client shows the command that updates this install; off in Settings.
 
+- **The iOS app** (D-026, D-027, D-028, [ios.md](ios.md)): a native SwiftUI app built for the
+  phone's loop (be told, triage, read one answer, reply, next), notifications with Reply and
+  Mark as Seen through APNs, sealed so Apple reads nothing, and the server's own folds in
+  JavaScriptCore.
+
 ## Parked
 
 - **Permission prompts from the phone** (D-022): agents run with prompts off, by design.
@@ -46,6 +51,13 @@ file when something lands.
 5. **Notification preferences and per-agent mute.**
 6. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
+
+## The iOS app, next
+
+1. Verify the notification service extension on a device with a real APNs key.
+2. App Intents: "start a rowrow agent" from Siri, Shortcuts and the Action button.
+3. An inbox across every paired server; a split view on iPad.
+4. Widgets and Live Activities, content-free (PRINCIPLES.md, product 7): counts, not names.
 
 ## Later (P2)
 

@@ -1,7 +1,8 @@
 // Devices and their credentials (docs/decisions.md, D-009). A device is one signed-in
-// browser or CLI. Its token is shown once and stored only as a SHA-256 hash. Browsers get
-// one by opening a one-time login link. The local CLI and the agents rowrow runs get
-// tokens that rotate at every server start (written to server.json and the agents' env).
+// browser, app or CLI. Its token is shown once and stored only as a SHA-256 hash. Browsers
+// get one by opening a one-time login link; the iOS app trades the same link's code for a
+// bearer token (D-026). The local CLI and the agents rowrow runs get tokens that rotate at
+// every server start (written to server.json and the agents' env).
 import { createHash, randomBytes } from "node:crypto";
 import os from "node:os";
 import { newId } from "../../shared/ids.ts";
@@ -9,16 +10,18 @@ import type { Device } from "../../shared/schemas.ts";
 import type { Db } from "../store/db.ts";
 import { log } from "../telemetry/log.ts";
 
+export type DeviceKind = "browser" | "app" | "cli";
+
 export interface DeviceRecord {
   readonly id: string;
   readonly name: string;
-  readonly kind: "browser" | "cli";
+  readonly kind: DeviceKind;
 }
 
 interface Row {
   id: string;
   name: string;
-  kind: "browser" | "cli";
+  kind: DeviceKind;
   token_hash: string;
   created_at: number;
   last_seen_at: number | null;
@@ -38,7 +41,7 @@ export class Devices {
     this.db = db;
   }
 
-  private mint(name: string, kind: "browser" | "cli"): { device: DeviceRecord; token: string } {
+  private mint(name: string, kind: DeviceKind): { device: DeviceRecord; token: string } {
     const token = `rr_${randomBytes(32).toString("base64url")}`;
     const device: DeviceRecord = { id: newId("dev"), name, kind };
     this.db.run(
@@ -112,10 +115,11 @@ export class Devices {
   revoke(id: string): void {
     this.db.run("update devices set revoked_at = ? where id = ? and revoked_at is null", Date.now(), id);
     this.db.run("delete from push_subscriptions where device_id = ?", id);
+    this.db.run("delete from apns_tokens where device_id = ?", id);
     log.info("auth.device.revoked", { device: id });
   }
 
-  /** A one-time code that signs one browser in. */
+  /** A one-time code that signs one browser or app in. */
   createLoginCode(name?: string): { code: string; expiresAt: number } {
     const code = randomBytes(18).toString("base64url");
     const expiresAt = Date.now() + LINK_TTL_MS;
@@ -131,8 +135,16 @@ export class Devices {
     return { code, expiresAt };
   }
 
-  /** Redeem a login code: a new browser device, or null when the code is unknown, used or expired. */
-  redeem(code: string, userAgent: string | undefined): { device: DeviceRecord; token: string } | null {
+  /**
+   * Redeem a login code: a new device (a browser, unless an app redeems it), or null when the
+   * code is unknown, used or expired. The name given when the link was made wins over the
+   * app's own and the browser's.
+   */
+  redeem(
+    code: string,
+    userAgent: string | undefined,
+    as: { readonly kind: "browser" | "app"; readonly name?: string } = { kind: "browser" },
+  ): { device: DeviceRecord; token: string } | null {
     const row = this.db.get<{ name: string | null; expires_at: number; used_at: number | null }>(
       "select name, expires_at, used_at from login_links where code_hash = ?",
       hash(code),
@@ -144,7 +156,7 @@ export class Devices {
       return null;
     }
     this.db.run("update login_links set used_at = ? where code_hash = ?", Date.now(), hash(code));
-    return this.mint(row.name ?? describeBrowser(userAgent), "browser");
+    return this.mint(row.name ?? as.name ?? describeBrowser(userAgent), as.kind);
   }
 }
 

@@ -1,7 +1,8 @@
 // Who is looking at what (docs/architecture.md, "Attention and notifications"). Each live
-// browser connection reports its route, the agent it shows, and whether the page is
-// visible and focused. Used to hold back notifications for what you're already looking at,
-// and shown in `rowrow status`.
+// connection reports its route, the agent it shows, and whether the page is visible and
+// focused: a browser's WebSocket, or the iOS app's state.watch stream over HTTP (named by
+// the app, D-026). Used to hold back notifications for what you're already looking at, and
+// shown in `rowrow status`.
 
 export interface ConnectionPresence {
   readonly id: string;
@@ -17,8 +18,8 @@ export interface ConnectionPresence {
 export class Presence {
   private readonly connections = new Map<string, ConnectionPresence>();
 
-  open(id: string, deviceId: string, deviceName: string): void {
-    this.connections.set(id, {
+  open(id: string, deviceId: string, deviceName: string): ConnectionPresence {
+    const connection: ConnectionPresence = {
       id,
       deviceId,
       deviceName,
@@ -27,7 +28,9 @@ export class Presence {
       agentId: null,
       visible: false,
       focused: false,
-    });
+    };
+    this.connections.set(id, connection);
+    return connection;
   }
 
   update(
@@ -39,8 +42,9 @@ export class Presence {
     Object.assign(connection, update);
   }
 
-  close(id: string): void {
-    this.connections.delete(id);
+  /** Forget a connection; with `only`, just if it is still that one (a stream that ended late). */
+  close(id: string, only?: ConnectionPresence): void {
+    if (only === undefined || this.connections.get(id) === only) this.connections.delete(id);
   }
 
   /** Someone has this agent on screen, in a focused window. */

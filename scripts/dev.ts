@@ -1,6 +1,7 @@
 // `pnpm dev`: a rowrow server under the `dev` profile (with the scripted demo runtime, no
 // tokens), and Vite's dev server in front of it with hot reload. Prints a sign-in link for
-// the Vite address. Your own `rowrow serve` (profile `default`) is untouched.
+// the Vite address. Your own `rowrow serve` (profile `default`) is untouched. The kit the iOS
+// app runs (dist/kit/kit.js) is rebuilt on every change, so the app picks changes up too.
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -55,6 +56,12 @@ start("vite", path.join(root, "node_modules/.bin/vite"), [], {
   ROWROW_DEV_BACKEND: `http://127.0.0.1:${backendPort}`,
   ROWROW_WEB_PORT: String(webPort),
 });
+start(
+  "kit",
+  path.join(root, "node_modules/.bin/vite"),
+  ["build", "--watch", "--config", "vite.kit.config.ts", "--logLevel", "warn"],
+  {},
+);
 
 // Once the server is up, mint a sign-in link for the Vite address.
 const serverFile = profilePaths(rowrowHome(), "dev").serverFile;

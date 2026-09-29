@@ -28,6 +28,7 @@
   "files": [
     "lib",
     "dist/web",
+    "dist/kit",
     "!dist/web/**/*.map",
     "README.md",
     "LICENSE"
@@ -36,8 +37,9 @@
   "scripts": {
     "setup": "pnpm install",
     "dev": "node scripts/dev.ts",
-    "build": "run-p -l build:web build:node",
+    "build": "run-p -l build:web build:kit build:node",
     "build:web": "vite build",
+    "build:kit": "vite build --config vite.kit.config.ts",
     "build:node": "node --disable-warning=ExperimentalWarning scripts/build-node.ts",
     "prepack": "pnpm build",
     "start": "vite build && node src/cli/main.ts serve",
@@ -52,6 +54,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vite build && playwright test",
+    "ios:test": "swift test --package-path ios/RowrowCore",
     "test:package": "node scripts/test-package.ts",
     "shot": "node scripts/shot.ts",
     "check": "run-p -l typecheck lint format:check && vitest run"

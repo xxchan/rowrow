@@ -28,6 +28,7 @@ export default defineConfig({
       "/api": backend,
       "/auth": backend,
       "/healthz": backend,
+      "/kit.js": backend,
     },
   },
 });

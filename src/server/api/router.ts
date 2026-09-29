@@ -31,6 +31,7 @@ import type { Runtimes } from "../agents/runtimes.ts";
 import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
+import type { Apns } from "../notify/apns.ts";
 import type { Presence } from "../notify/presence.ts";
 import type { Push } from "../notify/push.ts";
 import type { SettingsService } from "../settings.ts";
@@ -93,6 +94,7 @@ export interface Services {
   readonly runtimes: Runtimes;
   readonly devices: Devices;
   readonly push: Push;
+  readonly apns: Apns;
   readonly presence: Presence;
   readonly git: GitOps;
   readonly settings: SettingsService;
@@ -106,7 +108,14 @@ export interface Services {
 const QUIET = new Set(["presence.update", "telemetry.report", "agents.markSeen", "logs.query"]);
 const DEFAULT_WAIT: Attention[] = ["blocked", "done", "idle"];
 
+/** Presence of an HTTP client's state.watch stream: its own name, scoped to the device that chose it. */
+function httpConnection(deviceId: string, name: string): string {
+  return `http:${deviceId}:${name}`;
+}
+
 export function createRouter(s: Services) {
+  const pushDevices = (): Set<string> =>
+    new Set([...s.push.subscribedDevices(), ...s.apns.registeredDevices()]);
   const os = implement(contract)
     .$context<ApiContext>()
     .use(async ({ context, next, path }) => {
@@ -166,9 +175,19 @@ export function createRouter(s: Services) {
 
     state: {
       get: os.state.get.handler(() => s.state.get()),
-      watch: os.state.watch.handler(({ signal }) => {
+      watch: os.state.watch.handler(({ input, context, signal }) => {
+        // Over HTTP there is no socket to hang presence on: the stream itself is the connection.
+        const name = input?.connection;
+        const id =
+          name === undefined || context.connectionId !== undefined
+            ? null
+            : httpConnection(context.device.id, name);
+        const presence = id === null ? null : s.presence.open(id, context.device.id, context.device.name);
         let unsubscribe = (): void => undefined;
-        const ch = channel<StateMessage>(() => unsubscribe(), signal);
+        const ch = channel<StateMessage>(() => {
+          unsubscribe();
+          if (id !== null && presence !== null) s.presence.close(id, presence);
+        }, signal);
         unsubscribe = s.state.watch((message) => ch.push(message));
         return ch.iterator;
       }),
@@ -368,7 +387,7 @@ export function createRouter(s: Services) {
 
     devices: {
       whoami: os.devices.whoami.handler(({ context }) => {
-        const found = s.devices.list(context.device.id, s.push.subscribedDevices()).find((d) => d.current);
+        const found = s.devices.list(context.device.id, pushDevices()).find((d) => d.current);
         return (
           found ?? {
             id: context.device.id,
@@ -381,9 +400,7 @@ export function createRouter(s: Services) {
           }
         );
       }),
-      list: os.devices.list.handler(({ context }) =>
-        s.devices.list(context.device.id, s.push.subscribedDevices()),
-      ),
+      list: os.devices.list.handler(({ context }) => s.devices.list(context.device.id, pushDevices())),
       pair: os.devices.pair.handler(({ input }) => {
         const { code, expiresAt } = s.devices.createLoginCode(input.name);
         return { url: s.loginUrl(code), expiresAt };
@@ -403,22 +420,52 @@ export function createRouter(s: Services) {
         s.push.subscribe(context.device.id, input);
         return { ok: true as const };
       }),
-      unsubscribe: os.notify.unsubscribe.handler(({ context }) => {
-        s.push.unsubscribe(context.device.id);
+      subscribeApns: os.notify.subscribeApns.handler(({ input, context }) => {
+        s.apns.register(context.device.id, input);
         return { ok: true as const };
       }),
-      test: os.notify.test.handler(async ({ context }) => ({
-        sent: await s.push.send(
-          { title: "rowrow", body: "Notifications work on this device.", url: "/", tag: "test" },
-          () => false,
-          context.device.id,
-        ),
-      })),
+      unsubscribe: os.notify.unsubscribe.handler(({ context }) => {
+        s.push.unsubscribe(context.device.id);
+        s.apns.unregister(context.device.id);
+        return { ok: true as const };
+      }),
+      test: os.notify.test.handler(async ({ context }) => {
+        const [web, app] = await Promise.all([
+          s.push.send(
+            { title: "rowrow", body: "Notifications work on this device.", url: "/", tag: "test" },
+            () => false,
+            context.device.id,
+          ),
+          s.apns.alert(
+            {
+              title: "rowrow",
+              body: "Notifications work on this device.",
+              generic: "A test notification.",
+              thread: "test",
+            },
+            () => false,
+            context.device.id,
+          ),
+        ]);
+        return { sent: web + app };
+      }),
+      configureApns: os.notify.configureApns.handler(({ input }) => {
+        s.apns.configure(input);
+        return { keyId: input.keyId.trim(), teamId: input.teamId.trim() };
+      }),
+      removeApns: os.notify.removeApns.handler(() => {
+        s.apns.remove();
+        return { ok: true as const };
+      }),
     },
 
     presence: {
       update: os.presence.update.handler(({ input, context }) => {
-        if (context.connectionId !== undefined) s.presence.update(context.connectionId, input);
+        const { connection, ...what } = input;
+        const id =
+          context.connectionId ??
+          (connection === undefined ? undefined : httpConnection(context.device.id, connection));
+        if (id !== undefined) s.presence.update(id, what);
         return { ok: true as const };
       }),
     },

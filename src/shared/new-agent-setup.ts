@@ -1,7 +1,8 @@
 // What a new agent starts with, before you change anything: the workspace you're looking at
-// and the setup you used there last (docs/decisions.md, D-023). Pure, so it runs in tests;
-// the remembered choices are this browser's, read and written by NewAgentDialog.
-import type { AppState, Workspace } from "../../shared/schemas.ts";
+// and the setup you used there last (docs/decisions.md, D-023). Pure, so it runs in tests
+// and in the iOS app (through the kit); the remembered choices are each device's own, kept
+// by the web app's NewAgentDialog and by the iOS app.
+import type { AppState, Workspace } from "./schemas.ts";
 
 /** How to start an agent, apart from where and what to say. `null` is the runtime's default. */
 export interface AgentSetup {
@@ -12,7 +13,7 @@ export interface AgentSetup {
   readonly isolate: boolean;
 }
 
-/** What this browser remembers about starting agents. */
+/** What this device remembers about starting agents. */
 export interface NewAgentPrefs {
   readonly lastWorkspaceId: string | null;
   /** The setup last used in each workspace, keyed by the workspace (not the worktree). */

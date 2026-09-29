@@ -35,6 +35,7 @@ export const HostInfo = z.object({
   update: UpdateInfo.nullable().describe(
     "A newer rowrow is on npm (checked on start, then twice a day; off with settings.checkForUpdates). null when up to date, unknown, or not checked.",
   ),
+  apns: z.boolean().describe("Push to the iOS app works: the server has an APNs key (notify.configureApns)."),
 });
 export type HostInfo = z.infer<typeof HostInfo>;
 
@@ -202,11 +203,11 @@ export type StateMessage =
 export const Device = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(["browser", "cli"]),
+  kind: z.enum(["browser", "app", "cli"]).describe("app: the iOS app."),
   createdAt: z.number(),
   lastSeenAt: z.number().nullable(),
   current: z.boolean().describe("The device making this request."),
-  push: z.boolean().describe("Subscribed to Web Push."),
+  push: z.boolean().describe("Gets push notifications (Web Push, or APNs for the iOS app)."),
 });
 export type Device = z.infer<typeof Device>;
 

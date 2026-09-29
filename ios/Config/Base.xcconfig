@@ -1,0 +1,11 @@
+// Build settings for the rowrow iOS app (ios/README.md). The simulator needs nothing else.
+// To run on your iPhone, copy Local.xcconfig.example to Local.xcconfig (it stays out of
+// git) and set your team and a bundle id you own there.
+
+ROWROW_BUNDLE_ID = io.github.xxchan.rowrow
+ROWROW_TEAM =
+// Push notifications need a paid Apple Developer membership. With a free team, set this to
+// Config/Rowrow-NoPush.entitlements in Local.xcconfig: everything else works.
+ROWROW_ENTITLEMENTS = Config/Rowrow.entitlements
+
+#include? "Local.xcconfig"

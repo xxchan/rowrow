@@ -74,6 +74,33 @@
       }
     },
     {
+      "files": ["src/kit/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@botiverse/oar",
+                "message": "the kit runs in JavaScriptCore: import @botiverse/oar/observe",
+                "allowTypeImports": true
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*"],
+                "message": "the kit runs in JavaScriptCore: no Node built-ins"
+              },
+              {
+                "group": ["**/server/**", "**/web/**", "**/cli/**"],
+                "message": "the kit bundles src/shared, nothing else in src/"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["src/web/**"],
       "rules": {
         "no-restricted-imports": [

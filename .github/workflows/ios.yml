@@ -1,0 +1,164 @@
+# The iOS app (docs/ios.md). Every change that can affect it builds the app and runs the Swift
+# tests against a real server from this checkout. A version tag (v1.2.3), or running this
+# workflow by hand (Actions → ios → Run workflow), also uploads the app to App Store Connect
+# for TestFlight: docs/ios.md (TestFlight) lists what that needs, and docs/decisions.md
+# (D-029) says why it signs the way it does.
+name: ios
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"] # path filters don't apply to tags: every version tag uploads
+    paths:
+      - "ios/**"
+      - "src/**"
+      - "!src/web/**"
+      - package.json
+      - pnpm-lock.yaml
+      - vite.kit.config.ts
+      - .github/workflows/ios.yml
+  pull_request:
+    paths:
+      - "ios/**"
+      - "src/**"
+      - "!src/web/**"
+      - package.json
+      - pnpm-lock.yaml
+      - vite.kit.config.ts
+      - .github/workflows/ios.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ios-${{ github.event_name }}-${{ github.ref }}
+  # A newer push replaces a check in progress; an upload always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) }}
+
+jobs:
+  check:
+    # RowrowCore's tests (swift test), which start a real server from this checkout (scripted
+    # runtime, throwaway home), and the app, built for the simulator.
+    runs-on: xcode-27 # GitHub's macOS image with Xcode 27; the app needs Xcode 26 or later
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: xcodebuild -version
+      - run: pnpm ios:test
+      - name: Build the app for the simulator
+        run: >-
+          xcodebuild build -quiet -project ios/Rowrow.xcodeproj -scheme Rowrow
+          -destination 'generic/platform=iOS Simulator'
+
+  testflight:
+    # Archives the app and uploads it to App Store Connect, where it becomes a TestFlight
+    # build. It holds a signing certificate and an API key, so it runs nobody's code but
+    # Xcode's: no pnpm install.
+    needs: check
+    # By hand, or for a version tag once the repository has an Apple team (IOS_TEAM_ID), so
+    # releases from forks and from repositories without one don't fail.
+    if: github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/v') && vars.IOS_TEAM_ID != '')
+    runs-on: xcode-27
+    timeout-minutes: 45
+    # Keep the secrets here to limit which refs can use them (Settings → Environments).
+    environment: testflight
+    permissions:
+      contents: read
+    env:
+      TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+      BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID || 'io.github.xxchan.rowrow' }}
+    steps:
+      - name: Everything TestFlight needs is set
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          CERTIFICATE: ${{ secrets.IOS_SIGNING_CERTIFICATE }}
+        run: |
+          missing=""
+          [ -n "$TEAM_ID" ] || missing="$missing variable IOS_TEAM_ID,"
+          [ -n "$KEY_ID" ] || missing="$missing secret APP_STORE_CONNECT_KEY_ID,"
+          [ -n "$ISSUER_ID" ] || missing="$missing secret APP_STORE_CONNECT_ISSUER_ID,"
+          [ -n "$KEY" ] || missing="$missing secret APP_STORE_CONNECT_KEY,"
+          [ -n "$CERTIFICATE" ] || missing="$missing secret IOS_SIGNING_CERTIFICATE,"
+          if [ -n "$missing" ]; then
+            echo "::error::TestFlight needs the${missing%,} (docs/ios.md, TestFlight)"
+            exit 1
+          fi
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: xcodebuild -version
+      - name: Version and paths
+        run: |
+          # The package's version without a prerelease suffix (an app's version is numbers
+          # only), and a build number that only grows: this workflow's run and attempt.
+          version=$(node -p 'require("./package.json").version')
+          echo "MARKETING_VERSION=${version%%-*}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "rowrow ${version%%-*} ($GITHUB_RUN_NUMBER.$GITHUB_RUN_ATTEMPT) for $BUNDLE_ID"
+          echo "KEYCHAIN=$RUNNER_TEMP/signing.keychain-db" >> "$GITHUB_ENV"
+          echo "API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          echo "ARCHIVE=$RUNNER_TEMP/Rowrow.xcarchive" >> "$GITHUB_ENV"
+      - name: The development certificate, in a keychain of its own
+        env:
+          CERTIFICATE: ${{ secrets.IOS_SIGNING_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.IOS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          password=$(openssl rand -base64 32)
+          security create-keychain -p "$password" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$password" "$KEYCHAIN"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+      - name: The App Store Connect API key
+        env:
+          KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+        run: |
+          # The .p8 file's text, or the file in base64.
+          umask 077
+          case "$KEY" in
+            *"BEGIN PRIVATE KEY"*) printf '%s\n' "$KEY" > "$API_KEY" ;;
+            *) printf '%s' "$KEY" | base64 --decode > "$API_KEY" ;;
+          esac
+      - name: Archive
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        # Automatic signing, as in Xcode: signed for development with the certificate above;
+        # Xcode registers the app ids and makes the profiles through the API key.
+        run: >-
+          xcodebuild archive -quiet -project ios/Rowrow.xcodeproj -scheme Rowrow -configuration Release
+          -destination 'generic/platform=iOS' -archivePath "$ARCHIVE"
+          -allowProvisioningUpdates -authenticationKeyPath "$API_KEY"
+          -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+          ROWROW_TEAM="$TEAM_ID" ROWROW_BUNDLE_ID="$BUNDLE_ID"
+          MARKETING_VERSION="$MARKETING_VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+      - name: Upload to App Store Connect
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        # Re-signed for distribution with a cloud-managed certificate (Apple keeps its key)
+        # and uploaded (ios/Config/ExportOptions.plist); TestFlight lists the build once App
+        # Store Connect has processed it.
+        run: >-
+          xcodebuild -exportArchive -archivePath "$ARCHIVE"
+          -exportOptionsPlist ios/Config/ExportOptions.plist -exportPath "$RUNNER_TEMP/export"
+          -allowProvisioningUpdates -authenticationKeyPath "$API_KEY"
+          -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID"
+      - name: Clean up
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2> /dev/null || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8"

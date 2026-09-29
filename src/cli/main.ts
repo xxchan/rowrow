@@ -26,6 +26,12 @@ Server
   rowrow pair [name]               a one-time sign-in link for another device (show it as a QR code)
   rowrow status                    server, live runs, connected clients, recent problems
 
+Push notifications
+  rowrow push                      which devices get notifications; whether the iOS app can
+  rowrow push apns <AuthKey_ID.p8> --key-id ID --team-id ID
+                                   let the server push to the iOS app you built (your APNs key)
+  rowrow push apns --off           forget the APNs key
+
 Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service install [serve flags…]   launchd on macOS, systemd --user on Linux
   rowrow service status|restart|uninstall
@@ -119,6 +125,9 @@ async function main(argv: string[]): Promise<void> {
       content: { type: "boolean" },
       refresh: { type: "boolean" },
       attach: { type: "string", multiple: true },
+      "key-id": { type: "string" },
+      "team-id": { type: "string" },
+      off: { type: "boolean" },
     },
   });
   const str = (name: string): string | undefined => {
@@ -215,6 +224,45 @@ async function main(argv: string[]): Promise<void> {
           link,
           () =>
             `${link.url}\n\nOpen it on the device you want to sign in (it works once, until ${new Date(link.expiresAt).toLocaleTimeString()}).`,
+        );
+        return;
+      }
+      case "push": {
+        const [sub] = rest;
+        if (sub === "apns") {
+          if (bool("off")) {
+            await client.notify.removeApns();
+            console.log("The APNs key is gone: the server no longer pushes to the iOS app.");
+            return;
+          }
+          const file = rest[1];
+          const keyId = str("key-id");
+          const teamId = str("team-id");
+          if (file === undefined || keyId === undefined || teamId === undefined)
+            throw new Error(
+              "usage: rowrow push apns <AuthKey_ID.p8> --key-id ID --team-id ID (from developer.apple.com → Keys)",
+            );
+          const saved = await client.notify.configureApns({
+            key: fs.readFileSync(file, "utf8"),
+            keyId,
+            teamId,
+          });
+          out(
+            saved,
+            () =>
+              `APNs key ${saved.keyId} (team ${saved.teamId}) saved: the iOS app gets notifications once you allow them in it.\nThey go through Apple's push service, which sees only that an agent finished or needs you; what they say is encrypted for each phone.`,
+          );
+          return;
+        }
+        if (sub !== undefined) throw new Error(`unknown push command "${sub}" (apns)`);
+        const [{ state }, devices] = await Promise.all([client.state.get(), client.devices.list()]);
+        out({ apns: state.host.apns, webPush: state.host.pushKey !== null, devices }, () =>
+          [
+            state.host.apns
+              ? "iOS app: the server has an APNs key."
+              : "iOS app: no APNs key yet (rowrow push apns <AuthKey_ID.p8> --key-id ID --team-id ID).",
+            ...devices.map((d) => `  ${d.push ? "●" : "○"} ${d.name} (${d.kind})`),
+          ].join("\n"),
         );
         return;
       }

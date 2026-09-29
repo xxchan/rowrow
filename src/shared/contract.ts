@@ -40,6 +40,11 @@ import {
 } from "./schemas.ts";
 
 const ok = z.object({ ok: z.literal(true) });
+/** A name an HTTP client gives its state.watch stream, so presence.update can describe it. */
+const connection = z
+  .string()
+  .regex(/^[\w-]{8,64}$/)
+  .describe("A name you choose (8 to 64 letters, digits, - or _), new for every state.watch stream.");
 const agentId = z.string().describe("Agent id (ag_…).");
 const workspaceId = z.string().describe("Workspace id (ws_…).");
 
@@ -86,7 +91,11 @@ const state = {
     })
     .output(z.object({ version: z.number(), state: z.custom<AppState>() })),
   watch: oc
-    .route({ summary: "The app state as a stream: a snapshot, then immer patches as it changes." })
+    .route({
+      summary:
+        "The app state as a stream: a snapshot, then immer patches as it changes. A client without a WebSocket (the iOS app, over HTTP) passes `connection`: while this stream is open, presence.update with the same name says what it shows.",
+    })
+    .input(z.object({ connection: connection.optional() }).optional())
     .output(eventIterator(z.custom<StateMessage>())),
 };
 
@@ -442,17 +451,58 @@ const notify = {
       }),
     )
     .output(ok),
-  unsubscribe: oc.route({ summary: "Stop Web Push for this device." }).output(ok),
+  subscribeApns: oc
+    .route({
+      summary:
+        "Send this device (the iOS app) push notifications through Apple's push service: the token iOS gave the app, its bundle id (the APNs topic), Apple's environment (sandbox for builds from Xcode), and the app's own key, which what notifications say is encrypted with. Works once the server has an APNs key (notify.configureApns; app.info says `apns`).",
+    })
+    .input(
+      z.object({
+        token: z
+          .string()
+          .regex(/^[0-9a-fA-F]{32,400}$/)
+          .describe("The device token, hex."),
+        topic: z
+          .string()
+          .regex(/^[\w.-]{1,200}$/)
+          .describe("The app's bundle id."),
+        environment: z.enum(["sandbox", "production"]),
+        key: z
+          .string()
+          .regex(/^[A-Za-z0-9+/]{43}=$/)
+          .describe(
+            "A 256-bit key the app keeps (base64). What a notification says is encrypted with it (AES-256-GCM): Apple's push service carries nothing it can read.",
+          ),
+      }),
+    )
+    .output(ok),
+  unsubscribe: oc
+    .route({ summary: "Stop push notifications for this device (Web Push and the iOS app's)." })
+    .output(ok),
   test: oc
     .route({ summary: "Send a test notification to this device." })
     .output(z.object({ sent: z.number() })),
+  configureApns: oc
+    .route({
+      summary:
+        "Give the server your APNs key, so it can push to the iOS app you built (Apple takes pushes for an app only from its developer): the .p8 file's contents, its key id and your team id, from developer.apple.com → Certificates, IDs & Profiles → Keys. Stored in the profile (apns.json, mode 0600). Pushes then go through Apple's push service, which sees only that an agent finished or needs you: what they say is encrypted for each phone (notify.subscribeApns). `rowrow push apns <file.p8> --key-id … --team-id …` does this.",
+    })
+    .input(
+      z.object({
+        key: z.string().min(1).max(10_000).describe("The .p8 file's contents (PEM)."),
+        keyId: z.string().describe("The key's id, 10 characters."),
+        teamId: z.string().describe("Your team id, 10 characters."),
+      }),
+    )
+    .output(z.object({ keyId: z.string(), teamId: z.string() })),
+  removeApns: oc.route({ summary: "Forget the APNs key: no more pushes to the iOS app." }).output(ok),
 };
 
 const presence = {
   update: oc
     .route({
       summary:
-        "What this connection is showing (route, agent) and whether the page is visible and focused. Suppresses notifications for what you're looking at.",
+        "What this connection is showing (route, agent) and whether the page is visible and focused. Suppresses notifications for what you're looking at. Over a WebSocket it describes that socket; over HTTP it describes the state.watch stream opened with the same `connection`.",
     })
     .input(
       z.object({
@@ -460,6 +510,7 @@ const presence = {
         agentId: z.string().nullable(),
         visible: z.boolean(),
         focused: z.boolean(),
+        connection: connection.optional(),
       }),
     )
     .output(ok),

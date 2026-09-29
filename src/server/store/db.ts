@@ -91,6 +91,18 @@ const MIGRATIONS: readonly string[] = [
     updated_at integer not null
   );
   `,
+  // 5: the iOS app's push tokens (APNs, D-028): one per device, with Apple's environment, the
+  // app's bundle id, and the device's key that what notifications say is encrypted with
+  `
+  create table apns_tokens (
+    device_id text primary key,
+    token text not null,
+    environment text not null,
+    topic text not null,
+    key text,
+    created_at integer not null
+  );
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

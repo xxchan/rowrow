@@ -2,7 +2,7 @@
 // you last used there.
 import { describe, expect, test } from "vitest";
 import type { AppState, Workspace } from "../src/shared/schemas.ts";
-import { NO_PREFS, parsePrefs, remember, resolveSetup } from "../src/web/lib/new-agent-setup.ts";
+import { NO_PREFS, parsePrefs, remember, resolveSetup } from "../src/shared/new-agent-setup.ts";
 
 const git = { branch: "main" } as unknown as Workspace["git"];
 

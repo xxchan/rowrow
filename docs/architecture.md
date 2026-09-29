@@ -7,24 +7,25 @@ are in [decisions.md](decisions.md).
 ## What it is
 
 rowrow runs many coding agents (Claude Code, Codex, Grok, Kimi, Pi) in parallel on your
-machine and lets you steer them from any browser, including your phone. It borrows
+machine and lets you steer them from any browser, including your phone, or from the iOS
+app (docs/ios.md). It borrows
 [herdr](https://herdr.dev)'s model of a long-lived server that owns the agents,
 workspaces, and attention-first status. It drops the terminal: agents are driven through
 their programmatic interfaces via [oar](https://github.com/botiverse/oar), so status is
 exact, transcripts are structured, and the whole thing works over a phone's network.
 
 ```
- browsers (desktop, phone PWA)          rowrow CLI, agents, scripts
-        │  WebSocket (oRPC)                   │  HTTP (oRPC / OpenAPI)
-        └───────────────┬─────────────────────┘
-                        ▼
+ browsers (desktop, phone PWA)     iOS app                 rowrow CLI, agents, scripts
+        │  WebSocket (oRPC)          │  HTTP + SSE (OpenAPI)    │  HTTP (oRPC / OpenAPI)
+        └────────────────────────────┼──────────────────────────┘
+                                     ▼
  ┌─ rowrow server (Node 24, one per machine and profile) ───────────────────────┐
  │  api/        contract → router; auth, trace and log middleware; ws + http     │
  │  agents/     one actor per agent: runs (oar sessions), input, log append      │
  │  store/      SQLite: workspaces, agents, entries (the logs), devices, seen    │
  │  state/      AppState (immer) → snapshot + patches to every client            │
  │  git/        worktrees, hooks, diffs, last-turn snapshots                     │
- │  notify/     attention transitions → web push                                 │
+ │  notify/     attention transitions → Web Push, APNs (sealed for the device)   │
  │  telemetry/  JSONL logs, trace context, ring buffer, client error intake      │
  └──────────────────────────────┬────────────────────────────────────────────────┘
                                 ▼
@@ -42,7 +43,10 @@ on the user's behalf:
 - the agent CLIs, which talk to their model providers exactly as they do in a terminal;
 - `git` and `gh`, for fetches, worktrees and pull request status;
 - Web Push, only to devices that turned notifications on: each notification goes to that
-  browser's push service (Apple, Google, Mozilla), encrypted for the device.
+  browser's push service (Apple, Google, Mozilla), encrypted for the device;
+- APNs, only once you gave the server your APNs key and only to iOS apps that turned
+  notifications on: Apple gets a generic alert, and what it says goes sealed with the
+  app's own key (D-028).
 
 No telemetry, update checks or accounts. Logs, including the browser's, stay in
 `~/.rowrow`.
@@ -142,7 +146,9 @@ Status vocabulary, in priority order (a workspace shows its highest):
   seen. A client reports it only when the agent's view is visible in a focused window.
 - **Notifications** fire on entering `blocked` and on a completion, after a short delay
   and a re-check (no flapping), and only if no focused client is looking at that agent.
-  Channels: in-app toasts, then Web Push to devices that subscribed.
+  Channels: in-app toasts (the iOS app: its own banners), then Web Push and APNs to devices
+  that subscribed and have no focused window. APNs pushes carry Reply and Mark as Seen
+  actions and the badge; seeing an agent anywhere clears its notifications on every phone.
 
 ## Replicating state to clients
 
@@ -166,8 +172,13 @@ it once. It is served two ways:
 
 - **WebSocket** (`/rpc`) for browsers: one multiplexed, compressed connection that
   carries every call and subscription.
-- **HTTP** (`/api/*`, OpenAPI at `/api/openapi.json`) for the CLI, agents and `curl`.
-  Streams arrive as server-sent events.
+- **HTTP** (`/api/*`, OpenAPI at `/api/openapi.json`) for the CLI, agents, `curl` and the
+  iOS app. Streams arrive as server-sent events. An HTTP client names its `state.watch`
+  stream (`connection`) so `presence.update` can describe it (D-026).
+
+Besides the procedures, the server serves the kit at `/kit.js`: `src/shared`'s folds bundled
+for JavaScriptCore, which the iOS app runs to read the agent log exactly as the web app does
+(D-027).
 
 Every call passes the same middleware: authenticate, adopt or create a trace id, log
 `api.call` with duration and outcome, and turn errors into typed `ORPCError`s whose
@@ -179,10 +190,11 @@ message says what to do next.
   serve HTTPS directly, or put it behind `tailscale serve` or a tunnel. Service workers
   and Web Push need HTTPS (or localhost).
 - Every request needs a device credential, even from loopback: a tunnel or proxy makes
-  remote requests look local. Browsers hold an HttpOnly session cookie, and the CLI holds
-  a bearer token. Tokens are stored hashed.
+  remote requests look local. Browsers hold an HttpOnly session cookie; the CLI and the
+  iOS app hold a bearer token (the app in the Keychain). Tokens are stored hashed.
 - New browsers sign in with a one-time link: `rowrow open` mints one for this machine,
-  and **Pair a device** shows one as a QR code for your phone. There are no passwords.
+  and **Pair a device** shows one as a QR code for your phone. The iOS app scans the same
+  code and trades it for a token (`POST /auth/token`). There are no passwords.
 - WebSocket upgrades must come from the server's own origin.
 
 ## Workspaces and git
@@ -248,6 +260,7 @@ message says what to do next.
 | Integration | the whole server in-process on a temp profile with a scripted runtime, driven through the real oRPC client over HTTP and WebSocket | `pnpm test` |
 | End to end | the built web app in Chromium against a real server with the scripted runtime; screenshots in `test-results/` | `pnpm test:e2e` |
 | Package | the npm tarball's contents, then the tarball installed with npm in a throwaway prefix and run: serve, status, the web app, a scripted agent | `pnpm test:package` |
+| iOS core | the Swift package: JSON patches, sealed pushes, and a real server from the checkout driven through the Swift client (pairing, state, the kit, transcripts, diffs, uploads) | `pnpm ios:test` |
 
 ## Repository layout
 
@@ -257,6 +270,8 @@ message says what to do next.
 | `src/server/` | The server. `main.ts` is the composition root. |
 | `src/cli/` | The `rowrow` CLI. |
 | `src/web/` | The web app (React, Tailwind, shadcn/ui). Talks to the server only through the contract. |
+| `src/kit/` | The kit: `src/shared`'s folds as one script for JavaScriptCore (D-027). |
+| `ios/` | The iOS app (SwiftUI), its notification extension, and `RowrowCore` (docs/ios.md). |
 | `test/` | Integration and end-to-end tests, fixtures, the scripted runtime. |
 | `scripts/` | Development tools: dev runner, screenshots, the npm package's build (`build-node.ts`) and its test (`test-package.ts`). |
-| `lib/`, `dist/web/` | Build output, not in git: the server and CLI as JavaScript, and the web app; the npm package ships both (D-018). |
+| `lib/`, `dist/web/`, `dist/kit/` | Build output, not in git: the server and CLI as JavaScript, the web app, and the kit; the npm package ships them (D-018). |

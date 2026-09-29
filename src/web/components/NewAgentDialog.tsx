@@ -34,7 +34,7 @@ import type { ModelInfo } from "../../shared/schemas.ts";
 import { attachFiles, clearFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
 import { defaultNote, versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
-import { resolveSetup, type NewAgentContext } from "../lib/new-agent-setup.ts";
+import { resolveSetup, type NewAgentContext } from "../../shared/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { useApp, useClient, usePendingAttachments } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
