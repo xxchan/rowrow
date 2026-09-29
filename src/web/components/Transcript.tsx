@@ -4,13 +4,7 @@
 // "agent"): selection comments quote only what the agent wrote (SelectionComment).
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import {
-  classifyTool,
-  type ViewMessage,
-  type ViewNotice,
-  type ViewPart,
-  type ViewSection,
-} from "@botiverse/oar/observe";
+import { classifyTool, type ViewMessage, type ViewPart, type ViewSection } from "@botiverse/oar/observe";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
@@ -20,6 +14,7 @@ import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import type { InputBlock, NoticeBlock, RunBlock, Timeline, TimelineBlock } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
+import { endText, noticeText } from "../../shared/transcript-model.ts";
 
 export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
   return (
@@ -90,23 +85,6 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
       )}
     </>
   );
-}
-
-function endText(reason: string, exitCode: number | null | undefined): string {
-  switch (reason) {
-    case "stopped":
-      return "Stopped. The next message resumes the conversation.";
-    case "archived":
-      return "Archived.";
-    case "shutdown":
-      return "rowrow shut down; the next message resumes the conversation.";
-    case "crashed":
-      return "rowrow stopped unexpectedly while this was running.";
-    case "exited":
-      return `The agent process exited${exitCode === null || exitCode === undefined ? "" : ` (code ${exitCode})`}.`;
-    default:
-      return `Run ended: ${reason}`;
-  }
 }
 
 const Message = memo(function Message({
@@ -466,24 +444,5 @@ function parse(input: string | undefined): Record<string, unknown> | null {
       : null;
   } catch {
     return null;
-  }
-}
-
-function noticeText(notice: ViewNotice): string {
-  switch (notice.cause) {
-    case "compaction_started":
-      return "Compacting the conversation…";
-    case "compaction_ended":
-      return notice.outcome === "completed"
-        ? "Conversation compacted"
-        : `Compaction ${notice.outcome}${notice.reason === undefined ? "" : `: ${notice.reason}`}`;
-    case "retry":
-      return `Retrying (attempt ${notice.attempt}${notice.maxAttempts === undefined ? "" : ` of ${notice.maxAttempts}`})${notice.reason === undefined ? "" : `: ${notice.reason}`}`;
-    case "control_rejected":
-      return `${notice.action} was refused: ${notice.reason}`;
-    case "child_turn_ended":
-      return `A sub-agent finished (${notice.outcome.kind})`;
-    case "exited":
-      return `The agent process exited${notice.code === null ? "" : ` (code ${notice.code})`}`;
   }
 }

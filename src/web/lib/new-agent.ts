@@ -10,7 +10,7 @@ import {
   type AgentSetup,
   type NewAgentContext,
   type NewAgentPrefs,
-} from "./new-agent-setup.ts";
+} from "../../shared/new-agent-setup.ts";
 import type { Route } from "./router.ts";
 import { report } from "./telemetry.ts";
 
