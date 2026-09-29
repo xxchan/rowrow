@@ -21,6 +21,8 @@ export interface GitOpsDeps {
   readonly worktreesRoot: string;
   /** Stop the live runs of agents in a workspace (before its checkout is removed). */
   readonly stopAgentsIn: (workspaceId: string) => Promise<void>;
+  /** An agent's title, to say whose turn the "last turn" baseline is. */
+  readonly agentTitle: (agentId: string) => string | null;
 }
 
 /** How long a turn may wait for its baseline before starting without one. */
@@ -132,8 +134,9 @@ export function createGitOps(
 
     async changes(workspaceId, scope: DiffScope): Promise<Changes> {
       const ws = gitWorkspace(workspaceId);
+      let changes: Changes;
       try {
-        return await listChanges({
+        changes = await listChanges({
           dir: ws.path,
           scope,
           turnBaseline: baselineOf(workspaceId),
@@ -143,6 +146,19 @@ export function createGitOps(
       } catch (error) {
         throw new UserError(error instanceof Error ? error.message : String(error));
       }
+      if (scope !== "turn" || changes.base === null) return changes;
+      // Say whose turn and when: the baseline belongs to the workspace, and any agent there may have started it.
+      const snapshot = db.get<{ agent_id: string | null; taken_at: number }>(
+        "select agent_id, taken_at from turn_snapshots where workspace_id = ?",
+        workspaceId,
+      );
+      if (snapshot === undefined) return changes;
+      const who = snapshot.agent_id === null ? null : deps.agentTitle(snapshot.agent_id);
+      const when = new Date(snapshot.taken_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return {
+        ...changes,
+        baseLabel: `the start of the latest turn${who === null ? "" : ` (${who})`}, ${when}`,
+      };
     },
 
     async diff(workspaceId, scope, path) {

@@ -13,14 +13,34 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ChangedFile, Changes, DiffScope } from "../../shared/schemas.ts";
-import { useApp, useClient } from "../lib/store.ts";
+import {
+  addAnnotation,
+  annotationsFor,
+  compileFeedback,
+  removeAnnotations,
+  useAnnotations,
+  type Annotation,
+} from "../lib/annotations.ts";
+import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { DiffView } from "./DiffView.tsx";
 import { ErrorText } from "./ErrorText.tsx";
 
 const SCOPE_KEY = "rowrow.changesScope";
 
-export function ChangesView({ workspaceId }: { workspaceId: string }) {
+/**
+ * `agentId`: whose composer review feedback goes to ("Add to message"); without it the
+ * feedback can only be copied. `onDelivered` runs after it was added (to close a sheet).
+ */
+export function ChangesView({
+  workspaceId,
+  agentId,
+  onDelivered,
+}: {
+  workspaceId: string;
+  agentId?: string;
+  onDelivered?: () => void;
+}) {
   const client = useClient();
   const gitVersion = useApp((s) => s.state?.workspaces[workspaceId]?.git?.updatedAt ?? 0);
   const [scope, setScope] = useState<DiffScope>(() => {
@@ -28,9 +48,12 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
     return saved === "working" || saved === "branch" || saved === "turn" ? saved : "turn";
   });
   const [reload, setReload] = useState(0);
-  const [result, setResult] = useState<{ key: string; changes: Changes | null; error: string | null } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    key: string;
+    scope: DiffScope;
+    changes: Changes | null;
+    error: string | null;
+  } | null>(null);
   const key = `${workspaceId}:${scope}:${gitVersion}:${reload}`;
 
   useEffect(() => {
@@ -39,10 +62,15 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
     void (async () => {
       try {
         const changes = await client.git.changes({ workspaceId, scope });
-        if (!cancelled) setResult({ key, changes, error: null });
+        if (!cancelled) setResult({ key, scope, changes, error: null });
       } catch (error) {
         if (!cancelled)
-          setResult({ key, changes: null, error: error instanceof Error ? error.message : String(error) });
+          setResult({
+            key,
+            scope,
+            changes: null,
+            error: error instanceof Error ? error.message : String(error),
+          });
         report("warn", "changes.load_failed", error, { workspaceId, scope });
       }
     })();
@@ -51,8 +79,11 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
     };
   }, [client, workspaceId, scope, key]);
 
+  const allAnnotations = useAnnotations((s) => s.items);
+  const annotations = annotationsFor(allAnnotations, workspaceId);
   const current = result?.key === key ? result : null;
-  const changes = current?.changes ?? result?.changes ?? null;
+  // While a refresh loads, keep showing the previous result of the same scope (never another scope's).
+  const changes = current?.changes ?? (result?.scope === scope ? result.changes : null);
   const total = changes?.files.reduce(
     (sum, f) => ({ add: sum.add + (f.additions ?? 0), del: sum.del + (f.deletions ?? 0) }),
     { add: 0, del: 0 },
@@ -76,7 +107,7 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
           <SegmentedControlItem value="branch" label="Branch" />
         </SegmentedControl>
         <StackItem size="fill" />
-        {current === null && <Spinner size="sm" label="Loading changes" />}
+        {current === null && <Spinner size="sm" aria-label="Loading changes" />}
         <Button
           label="Refresh"
           variant="ghost"
@@ -105,6 +136,13 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
           }
         />
       )}
+      {annotations.length > 0 && (
+        <ReviewBar
+          annotations={annotations}
+          {...(agentId === undefined ? {} : { agentId })}
+          {...(onDelivered === undefined ? {} : { onDelivered })}
+        />
+      )}
       {changes !== null && (
         <VStack gap={1}>
           {changes.files.map((file) => (
@@ -114,6 +152,9 @@ export function ChangesView({ workspaceId }: { workspaceId: string }) {
               scope={scope}
               file={file}
               version={key}
+              annotations={annotations.filter(
+                (a) => a.source.kind === "diff" && a.source.path === file.path && a.source.scope === scope,
+              )}
             />
           ))}
         </VStack>
@@ -133,16 +174,63 @@ const STATUS: Record<ChangedFile["status"], string> = {
   typechange: "T",
 };
 
+/** Your review comments on this workspace: add them to the agent's message, copy, or clear. */
+function ReviewBar({
+  annotations,
+  agentId,
+  onDelivered,
+}: {
+  annotations: readonly Annotation[];
+  agentId?: string;
+  onDelivered?: () => void;
+}) {
+  const draft = useDrafts((s) => (agentId === undefined ? "" : (s.byAgent[agentId] ?? "")));
+  const [copied, setCopied] = useState(false);
+  const feedback = compileFeedback(annotations);
+  const ids = new Set(annotations.map((a) => a.id));
+  return (
+    <div {...stylex.props(styles.review)}>
+      <HStack gap={2} vAlign="center" wrap="wrap">
+        <Text type="label">{`${annotations.length} review comment${annotations.length === 1 ? "" : "s"}`}</Text>
+        <StackItem size="fill" />
+        {agentId !== undefined && (
+          <Button
+            label="Add to message"
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setDraft(agentId, draft.trim() === "" ? feedback : `${draft.trimEnd()}\n\n${feedback}`);
+              removeAnnotations(ids);
+              onDelivered?.();
+            }}
+          />
+        )}
+        <Button
+          label={copied ? "Copied" : "Copy"}
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            void navigator.clipboard.writeText(feedback).then(() => setCopied(true));
+          }}
+        />
+        <Button label="Clear" size="sm" variant="ghost" onClick={() => removeAnnotations(ids)} />
+      </HStack>
+    </div>
+  );
+}
+
 function FileRow({
   workspaceId,
   scope,
   file,
   version,
+  annotations,
 }: {
   workspaceId: string;
   scope: DiffScope;
   file: ChangedFile;
   version: string;
+  annotations: readonly Annotation[];
 }) {
   const client = useClient();
   const [open, setOpen] = useState(false);
@@ -179,6 +267,11 @@ function FileRow({
         <span {...stylex.props(styles.path)}>
           {file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}
         </span>
+        {annotations.length > 0 && (
+          <span
+            {...stylex.props(styles.counts)}
+          >{`${annotations.length} comment${annotations.length === 1 ? "" : "s"}`}</span>
+        )}
         <span {...stylex.props(styles.counts)}>
           {file.additions === null ? (
             "binary"
@@ -199,7 +292,14 @@ function FileRow({
           <Text type="supporting">No textual diff (binary or too large).</Text>
         ) : (
           <>
-            <DiffView patch={diff.patch} />
+            <DiffView
+              patch={diff.patch}
+              annotations={annotations}
+              onComment={(ref, comment) =>
+                addAnnotation(workspaceId, { kind: "diff", path: file.path, scope, ...ref }, comment)
+              }
+              onRemove={(id) => removeAnnotations(new Set([id]))}
+            />
             {diff.truncated && <Text type="supporting">Cut at 512 KB.</Text>}
           </>
         ))}
@@ -208,6 +308,12 @@ function FileRow({
 }
 
 const styles = stylex.create({
+  review: {
+    paddingBlock: 8,
+    paddingInline: 10,
+    borderRadius: "var(--radius-inner)",
+    backgroundColor: "var(--color-background-muted)",
+  },
   row: {
     display: "flex",
     alignItems: "center",

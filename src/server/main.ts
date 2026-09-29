@@ -140,6 +140,7 @@ export async function startServer(
     store: snapshots,
     worktreesRoot: paths.worktrees,
     stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
+    agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
   });
   const pruneTimer = setInterval(
     () => void snapshots.prune(7 * 24 * 3600_000).catch(() => undefined),

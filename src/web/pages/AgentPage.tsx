@@ -184,7 +184,7 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
                     label="Resize the changes panel"
                   />
                   <LayoutPanel width={panel.size} padding={3} label="Changes" role="region">
-                    <ChangesView workspaceId={ws.id} />
+                    <ChangesView workspaceId={ws.id} agentId={agent.id} />
                   </LayoutPanel>
                 </>
               ),
@@ -220,7 +220,7 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
       />
       {narrow && ws !== undefined && (
         <BottomSheet isOpen={showChanges} onOpenChange={setShowChanges} label="Changes" height="tall">
-          <ChangesView workspaceId={ws.id} />
+          <ChangesView workspaceId={ws.id} agentId={agent.id} onDelivered={() => setShowChanges(false)} />
         </BottomSheet>
       )}
     </>
