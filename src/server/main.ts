@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { HostInfo } from "../shared/schemas.ts";
+import { DEFAULT_SETTINGS, type HostInfo } from "../shared/schemas.ts";
 import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
 import { AgentService } from "./agents/service.ts";
@@ -17,6 +17,7 @@ import { Notifier } from "./notify/notifier.ts";
 import { Presence } from "./notify/presence.ts";
 import { Push } from "./notify/push.ts";
 import { augmentPathFromLoginShell } from "./shell-env.ts";
+import { SettingsService } from "./settings.ts";
 import { StateStore } from "./state/store.ts";
 import { Db } from "./store/db.ts";
 import { closeLog, log, logFile, serializeError, setupLog } from "./telemetry/log.ts";
@@ -103,7 +104,15 @@ export async function startServer(
     pushKey: push.publicKey,
   });
 
-  const state = new StateStore({ host: host(), workspaces: {}, agents: {}, runtimes: {} });
+  const state = new StateStore({
+    host: host(),
+    workspaces: {},
+    agents: {},
+    runtimes: {},
+    settings: DEFAULT_SETTINGS,
+  });
+  const settings = new SettingsService(db, state);
+  settings.load();
   const runtimes = new Runtimes({ testRuntime: options.testRuntime, probe: options.probeRuntimes });
   const syncRuntimes = (): void => {
     state.update("runtimes", (draft) => {
@@ -158,6 +167,7 @@ export async function startServer(
   const router = createRouter({
     host,
     state,
+    settings,
     workspaces,
     agents,
     agentLog,

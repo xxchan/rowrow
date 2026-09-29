@@ -391,3 +391,28 @@ describe("files", () => {
     close();
   });
 });
+
+describe("settings", () => {
+  it("keeps quick replies across restarts and shows every client the change", async () => {
+    t = await startTestServer();
+    const before = await t.client.state.get();
+    expect(before.state.settings.quickReplies.length).toBeGreaterThan(0);
+
+    const ws = await t.websocket();
+    const seen: StateMessage[] = [];
+    const watching = (async () => {
+      for await (const message of await ws.client.state.watch()) seen.push(message);
+    })();
+    const saved = await t.client.settings.update({ quickReplies: ["  Ship it.  ", "Try again."] });
+    expect(saved.quickReplies).toEqual(["Ship it.", "Try again."]);
+    await eventually(() =>
+      seen.some((m) => m.kind === "patches" && m.patches.some((p) => p.path[0] === "settings")),
+    );
+    ws.close();
+    await watching.catch(() => undefined);
+
+    await expect(t.client.settings.update({ quickReplies: ["x".repeat(501)] })).rejects.toThrow();
+    t = await t.restart();
+    expect((await t.client.state.get()).state.settings.quickReplies).toEqual(["Ship it.", "Try again."]);
+  });
+});

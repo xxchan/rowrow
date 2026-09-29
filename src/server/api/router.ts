@@ -33,6 +33,7 @@ import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
 import type { Presence } from "../notify/presence.ts";
 import type { Push } from "../notify/push.ts";
+import type { SettingsService } from "../settings.ts";
 import type { StateStore } from "../state/store.ts";
 import { log, matches, newTraceId, onLog, queryLog, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
@@ -94,6 +95,7 @@ export interface Services {
   readonly push: Push;
   readonly presence: Presence;
   readonly git: GitOps;
+  readonly settings: SettingsService;
   /** Where uploaded files go. */
   readonly uploadsDir: string;
   loginUrl(code: string): string;
@@ -401,6 +403,10 @@ export function createRouter(s: Services) {
         if (context.connectionId !== undefined) s.presence.update(context.connectionId, input);
         return { ok: true as const };
       }),
+    },
+
+    settings: {
+      update: os.settings.update.handler(({ input }) => s.settings.update(input)),
     },
 
     telemetry: {

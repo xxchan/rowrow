@@ -114,6 +114,26 @@ export const ModelInfo = z.object({
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+/** Preferences that follow you to every device (kept on the server, part of the app state). */
+export const Settings = z.object({
+  quickReplies: z
+    .array(z.string().trim().min(1).max(500))
+    .max(24)
+    .describe("Replies you send often: one tap puts one in the composer (it is never sent by itself)."),
+});
+export type Settings = z.infer<typeof Settings>;
+
+export const DEFAULT_SETTINGS: Settings = {
+  quickReplies: [
+    "Continue.",
+    "Run the tests and fix what fails.",
+    "Commit this with a clear message.",
+    "Summarize what you changed, briefly.",
+  ],
+};
+
 // ─── App state ───────────────────────────────────────────────────────────────
 
 /** Everything every client renders, replicated as a snapshot plus patches (state.watch). */
@@ -122,6 +142,7 @@ export interface AppState {
   readonly workspaces: Readonly<Record<string, Workspace>>;
   readonly agents: Readonly<Record<string, AgentState>>;
   readonly runtimes: Readonly<Record<string, RuntimeInfo>>;
+  readonly settings: Settings;
 }
 
 export type StateMessage =

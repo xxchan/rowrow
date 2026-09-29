@@ -83,6 +83,14 @@ const MIGRATIONS: readonly string[] = [
   );
   create index agent_turns_by_workspace on agent_turns (workspace_id, started_at);
   `,
+  // 4: settings that follow you to every device (quick replies…), one JSON value per key
+  `
+  create table settings (
+    key text primary key,
+    value text not null,
+    updated_at integer not null
+  );
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

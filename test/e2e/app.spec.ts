@@ -113,6 +113,26 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   await expect(inspector.getByRole("button", { name: /README\.md/ })).toBeVisible();
 });
 
+test("a quick reply added in Settings is one tap away in the composer", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "quick",
+  });
+  await rowrow.open(page, "/settings");
+  await page.getByRole("textbox", { name: "New quick reply" }).fill("Looks good, merge it.");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText("Looks good, merge it.")).toBeVisible();
+
+  await page.goto(`${rowrow.url}/a/${agent.id}`);
+  await page
+    .getByRole("group", { name: "Quick replies" })
+    .getByRole("button", { name: "Looks good, merge it." })
+    .click();
+  await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
+});
+
 test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent, sent } = await rowrow.client.agents.create({

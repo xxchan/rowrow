@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Entry } from "./entries.ts";
 import {
   AgentState,
+  type AppState,
   BulkAction,
   Changes,
   ClientEvent,
@@ -29,9 +30,9 @@ import {
   SearchResult,
   SeenFile,
   SendResult,
-  Workspace,
-  type AppState,
+  Settings,
   type StateMessage,
+  Workspace,
 } from "./schemas.ts";
 
 const ok = z.object({ ok: z.literal(true) });
@@ -441,6 +442,16 @@ const presence = {
     .output(ok),
 };
 
+const settings = {
+  update: oc
+    .route({
+      summary:
+        "Change settings that follow you to every device (quickReplies: what one tap puts in the composer). Give only what changes; returns all settings. Every client sees the change in its app state (state.settings).",
+    })
+    .input(Settings.partial())
+    .output(Settings),
+};
+
 const telemetry = {
   report: oc
     .route({ summary: "Browser-side log events and errors, written to the server log as client.*." })
@@ -470,6 +481,7 @@ export const contract = {
   devices,
   notify,
   presence,
+  settings,
   telemetry,
   logs,
 };

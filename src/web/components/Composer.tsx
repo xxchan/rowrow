@@ -18,7 +18,7 @@ import {
 import type { InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult } from "../../shared/schemas.ts";
-import { setDraft, useClient, useDrafts } from "../lib/store.ts";
+import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
 
@@ -36,6 +36,7 @@ export function Composer({ agent }: { agent: AgentState }) {
   const caret = useRef<number | null>(null);
   const [status, setStatus] = useState<{ type: "error" | "warning" | "busy"; message: string } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const quickReplies = useApp((s) => s.state?.settings.quickReplies ?? []);
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
   const disabled = archived || client === null;
@@ -178,6 +179,28 @@ export function Composer({ agent }: { agent: AgentState }) {
         onDrop={onDrop}
       >
         <ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />
+        {draft === "" && !disabled && quickReplies.length > 0 && (
+          <div
+            role="group"
+            aria-label="Quick replies"
+            className="flex gap-1.5 overflow-x-auto px-3 pt-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {quickReplies.map((reply) => (
+              <button
+                key={reply}
+                type="button"
+                onClick={() => {
+                  caret.current = reply.length;
+                  setDraft(agent.id, reply);
+                  inputRef.current?.focus();
+                }}
+                className="shrink-0 rounded-full border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground hover:border-ring/60 hover:text-foreground"
+              >
+                {reply}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={inputRef}
           aria-label="Message input"

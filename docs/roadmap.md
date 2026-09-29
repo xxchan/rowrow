@@ -13,6 +13,8 @@ file when something lands.
 - **Workspace inspector**: search (#227), PR status (#228, GitHub), history (#229), file
   previews, and stage/unstage/discard/delete on uncommitted files.
 - **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
+- **Model and effort switcher**, **one tap to the next agent that needs you** (and the Home
+  Screen badge), and **quick replies** kept on the server for every device.
 
 ## In flight
 
@@ -22,23 +24,17 @@ file when something lands.
 
 ## Next, in build order
 
-1. **Model/effort switcher on the agent page.** `agents.update {model, effort}` exists; only
-   the control is missing.
-2. **"Next agent that needs you" on phones** and the app icon badge
-   (`navigator.setAppBadge`). ⌘J is keyboard-only; the menu button already counts them.
-3. **Quick replies**: chips above the phone composer that fill the draft (never send), stored
-   in a new server-side `settings` group so every device has them.
-4. **Command/skill picker** (roamgate #226): `runtimes.commands` from oar, a `/` trigger in the
+1. **Command/skill picker** (roamgate #226): `runtimes.commands` from oar, a `/` trigger in the
    composer; fills the draft, never sends; IME-safe.
-5. **Revert a file to the start of the agent's last turn**, from the turn snapshots, refusing
+2. **Revert a file to the start of the agent's last turn**, from the turn snapshots, refusing
    if the file changed since the turn ended.
-6. **Run a command in a workspace** (`commands.run`): tests, `git status`, restarting a dev
+3. **Run a command in a workspace** (`commands.run`): tests, `git status`, restarting a dev
    server, without tokens or a terminal. Streamed output, exit code, Stop, "send output to
    agent".
-7. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
-8. **File paths open in the inspector**, from tool calls, inline code and diffs.
-9. **Notification preferences and per-agent mute.**
-10. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
+4. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
+5. **File paths open in the inspector**, from tool calls, inline code and diffs.
+6. **Notification preferences and per-agent mute.**
+7. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
 
 ## Later (P2)
 
