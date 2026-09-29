@@ -5,7 +5,9 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Switch } from "@astryxdesign/core/Switch";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
@@ -72,6 +74,11 @@ function NewAgentForm({ onDone }: { onDone: () => void }) {
   const [model, setModel] = useState<string>("");
   const [effort, setEffort] = useState<string>("");
   const [prompt, setPrompt] = useState("");
+  // One agent per worktree keeps parallel work apart (docs/decisions.md, D-007).
+  const [isolate, setIsolate] = useState(false);
+  const [branch, setBranch] = useState("");
+  const selected = workspaces.find((w) => w.id === workspaceId);
+  const canIsolate = selected?.git !== null && selected?.git !== undefined;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,8 +115,21 @@ function NewAgentForm({ onDone }: { onDone: () => void }) {
     try {
       localStorage.setItem(LAST_RUNTIME, runtime);
       const text = prompt.trim();
+      let target = workspaceId;
+      if (isolate && canIsolate) {
+        const created = await client.workspaces.createWorktree({
+          id: workspaceId,
+          ...(branch.trim() === "" ? {} : { branch: branch.trim() }),
+        });
+        target = created.workspace.id;
+        if (created.hook !== null && !created.hook.ok) {
+          report("warn", "worktree.setup_hook_failed", undefined, {
+            output: created.hook.output.slice(-500),
+          });
+        }
+      }
       const { agent, sent } = await client.agents.create({
-        workspaceId,
+        workspaceId: target,
         runtime,
         ...(model === "" ? {} : { model }),
         ...(effort === "" ? {} : { effort }),
@@ -171,6 +191,25 @@ function NewAgentForm({ onDone }: { onDone: () => void }) {
               onChange={chooseRuntime}
               width="100%"
             />
+            {canIsolate && (
+              <VStack gap={1}>
+                <Switch
+                  label="Work in a new worktree"
+                  description="A new branch from origin's default branch, in its own checkout, so parallel agents don't collide."
+                  value={isolate}
+                  onChange={setIsolate}
+                />
+                {isolate && (
+                  <TextInput
+                    label="Branch"
+                    value={branch}
+                    onChange={setBranch}
+                    placeholder="rowrow/… (a random name when empty)"
+                    width="100%"
+                  />
+                )}
+              </VStack>
+            )}
             {runtimes.length === 0 && (
               <Text type="supporting">
                 No agent runtime is installed on this machine. Install Claude Code, Codex, Grok, Kimi or Pi,
