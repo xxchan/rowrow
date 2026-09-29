@@ -1,24 +1,11 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "import",
-    "promise",
-    "react"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "react"],
   "categories": {
     "correctness": "error",
     "suspicious": "error"
   },
-  "ignorePatterns": [
-    ".deps/**",
-    "dist/**",
-    "node_modules/**",
-    "test-results/**",
-    "playwright-report/**"
-  ],
+  "ignorePatterns": [".deps/**", "dist/**", "node_modules/**", "test-results/**", "playwright-report/**"],
   "rules": {
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error",
@@ -37,10 +24,7 @@
     "no-console": [
       "error",
       {
-        "allow": [
-          "warn",
-          "error"
-        ]
+        "allow": ["warn", "error"]
       }
     ],
     "typescript/no-unsafe-type-assertion": "off",
@@ -50,17 +34,13 @@
     "import/no-unassigned-import": [
       "error",
       {
-        "allow": [
-          "**/*.css"
-        ]
+        "allow": ["**/*.css"]
       }
     ]
   },
   "overrides": [
     {
-      "files": [
-        "src/shared/**"
-      ],
+      "files": ["src/shared/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -74,17 +54,11 @@
             ],
             "patterns": [
               {
-                "group": [
-                  "node:*"
-                ],
+                "group": ["node:*"],
                 "message": "src/shared runs in the browser too: no Node built-ins"
               },
               {
-                "group": [
-                  "**/server/**",
-                  "**/web/**",
-                  "**/cli/**"
-                ],
+                "group": ["**/server/**", "**/web/**", "**/cli/**"],
                 "message": "src/shared depends on nothing else in src/"
               }
             ]
@@ -93,9 +67,7 @@
       }
     },
     {
-      "files": [
-        "src/web/**"
-      ],
+      "files": ["src/web/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -117,16 +89,11 @@
             ],
             "patterns": [
               {
-                "group": [
-                  "node:*"
-                ],
+                "group": ["node:*"],
                 "message": "browser code: no Node built-ins"
               },
               {
-                "group": [
-                  "**/server/**",
-                  "**/cli/**"
-                ],
+                "group": ["**/server/**", "**/cli/**"],
                 "message": "the web app talks to the server only through the contract"
               }
             ]
@@ -135,11 +102,7 @@
       }
     },
     {
-      "files": [
-        "src/cli/**",
-        "scripts/**",
-        "test/**"
-      ],
+      "files": ["src/cli/**", "scripts/**", "test/**"],
       "rules": {
         "no-console": "off",
         "typescript/unbound-method": "off",
@@ -147,9 +110,7 @@
       }
     },
     {
-      "files": [
-        "test/e2e/**"
-      ],
+      "files": ["test/e2e/**"],
       "rules": {
         "no-empty-pattern": "off",
         "react/rules-of-hooks": "off"

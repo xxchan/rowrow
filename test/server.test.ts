@@ -287,7 +287,11 @@ describe("git", () => {
     const repo = t.repo();
     const ws = await t.client.workspaces.add({ path: repo });
     fs.writeFileSync(path.join(repo, "before.txt"), "already here\n"); // not the turn's doing
-    const { agent, sent } = await t.client.agents.create({ workspaceId: ws.id, runtime: "scripted", input: input("/write src/new.txt\nhello") });
+    const { agent, sent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      input: input("/write src/new.txt\nhello"),
+    });
     await t.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 5000 });
 
     const turn = await t.client.git.changes({ workspaceId: ws.id, scope: "turn" });
@@ -301,7 +305,10 @@ describe("git", () => {
   it("creates a worktree grouped under its repository, and removes it", async () => {
     t = await startTestServer();
     const ws = await t.client.workspaces.add({ path: t.repo() });
-    const { workspace: wt, hook } = await t.client.workspaces.createWorktree({ id: ws.id, branch: "feature/x" });
+    const { workspace: wt, hook } = await t.client.workspaces.createWorktree({
+      id: ws.id,
+      branch: "feature/x",
+    });
     expect(hook).toBeNull();
     expect(wt.parentId).toBe(ws.id);
     expect(wt.git?.branch).toBe("feature/x");

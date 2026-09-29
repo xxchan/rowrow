@@ -9,10 +9,10 @@
     "type": "git",
     "url": "git+https://github.com/xxchan/rowrow.git"
   },
-  "type": "module",
   "bin": {
     "rowrow": "./bin/rowrow.mjs"
   },
+  "type": "module",
   "scripts": {
     "setup": "pnpm install",
     "dev": "node scripts/dev.ts",

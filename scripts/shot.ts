@@ -37,16 +37,24 @@ const context = await browser.newContext({
 const page = await context.newPage();
 const problems: string[] = [];
 page.on("console", (message) => {
-  if (message.type() === "error" || message.type() === "warning") problems.push(`${message.type()}: ${message.text()}`);
+  if (message.type() === "error" || message.type() === "warning")
+    problems.push(`${message.type()}: ${message.text()}`);
 });
 page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
 await page.goto(link.url);
 await page.goto(new URL(route, base).href);
 // (A string: this file is typechecked for Node, where `document` doesn't exist.)
-await page.waitForFunction('document.querySelector(\'[aria-label="Connecting to rowrow"]\') === null', undefined, { timeout: 15_000 });
+await page.waitForFunction(
+  "document.querySelector('[aria-label=\"Connecting to rowrow\"]') === null",
+  undefined,
+  { timeout: 15_000 },
+);
 await page.waitForTimeout(Number(values.wait ?? 800));
 const name = route === "/" ? "home" : route.replaceAll(/[^a-z0-9]+/gi, "-").replaceAll(/^-|-$/g, "");
-const out = path.resolve(values.out ?? `.dev/shots/${name}-${values.mobile === true ? "mobile" : "desktop"}${values.dark === true ? "-dark" : ""}.png`);
+const out = path.resolve(
+  values.out ??
+    `.dev/shots/${name}-${values.mobile === true ? "mobile" : "desktop"}${values.dark === true ? "-dark" : ""}.png`,
+);
 fs.mkdirSync(path.dirname(out), { recursive: true });
 await page.screenshot({ path: out, fullPage: false });
 await browser.close();
