@@ -167,6 +167,20 @@ export const ChangedFile = z.object({
   ]),
   additions: z.number().nullable().describe("null for binary files."),
   deletions: z.number().nullable(),
+  staged: z
+    .boolean()
+    .optional()
+    .describe("Working scope only: the index has changes to this file (it was git add'ed)."),
+  unstaged: z
+    .boolean()
+    .optional()
+    .describe("Working scope only: the worktree has changes the index doesn't (always for untracked files)."),
+  stamp: z
+    .string()
+    .optional()
+    .describe(
+      "Working scope only: the file's state when listed. git.fileAction and git.bulkAction take it back and refuse when the file changed since.",
+    ),
 });
 export type ChangedFile = z.infer<typeof ChangedFile>;
 
@@ -182,6 +196,150 @@ export const Changes = z.object({
   note: z.string().nullable().describe("Why the scope has nothing to show, when it can't."),
 });
 export type Changes = z.infer<typeof Changes>;
+
+// ─── File actions (working tree) ─────────────────────────────────────────────
+
+export const FileAction = z.enum(["stage", "unstage", "discardUnstaged", "deleteUntracked", "markResolved"]);
+export type FileAction = z.infer<typeof FileAction>;
+
+export const BulkAction = z.enum(["stageAll", "unstageAll", "discardAllUnstaged", "deleteAllUntracked"]);
+export type BulkAction = z.infer<typeof BulkAction>;
+
+/** A row of the working-scope list as the client saw it. */
+export const SeenFile = z.object({
+  path: z.string().min(1).max(4096),
+  oldPath: z.string().min(1).max(4096).nullable().optional().describe("A rename's original path."),
+  stamp: z.string().min(1).max(200).describe("The file's stamp from git.changes (scope working)."),
+});
+export type SeenFile = z.infer<typeof SeenFile>;
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+export const CommitSummary = z.object({
+  sha: z.string(),
+  parents: z
+    .array(z.string())
+    .describe("Parent commit ids; two or more for a merge, none for a root commit."),
+  subject: z.string(),
+  authorName: z.string(),
+  authorEmail: z.string(),
+  authorDate: z.number().describe("Unix ms."),
+});
+export type CommitSummary = z.infer<typeof CommitSummary>;
+
+export const CommitPage = z.object({
+  branch: z.string().nullable().describe("null when HEAD is detached."),
+  head: z.string().nullable().describe("The commit the history starts from; null before the first commit."),
+  commits: z.array(CommitSummary),
+  nextCursor: z.string().nullable().describe("Pass as `cursor` for the next page; null at the end."),
+  shallow: z.boolean().describe("A shallow clone: the oldest commits aren't in it."),
+  note: z.string().nullable(),
+});
+export type CommitPage = z.infer<typeof CommitPage>;
+
+export const CommitDetail = CommitSummary.extend({
+  message: z.string().describe("The full message: subject, then body."),
+  committerName: z.string(),
+  committerEmail: z.string(),
+  committerDate: z.number().describe("Unix ms."),
+});
+export type CommitDetail = z.infer<typeof CommitDetail>;
+
+export const CommitChanges = z.object({
+  commit: CommitDetail,
+  base: z
+    .string()
+    .nullable()
+    .describe("What the commit is compared with: its first parent, the empty tree for a root commit."),
+  baseLabel: z.string(),
+  files: z.array(ChangedFile),
+  truncated: z.boolean(),
+  note: z.string().nullable().describe("Why there are no files to show, when there can't be."),
+});
+export type CommitChanges = z.infer<typeof CommitChanges>;
+
+// ─── Pull requests ───────────────────────────────────────────────────────────
+
+export const ChecksSummary = z.object({
+  state: z
+    .enum(["passing", "failing", "pending", "cancelled", "none", "unknown"])
+    .describe(
+      "passing only when every check finished successfully (or skipped); none: the PR has no checks; unknown: GitHub didn't say.",
+    ),
+  total: z.number(),
+  passed: z.number(),
+  failed: z.number(),
+  pending: z.number(),
+  skipped: z.number(),
+  cancelled: z.number(),
+});
+export type ChecksSummary = z.infer<typeof ChecksSummary>;
+
+export const PullRequest = z.object({
+  number: z.number(),
+  title: z.string(),
+  url: z.string(),
+  state: z.enum(["open", "draft", "merged", "closed"]),
+  author: z.string().nullable(),
+  head: z.string().describe("The source branch."),
+  base: z.string().describe("The target branch."),
+  checks: ChecksSummary,
+  review: z
+    .enum(["approved", "changes_requested", "review_required", "none", "unknown"])
+    .describe("GitHub's review decision; none: no decision (not approved)."),
+  updatedAt: z.number().nullable(),
+});
+export type PullRequest = z.infer<typeof PullRequest>;
+
+export const PullRequestStatus = z.object({
+  state: z
+    .enum(["found", "none", "detached", "no-remote", "unsupported", "no-gh", "signed-out", "error"])
+    .describe(
+      "found: `pr` is the branch's pull request; none: the branch has none; detached: no branch; no-remote: the repository has no remote; unsupported: the remote isn't on GitHub; no-gh: the GitHub CLI isn't installed on the server; signed-out: gh isn't signed in; error: see `message`.",
+    ),
+  message: z.string().nullable().describe("What happened, for every state but found."),
+  branch: z.string().nullable(),
+  pr: PullRequest.nullable(),
+  checkedAt: z.number().describe("When gh was asked (Unix ms); answers are cached for a minute."),
+});
+export type PullRequestStatus = z.infer<typeof PullRequestStatus>;
+
+// ─── Search ──────────────────────────────────────────────────────────────────
+
+export const SearchKind = z.enum(["all", "names", "content"]);
+export type SearchKind = z.infer<typeof SearchKind>;
+
+export const SearchResult = z.object({
+  query: z.string(),
+  names: z
+    .array(z.object({ path: z.string() }))
+    .describe("Files whose path contains every word of the query."),
+  namesTruncated: z.boolean(),
+  lines: z
+    .array(
+      z.object({
+        path: z.string(),
+        line: z.number().describe("1-based."),
+        text: z
+          .string()
+          .describe("The line, cut to a few hundred characters around the match (… marks a cut)."),
+      }),
+    )
+    .describe("Lines containing the query."),
+  linesTruncated: z.boolean(),
+  note: z.string().nullable(),
+});
+export type SearchResult = z.infer<typeof SearchResult>;
+
+export const FileText = z.object({
+  path: z.string(),
+  text: z.string(),
+  size: z.number().describe("The file's size in bytes."),
+  truncated: z
+    .boolean()
+    .describe("The text stops before the end of the file (it is cut at 1 MiB, on a line)."),
+});
+export type FileText = z.infer<typeof FileText>;
 
 // ─── Telemetry ───────────────────────────────────────────────────────────────
 

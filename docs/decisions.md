@@ -307,3 +307,65 @@ at least 16px on phones (iOS zooms into smaller ones). Touch targets are at leas
 
 **Revisit when** the owned components drift into inconsistency (then extract our own small
 design tokens and variants), or Tailwind gets in the way of something specific.
+
+## D-019 Working-tree actions are narrow, and conditional on what the client saw (2026-09-29)
+
+**Context.** roamgate #71: stage, unstage, discard and delete from the list of changes.
+Discarding and deleting destroy work, and with agents editing the same checkout, the list a
+person acts on is often seconds old.
+
+**Decision.** Each action is a fixed procedure (`git.fileAction`, `git.bulkAction`) that runs
+one git command, with literal pathspecs, on paths git itself reports as changed; a client
+never sends a git command. Every row of the working list carries a stamp (git's status
+record of its paths, their `lstat` metadata, and a hash of their content when small), and
+every action, destructive or not, re-reads the state first: when it doesn't match, the
+action fails with CONFLICT and changes nothing. A bulk action also refuses when it would
+touch a file the client's list didn't have. Conflicts are resolved one file at a time, once
+their markers are gone; bulk actions leave them alone.
+
+**Why.** PRINCIPLES.md, product 4: destructive actions are narrow, confirmed and re-checked
+so they never destroy newer work. The stamp is a precondition, like HTTP's If-Match: a click
+on a stale list is harmless, and a retried action is refused instead of applied twice, with
+no idempotency keys to store. Metadata (with change times, which no program can set back)
+catches any write; the content hash covers filesystems with coarse timestamps.
+
+**Cost.** A refused action costs a refresh and a second click, also after harmless changes
+like `touch`. The action itself takes the repository's index lock like any git command, so
+an agent committing at that moment can make it fail ("try again").
+
+**Revisit when** hunk or line staging comes (a stamp per hunk), or refusals after
+metadata-only changes become a nuisance (compare the content first).
+
+## D-020 Pull request status comes from the host's `gh`, GitHub only for now (2026-09-29)
+
+**Context.** roamgate #228: a workspace shows its branch's pull request with checks and
+review. Calling GitHub's API directly needs a token that rowrow would store, per host, and
+the logic for which PR belongs to a branch (push remotes, forks).
+
+**Decision.** rowrow runs `gh pr view --json …` in the checkout (15 s timeout, answers cached
+for a minute) and folds the answer. Every other outcome is an explicit state: detached, no
+remote, not GitHub, gh not installed, gh signed out, no PR, error. Check and review data
+that is missing or unrecognized never reads as passing or approved. GitLab remotes get "GitHub
+only for now".
+
+**Why.** gh already holds the user's sign-in (enterprise hosts included) and decides which PR
+belongs to the current branch the way the user's own `gh pr view` does. rowrow stores no
+credential and exposes none to a browser. Read-only: nothing is posted, merged or closed.
+
+**Revisit when** GitLab users need it (`glab mr view --output json` as a second provider),
+or one gh run per workspace a minute is too slow or hits rate limits (one GraphQL query for
+all workspaces through `gh api`).
+
+## D-021 Search goes through git's view of the checkout, not ripgrep (2026-09-29)
+
+**Decision.** `files.search` lists names with `git ls-files --cached --others
+--exclude-standard` and searches contents with `git grep --untracked -I`, 200 results each,
+the output capped (the process is killed at 2 MiB) and timed (10 s).
+
+**Why.** Names and contents then cover exactly the same files (tracked and untracked,
+.gitignore honored), the ones the list of changes shows. ripgrep skips hidden files by
+default and reads its own ignore files, so the two searches would disagree; git is always
+installed, and there is no index to build or keep fresh.
+
+**Revisit when** content search is too slow on big repositories (then ripgrep given git's file
+list, or a persistent index).

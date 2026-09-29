@@ -96,6 +96,8 @@ rowrow agents                                      # attention-sorted
 rowrow agent new ~/code/app "Fix the flaky test" --runtime codex --wait
 rowrow agent send <agent> "also update the changelog" --wait
 rowrow agent view <agent>                          # the transcript, as the UI shows it
+rowrow ws pr ~/code/app                            # the branch's pull request: checks, review (via gh)
+rowrow ws search ~/code/app "TODO"                 # file names and lines, .gitignore honored
 rowrow logs --since 30m --level warn
 rowrow help
 ```

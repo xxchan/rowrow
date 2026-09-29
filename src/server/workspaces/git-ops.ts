@@ -2,12 +2,25 @@
 // repository's hooks, the three diff scopes, and each agent's "last turn": snapshots of
 // its workspace when its turn starts and when it ends, so the turn diff is exactly what
 // changed during that turn. (Another agent working in the same checkout at the same time
-// shows up in it too: files don't know who wrote them.)
-import type { Changes, DiffScope, Workspace } from "../../shared/schemas.ts";
+// shows up in it too: files don't know who wrote them.) Also the workspace inspector:
+// file actions on the working tree, commit history, the branch's pull request, search.
+import type {
+  BulkAction,
+  Changes,
+  DiffScope,
+  FileAction,
+  PullRequestStatus,
+  SeenFile,
+  Workspace,
+} from "../../shared/schemas.ts";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
 import { fileDiff, listChanges } from "../git/changes.ts";
+import { ActionRefused, applyBulkAction, applyFileAction, StaleError } from "../git/file-actions.ts";
+import { commitPatch, HistoryError, listCommits, readCommit } from "../git/history.ts";
 import { resolveHooks, runHook, type HookEvent, type HookRun } from "../git/hooks.ts";
+import { pullRequestStatus } from "../git/pull-request.ts";
+import { readWorkspaceFile, SearchError, searchWorkspace } from "../git/search.ts";
 import type { SnapshotStore } from "../git/snapshots.ts";
 import { createWorktree, DirtyWorktreeError, listWorktrees, removeWorktree } from "../git/worktrees.ts";
 import type { Db } from "../store/db.ts";
@@ -24,10 +37,15 @@ export interface GitOpsDeps {
   readonly stopAgentsIn: (workspaceId: string) => Promise<void>;
   /** An agent's title, to say whose turn the "last turn" baseline is. */
   readonly agentTitle: (agentId: string) => string | null;
+  /** The GitHub CLI to ask about pull requests: `gh` on PATH unless given (tests pass a fake). */
+  readonly gh?: string;
 }
 
 /** How long a turn may wait for its baseline before starting without one. */
 const CAPTURE_BUDGET_MS = 5000;
+/** A pull request answer is reused this long (an error, less), unless a refresh is asked for. */
+const PR_TTL_MS = 60_000;
+const PR_ERROR_TTL_MS = 10_000;
 
 interface TurnRow {
   agent_id: string;
@@ -68,6 +86,51 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       : db.get<TurnRow>("select * from agent_turns where agent_id = ?", agentId);
   const clock = (at: number): string =>
     new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  /** One working-tree mutation at a time per workspace: two clicks never race for the index lock. */
+  const mutations = new Map<string, Promise<unknown>>();
+  const serially = async <T>(workspaceId: string, fn: () => Promise<T>): Promise<T> => {
+    const previous = mutations.get(workspaceId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(fn);
+    mutations.set(workspaceId, next);
+    try {
+      return await next;
+    } finally {
+      if (mutations.get(workspaceId) === next) mutations.delete(workspaceId);
+    }
+  };
+
+  /** After a file action: the new working-scope list, and fresh git facts in AppState. */
+  const afterAction = async (workspaceId: string, dir: string, action: string): Promise<Changes> => {
+    await workspaces
+      .refresh(workspaceId)
+      .catch((error: unknown) =>
+        log.warn("workspace.refresh_failed", { ws: workspaceId, err: serializeError(error) }),
+      );
+    try {
+      return await listChanges({ dir, scope: "working", defaultBase: baseOf(workspaceId), store });
+    } catch (error) {
+      log.warn("git.changes_failed", { ws: workspaceId, after: action, err: serializeError(error) });
+      // Not worth a retry: the action happened (a retry would be refused as stale anyway).
+      throw new UserError(
+        `${action} was done, but listing the changes again failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
+  const prCache = new Map<string, { branch: string | null; value: PullRequestStatus }>();
+  const prInFlight = new Map<string, Promise<PullRequestStatus>>();
+
+  /** A git module's error, as what the caller should do next. */
+  const asUserError = (error: unknown): UserError => {
+    if (error instanceof UserError) return error;
+    if (error instanceof StaleError) return new UserError(error.message, "CONFLICT");
+    if (error instanceof ActionRefused || error instanceof HistoryError || error instanceof SearchError)
+      return new UserError(error.message, "BAD_REQUEST");
+    // git failing (a corrupt repository, a full disk): the message says what; the stack is for us.
+    log.warn("git.inspector_failed", { err: serializeError(error) });
+    return new UserError(error instanceof Error ? error.message : String(error));
+  };
 
   const hook = async (
     event: HookEvent,
@@ -204,6 +267,121 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         });
       } catch (error) {
         throw new UserError(error instanceof Error ? error.message : String(error));
+      }
+    },
+
+    async fileAction(workspaceId, action: FileAction, file: SeenFile) {
+      const ws = gitWorkspace(workspaceId);
+      return serially(workspaceId, async () => {
+        let paths: string[];
+        try {
+          ({ paths } = await applyFileAction({ dir: ws.path, store, action, file }));
+        } catch (error) {
+          log.info("git.file_action.refused", {
+            ws: workspaceId,
+            action,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          throw asUserError(error);
+        }
+        log.info("git.file_action", { ws: workspaceId, action, paths });
+        return { paths, changes: await afterAction(workspaceId, ws.path, action) };
+      });
+    },
+
+    async bulkAction(workspaceId, action: BulkAction, files: readonly SeenFile[]) {
+      const ws = gitWorkspace(workspaceId);
+      return serially(workspaceId, async () => {
+        let paths: string[];
+        try {
+          ({ paths } = await applyBulkAction({ dir: ws.path, store, action, seen: files }));
+        } catch (error) {
+          log.info("git.file_action.refused", {
+            ws: workspaceId,
+            action,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          throw asUserError(error);
+        }
+        log.info("git.file_action", { ws: workspaceId, action, count: paths.length });
+        return { paths, changes: await afterAction(workspaceId, ws.path, action) };
+      });
+    },
+
+    async log(workspaceId, options) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await listCommits({ dir: ws.path, ...options });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async commit(workspaceId, sha) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await readCommit({ dir: ws.path, sha });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async commitDiff(workspaceId, sha, path) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await commitPatch({ dir: ws.path, sha, path });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async pullRequest(workspaceId, refresh) {
+      const ws = gitWorkspace(workspaceId);
+      const branch = ws.git.branch;
+      const cached = prCache.get(workspaceId);
+      const ttl = cached?.value.state === "error" ? PR_ERROR_TTL_MS : PR_TTL_MS;
+      if (
+        !refresh &&
+        cached !== undefined &&
+        cached.branch === branch &&
+        Date.now() - cached.value.checkedAt < ttl
+      )
+        return cached.value;
+      const running = prInFlight.get(workspaceId);
+      if (running !== undefined) return running;
+      const started = Date.now();
+      const task = pullRequestStatus({ dir: ws.path, ...(deps.gh === undefined ? {} : { gh: deps.gh }) })
+        .then((value) => {
+          prCache.set(workspaceId, { branch: value.branch, value });
+          log[value.state === "error" ? "warn" : "info"]("git.pr.checked", {
+            ws: workspaceId,
+            state: value.state,
+            ...(value.pr === null ? {} : { pr: value.pr.number }),
+            ...(value.state === "error" ? { msg: value.message } : {}),
+            ms: Date.now() - started,
+          });
+          return value;
+        })
+        .finally(() => prInFlight.delete(workspaceId));
+      prInFlight.set(workspaceId, task);
+      return task;
+    },
+
+    async search(workspaceId, query, kind) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await searchWorkspace({ dir: ws.path, query, kind });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async readFile(workspaceId, path) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await readWorkspaceFile({ dir: ws.path, path });
+      } catch (error) {
+        throw asUserError(error);
       }
     },
 

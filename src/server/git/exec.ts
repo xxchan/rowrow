@@ -1,5 +1,6 @@
-// Running git. Every call has a timeout that kills the whole process group, never uses
-// the user's pager or prompts, and is logged when it fails or runs long.
+// Running git (and the few other tools the git features use, like `gh`). Every call has a
+// timeout that kills the whole process group, never uses the user's pager or prompts, and
+// is logged when it fails or runs long.
 import { spawn } from "node:child_process";
 import { log } from "../telemetry/log.ts";
 
@@ -8,6 +9,10 @@ export interface GitResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly timedOut: boolean;
+  /** stdout passed `maxBytes`: what is here is its start. */
+  readonly capped: boolean;
+  /** The process couldn't start (e.g. `ENOENT`: not installed). */
+  readonly spawnError?: string;
 }
 
 export interface GitOptions {
@@ -16,54 +21,20 @@ export interface GitOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** Cap on stdout bytes; the rest is dropped and `truncated` reported by callers. */
   readonly maxBytes?: number;
+  /** Kill the process as soon as stdout passes `maxBytes` (a search that has enough), instead of letting it finish. */
+  readonly stopAtMax?: boolean;
   readonly input?: string;
 }
 
 const SLOW_MS = 2000;
 
 export async function git(args: readonly string[], options: GitOptions): Promise<GitResult> {
-  const started = Date.now();
-  const maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
-  return new Promise((resolve) => {
-    const child = spawn("git", ["-c", "core.quotepath=off", "-c", "color.ui=false", ...args], {
-      cwd: options.cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", LC_ALL: "C", ...options.env },
-      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    let outBytes = 0;
-    let timedOut = false;
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (outBytes < maxBytes) out.push(chunk);
-      outBytes += chunk.length;
-    });
-    child.stderr?.on("data", (chunk: Buffer) => err.push(chunk));
-    if (options.input !== undefined) child.stdin?.end(options.input);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup(child.pid);
-    }, options.timeoutMs ?? 20_000);
-    const finish = (code: number | null): void => {
-      clearTimeout(timer);
-      const result: GitResult = {
-        code,
-        stdout: Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8").trim(),
-        timedOut,
-      };
-      const ms = Date.now() - started;
-      if (timedOut || ms > SLOW_MS)
-        log.warn("git.slow", { args: args.slice(0, 3), cwd: options.cwd, ms, timedOut });
-      resolve(result);
-    };
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      resolve({ code: -1, stdout: "", stderr: error.message, timedOut: false });
-    });
-    child.on("close", finish);
-  });
+  return spawnCollect(
+    "git",
+    ["-c", "core.quotepath=off", "-c", "color.ui=false", ...args],
+    { ...options, env: { GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", LC_ALL: "C", ...options.env } },
+    args,
+  );
 }
 
 /** git, throwing a readable error unless it exits 0. */
@@ -74,6 +45,84 @@ export async function gitOk(args: readonly string[], options: GitOptions): Promi
     throw new Error(`git ${args[0] ?? ""} failed: ${reason}`);
   }
   return result.stdout;
+}
+
+/** Run a program (never through a shell) with the same timeout, cap and logging as git. */
+export async function run(command: string, args: readonly string[], options: GitOptions): Promise<GitResult> {
+  return spawnCollect(command, args, options, args);
+}
+
+async function spawnCollect(
+  command: string,
+  args: readonly string[],
+  options: GitOptions,
+  /** What the caller asked for, for the log (without the flags `git()` adds). */
+  logged: readonly string[],
+): Promise<GitResult> {
+  const started = Date.now();
+  const maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: { ...process.env, ...options.env },
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    let outBytes = 0;
+    let timedOut = false;
+    let capped = false;
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (outBytes < maxBytes) out.push(chunk);
+      outBytes += chunk.length;
+      if (outBytes > maxBytes && !capped) {
+        capped = true;
+        if (options.stopAtMax === true) killGroup(child.pid);
+      }
+    });
+    child.stderr?.on("data", (chunk: Buffer) => err.push(chunk));
+    // A child that exits before reading its input makes the write fail with EPIPE; the exit code says what happened.
+    child.stdin?.on("error", () => undefined);
+    if (options.input !== undefined) child.stdin?.end(options.input);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killGroup(child.pid);
+    }, options.timeoutMs ?? 20_000);
+    const finish = (code: number | null): void => {
+      clearTimeout(timer);
+      const stdout = Buffer.concat(out);
+      const result: GitResult = {
+        code,
+        stdout: (capped ? stdout.subarray(0, maxBytes) : stdout).toString("utf8"),
+        stderr: Buffer.concat(err).toString("utf8").trim(),
+        timedOut,
+        capped,
+      };
+      const ms = Date.now() - started;
+      if (timedOut || ms > SLOW_MS)
+        log.warn(command === "git" ? "git.slow" : "exec.slow", {
+          ...(command === "git" ? {} : { command }),
+          args: logged.slice(0, 3),
+          cwd: options.cwd,
+          ms,
+          timedOut,
+        });
+      resolve(result);
+    };
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      resolve({
+        code: -1,
+        stdout: "",
+        stderr: error.message,
+        timedOut: false,
+        capped: false,
+        ...(error.code === undefined ? {} : { spawnError: error.code }),
+      });
+    });
+    child.on("close", finish);
+  });
 }
 
 function killGroup(pid: number | undefined): void {

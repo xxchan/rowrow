@@ -44,6 +44,12 @@ Workspaces
   rowrow ws                        list workspaces
   rowrow ws add <path> [--label L]
   rowrow ws browse [path]
+  rowrow ws log <workspace> [--limit 20]                 the branch's commits, newest first
+  rowrow ws show <workspace> <commit> [--path FILE]      a commit and its files, or one file's diff
+  rowrow ws search <workspace> <text…> [--names | --content]
+  rowrow ws read <workspace> <path>                      a file of the checkout
+  rowrow ws pr <workspace> [--refresh]                   the branch's GitHub pull request (via gh)
+  (a <workspace> is its id, its label, or its path; file actions: rowrow call git.fileAction)
 
 Debugging
   rowrow logs [--since 30m] [--level warn] [--evt agent.] [--trace ID] [--agent ID] [--text S] [-f] [--json]
@@ -108,6 +114,10 @@ async function main(argv: string[]): Promise<void> {
       agent: { type: "string" },
       text: { type: "string" },
       limit: { type: "string" },
+      path: { type: "string" },
+      names: { type: "boolean" },
+      content: { type: "boolean" },
+      refresh: { type: "boolean" },
     },
   });
   const str = (name: string): string | undefined => {
@@ -243,6 +253,8 @@ async function main(argv: string[]): Promise<void> {
           out(listing, () =>
             [listing.path, ...listing.entries.map((e) => `  ${e.repo ? "●" : " "} ${e.name}`)].join("\n"),
           );
+        } else if (sub === "log" || sub === "show" || sub === "search" || sub === "read" || sub === "pr") {
+          await inspectCommand(client, sub, args, { str, bool, json, out, trace });
         } else {
           const { state } = await client.state.get();
           const list = Object.values(state.workspaces);
@@ -426,6 +438,100 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
       return;
     default:
       throw new Error(`unknown agent command "${sub}"; rowrow help lists them`);
+  }
+}
+
+/** The workspace inspector, read-only: history, search, files, the pull request. */
+async function inspectCommand(client: Client, sub: string, args: string[], h: Helpers): Promise<void> {
+  const [ref = "", ...rest] = args;
+  const { state } = await client.state.get();
+  const found = findWorkspace(state, ref);
+  if (found === null) throw new Error(`no workspace matches "${ref}" (rowrow ws lists them)`);
+  const workspaceId = found.id;
+  const day = (at: number): string => new Date(at).toISOString().slice(0, 10);
+  switch (sub) {
+    case "log": {
+      const page = await client.git.log({ workspaceId, limit: Number(h.str("limit") ?? 20) });
+      h.out(page, () =>
+        [
+          ...page.commits.map(
+            (c) =>
+              `${c.sha.slice(0, 9)}  ${day(c.authorDate)}  ${c.authorName.slice(0, 18).padEnd(18)}  ${c.parents.length > 1 ? "(merge) " : ""}${c.subject}`,
+          ),
+          ...(page.nextCursor === null ? [] : ["…"]),
+          ...(page.note === null ? [] : [page.note]),
+        ].join("\n"),
+      );
+      return;
+    }
+    case "show": {
+      const sha = rest[0] ?? "";
+      const file = h.str("path");
+      if (file !== undefined) {
+        const diff = await client.git.commitDiff({ workspaceId, sha, path: file });
+        if (h.json) console.log(JSON.stringify(diff, null, 2));
+        else process.stdout.write(`${diff.patch}${diff.truncated ? "\n(cut at 512 KB)\n" : ""}`);
+        return;
+      }
+      const shown = await client.git.commit({ workspaceId, sha });
+      const { commit } = shown;
+      h.out(shown, () =>
+        [
+          `commit ${commit.sha}`,
+          ...(commit.parents.length > 1
+            ? [`Merge: ${commit.parents.map((p) => p.slice(0, 9)).join(" ")}`]
+            : []),
+          `Author: ${commit.authorName} <${commit.authorEmail}>  ${new Date(commit.authorDate).toISOString()}`,
+          `Commit: ${commit.committerName} <${commit.committerEmail}>  ${new Date(commit.committerDate).toISOString()}`,
+          "",
+          ...commit.message.split("\n").map((line) => `    ${line}`),
+          "",
+          `${shown.baseLabel}:`,
+          ...shown.files.map(
+            (f) =>
+              `  ${f.status.padEnd(10)} ${f.oldPath === null ? f.path : `${f.oldPath} → ${f.path}`}  ${f.additions === null ? "binary" : `+${f.additions} −${f.deletions ?? 0}`}`,
+          ),
+          ...(shown.note === null ? [] : [shown.note]),
+        ].join("\n"),
+      );
+      return;
+    }
+    case "search": {
+      const kind = h.bool("names") ? "names" : h.bool("content") ? "content" : "all";
+      const result = await client.files.search({ workspaceId, query: rest.join(" "), kind });
+      h.out(result, () =>
+        [
+          ...result.names.map((n) => n.path),
+          ...(result.namesTruncated ? ["(more file names: only the first 200 are shown)"] : []),
+          ...result.lines.map((l) => `${l.path}:${l.line}: ${l.text}`),
+          ...(result.linesTruncated ? ["(more matching lines: only the first 200 are shown)"] : []),
+          ...(result.note === null ? [] : [result.note]),
+        ].join("\n"),
+      );
+      return;
+    }
+    case "read": {
+      const file = await client.files.read({ workspaceId, path: rest[0] ?? "" });
+      if (h.json) console.log(JSON.stringify(file, null, 2));
+      else process.stdout.write(`${file.text}${file.truncated ? "\n(cut at 1 MiB)\n" : ""}`);
+      return;
+    }
+    default: {
+      const status = await client.git.pullRequest({ workspaceId, refresh: h.bool("refresh") });
+      const { pr } = status;
+      h.out(status, () =>
+        pr === null
+          ? `${status.state}: ${status.message ?? ""}`
+          : [
+              `#${pr.number} ${pr.title} (${pr.state})`,
+              `${pr.head} → ${pr.base}${pr.author === null ? "" : ` by ${pr.author}`}`,
+              `checks: ${pr.checks.state} (${pr.checks.passed} passed, ${pr.checks.failed} failed, ${pr.checks.pending} pending, ${pr.checks.skipped} skipped, ${pr.checks.cancelled} cancelled)`,
+              `review: ${pr.review.replace("_", " ")}`,
+              pr.url,
+              `checked ${new Date(status.checkedAt).toLocaleTimeString()}`,
+            ].join("\n"),
+      );
+    }
   }
 }
 

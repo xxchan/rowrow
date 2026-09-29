@@ -143,6 +143,7 @@ export async function startServer(
     worktreesRoot: paths.worktrees,
     stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
     agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
+    ...(options.gh === undefined ? {} : { gh: options.gh }),
   });
   // Housekeeping: turn snapshots and uploads older than a week go.
   const housekeeping = (): void => {

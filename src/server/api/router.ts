@@ -8,10 +8,19 @@ import { contract } from "../../shared/contract.ts";
 import { slimEntry, type Actor, type Entry } from "../../shared/entries.ts";
 import { renderText } from "../../shared/render-text.ts";
 import type {
+  BulkAction,
   Changes,
+  CommitChanges,
+  CommitPage,
   DiffScope,
+  FileAction,
+  FileText,
   HostInfo,
   LogEntry,
+  PullRequestStatus,
+  SearchKind,
+  SearchResult,
+  SeenFile,
   StateMessage,
   Workspace,
 } from "../../shared/schemas.ts";
@@ -56,6 +65,22 @@ export interface GitOps {
     path: string,
     agentId?: string,
   ): Promise<{ patch: string; truncated: boolean }>;
+  fileAction(
+    workspaceId: string,
+    action: FileAction,
+    file: SeenFile,
+  ): Promise<{ paths: string[]; changes: Changes }>;
+  bulkAction(
+    workspaceId: string,
+    action: BulkAction,
+    files: readonly SeenFile[],
+  ): Promise<{ paths: string[]; changes: Changes }>;
+  log(workspaceId: string, options: { cursor?: string; limit?: number }): Promise<CommitPage>;
+  commit(workspaceId: string, sha: string): Promise<CommitChanges>;
+  commitDiff(workspaceId: string, sha: string, path: string): Promise<{ patch: string; truncated: boolean }>;
+  pullRequest(workspaceId: string, refresh: boolean): Promise<PullRequestStatus>;
+  search(workspaceId: string, query: string, kind: SearchKind): Promise<SearchResult>;
+  readFile(workspaceId: string, path: string): Promise<FileText>;
 }
 
 export interface Services {
@@ -288,10 +313,37 @@ export function createRouter(s: Services) {
       diff: os.git.diff.handler(async ({ input }) =>
         s.git.diff(input.workspaceId, input.scope, input.path, input.agentId),
       ),
+      fileAction: os.git.fileAction.handler(async ({ input }) =>
+        s.git.fileAction(input.workspaceId, input.action, {
+          path: input.path,
+          stamp: input.stamp,
+          ...(input.oldPath === undefined ? {} : { oldPath: input.oldPath }),
+        }),
+      ),
+      bulkAction: os.git.bulkAction.handler(async ({ input }) =>
+        s.git.bulkAction(input.workspaceId, input.action, input.files),
+      ),
+      log: os.git.log.handler(async ({ input }) =>
+        s.git.log(input.workspaceId, {
+          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        }),
+      ),
+      commit: os.git.commit.handler(async ({ input }) => s.git.commit(input.workspaceId, input.sha)),
+      commitDiff: os.git.commitDiff.handler(async ({ input }) =>
+        s.git.commitDiff(input.workspaceId, input.sha, input.path),
+      ),
+      pullRequest: os.git.pullRequest.handler(async ({ input }) =>
+        s.git.pullRequest(input.workspaceId, input.refresh ?? false),
+      ),
     },
 
     files: {
       upload: os.files.upload.handler(async ({ input }) => saveUpload(s.uploadsDir, input.file)),
+      search: os.files.search.handler(async ({ input }) =>
+        s.git.search(input.workspaceId, input.query, input.kind),
+      ),
+      read: os.files.read.handler(async ({ input }) => s.git.readFile(input.workspaceId, input.path)),
     },
 
     devices: {

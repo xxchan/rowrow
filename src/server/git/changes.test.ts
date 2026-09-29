@@ -57,6 +57,8 @@ describe("listChanges: working", () => {
 
     const changes = await listChanges({ dir: repo, scope: "working", store });
 
+    const staged = { staged: true, unstaged: false, stamp: expect.any(String) };
+    const unstaged = { staged: false, unstaged: true, stamp: expect.any(String) };
     expect(changes).toEqual({
       scope: "working",
       base: head,
@@ -64,16 +66,53 @@ describe("listChanges: working", () => {
       truncated: false,
       note: null,
       files: [
-        { path: "a.txt", oldPath: null, status: "modified", additions: 2, deletions: 1 },
-        { path: "added.txt", oldPath: null, status: "added", additions: 1, deletions: 0 },
-        { path: "bin.dat", oldPath: null, status: "untracked", additions: null, deletions: null },
-        { path: "del.txt", oldPath: null, status: "deleted", additions: 0, deletions: 2 },
-        { path: "dir/nested.txt", oldPath: null, status: "untracked", additions: 1, deletions: 0 },
-        { path: "new.txt", oldPath: "old.txt", status: "renamed", additions: 0, deletions: 0 },
-        { path: "untracked.txt", oldPath: null, status: "untracked", additions: 3, deletions: 0 },
+        { path: "a.txt", oldPath: null, status: "modified", additions: 2, deletions: 1, ...unstaged },
+        { path: "added.txt", oldPath: null, status: "added", additions: 1, deletions: 0, ...staged },
+        {
+          path: "bin.dat",
+          oldPath: null,
+          status: "untracked",
+          additions: null,
+          deletions: null,
+          ...unstaged,
+        },
+        { path: "del.txt", oldPath: null, status: "deleted", additions: 0, deletions: 2, ...unstaged },
+        {
+          path: "dir/nested.txt",
+          oldPath: null,
+          status: "untracked",
+          additions: 1,
+          deletions: 0,
+          ...unstaged,
+        },
+        { path: "new.txt", oldPath: "old.txt", status: "renamed", additions: 0, deletions: 0, ...staged },
+        {
+          path: "untracked.txt",
+          oldPath: null,
+          status: "untracked",
+          additions: 3,
+          deletions: 0,
+          ...unstaged,
+        },
       ],
     });
     expect(indexState(repo)).toEqual(before);
+  });
+
+  it("says which files are staged, unstaged or both, with a stamp that follows their content", async () => {
+    write(repo, "a.txt", lines("staged"));
+    sh(repo, "add", "a.txt");
+    write(repo, "a.txt", lines("staged", "then more"));
+    const first = await listChanges({ dir: repo, scope: "working", store });
+    expect(first.files.map((f) => [f.path, f.staged, f.unstaged])).toEqual([["a.txt", true, true]]);
+    const again = await listChanges({ dir: repo, scope: "working", store });
+    expect(again.files[0]?.stamp).toBe(first.files[0]?.stamp);
+    write(repo, "a.txt", lines("staged", "then more!"));
+    const edited = await listChanges({ dir: repo, scope: "working", store });
+    expect(edited.files[0]?.stamp).not.toBe(first.files[0]?.stamp);
+    // Branch and turn scopes have no staging area to speak of.
+    const branch = await listChanges({ dir: repo, scope: "branch", store });
+    expect(branch.files[0]).not.toHaveProperty("stamp");
   });
 
   it("marks conflicts", async () => {

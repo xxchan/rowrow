@@ -192,6 +192,22 @@ message says what to do next.
   one "Review feedback" message that fills the agent's composer; you send it.
 - **Files.** Pasted, dropped or picked files are uploaded to the profile's `uploads/`
   (kept a week) and mentioned by absolute path, which every runtime can read.
+- **Inspector.** A workspace can also be looked into and tidied up through the API (and
+  `rowrow ws log|show|search|read|pr`; the web UI for it is still to come):
+  - *File actions* stage, unstage, discard unstaged edits, delete untracked files or mark a
+    conflict resolved, one file or all at once. Each is one fixed git command on paths git
+    itself reports, and carries the stamp of what the client saw: when the file changed
+    since, it is refused and nothing happens (D-019).
+  - *History* pages through the current branch's commits; a commit shows its message,
+    people, dates, parents and files, compared with its parent (a root commit with the
+    empty tree, a merge with its first parent).
+  - *Search* finds file names and lines through git's own view of the checkout (tracked and
+    untracked files, .gitignore honored, binaries skipped), bounded at 200 each, and
+    `files.read` previews a file (D-021).
+  - *Pull request*: the branch's GitHub PR (state, checks, review decision), read with the
+    host's `gh`, so rowrow holds no token; every other outcome is an explicit state (D-020).
+
+  All of it is in [git.md](git.md).
 
 ## Observability
 
