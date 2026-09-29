@@ -1,0 +1,136 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "react"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "ignorePatterns": [
+    ".deps/**",
+    "dist/**",
+    "node_modules/**",
+    "test-results/**",
+    "playwright-report/**"
+  ],
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "react/react-in-jsx-scope": "off",
+    "import/no-cycle": "error",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "no-console": [
+      "error",
+      {
+        "allow": [
+          "warn",
+          "error"
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/shared/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@botiverse/oar",
+                "message": "src/shared runs in the browser: import @botiverse/oar/observe",
+                "allowTypeImports": true
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "node:*"
+                ],
+                "message": "src/shared runs in the browser too: no Node built-ins"
+              },
+              {
+                "group": [
+                  "**/server/**",
+                  "**/web/**",
+                  "**/cli/**"
+                ],
+                "message": "src/shared depends on nothing else in src/"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/web/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@botiverse/oar",
+                "message": "browser code: import @botiverse/oar/observe",
+                "allowTypeImports": true
+              },
+              {
+                "name": "@botiverse/oar/testing",
+                "message": "Node-only"
+              },
+              {
+                "name": "@botiverse/oar/kernel",
+                "message": "Node-only"
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "node:*"
+                ],
+                "message": "browser code: no Node built-ins"
+              },
+              {
+                "group": [
+                  "**/server/**",
+                  "**/cli/**"
+                ],
+                "message": "the web app talks to the server only through the contract"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/cli/**",
+        "scripts/**",
+        "test/**"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

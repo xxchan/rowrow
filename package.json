@@ -1,0 +1,72 @@
+{
+  "name": "rowrow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run a crew of coding agents in parallel and steer them from any browser, including your phone.",
+  "license": "Apache-2.0",
+  "author": "xxchan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xxchan/rowrow.git"
+  },
+  "type": "module",
+  "bin": {
+    "rowrow": "./bin/rowrow.mjs"
+  },
+  "scripts": {
+    "setup": "pnpm install",
+    "dev": "node scripts/dev.ts",
+    "build": "vite build",
+    "start": "vite build && node src/cli/main.ts serve",
+    "rowrow": "node src/cli/main.ts",
+    "typecheck": "run-p -l typecheck:node typecheck:web",
+    "typecheck:node": "tsc -p tsconfig.node.json",
+    "typecheck:web": "tsc -p tsconfig.web.json",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vite build && playwright test",
+    "shot": "node scripts/shot.ts",
+    "check": "run-p -l typecheck lint format:check && vitest run"
+  },
+  "dependencies": {
+    "@botiverse/oar": "^0.8.0",
+    "@hono/node-server": "^2.1.1",
+    "@orpc/client": "^1.15.4",
+    "@orpc/contract": "^1.15.4",
+    "@orpc/openapi": "^1.15.4",
+    "@orpc/server": "^1.15.4",
+    "@orpc/zod": "^1.15.4",
+    "hono": "^4.13.10",
+    "immer": "^11.1.18",
+    "pino": "^10.3.1",
+    "web-push": "^3.6.7",
+    "ws": "^8.22.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.19.0",
+    "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.18.1",
+    "npm-run-all2": "^9.0.3",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.15.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.22.0"
+}

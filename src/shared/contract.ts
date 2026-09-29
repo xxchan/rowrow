@@ -1,0 +1,330 @@
+// The API contract (docs/decisions.md, D-003): every procedure rowrow has, declared once.
+// The web app calls it over a WebSocket; the CLI, agents and curl call it over HTTP
+// (POST /api/<group>/<name>, OpenAPI at /api/openapi.json). Every summary is written for
+// an agent that has never seen the code: `rowrow help` lists them.
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
+import type { Entry } from "./entries.ts";
+import {
+  AgentState,
+  Changes,
+  ClientEvent,
+  Device,
+  DiffScope,
+  EntryPage,
+  HostInfo,
+  InputMode,
+  LogEntry,
+  LogFilter,
+  LoginLink,
+  ModelInfo,
+  RuntimeInfo,
+  SendResult,
+  Workspace,
+  type AppState,
+  type StateMessage,
+} from "./schemas.ts";
+
+const ok = z.object({ ok: z.literal(true) });
+const agentId = z.string().describe("Agent id (ag_…).");
+const workspaceId = z.string().describe("Workspace id (ws_…).");
+
+const app = {
+  info: oc.route({ summary: "Server version, profile, data directory, address, pid." }).output(HostInfo),
+  status: oc
+    .route({
+      summary:
+        "A health report for debugging: live runs (pid, runtime, since), connected clients (device, route, focus), counts, and the most recent warnings and errors.",
+    })
+    .output(
+      z.object({
+        host: HostInfo,
+        runs: z.array(
+          z.object({
+            agentId: z.string(),
+            runId: z.string(),
+            runtime: z.string(),
+            since: z.number(),
+            status: z.string(),
+          }),
+        ),
+        clients: z.array(
+          z.object({
+            id: z.string(),
+            device: z.string(),
+            route: z.string().nullable(),
+            visible: z.boolean(),
+            focused: z.boolean(),
+            since: z.number(),
+          }),
+        ),
+        counts: z.object({ workspaces: z.number(), agents: z.number(), entries: z.number() }),
+        problems: z.array(LogEntry),
+      }),
+    ),
+};
+
+const state = {
+  get: oc
+    .route({
+      summary:
+        "The whole app state every client renders: host, workspaces (with git summaries), agents (summary, attention, seen marker), runtimes.",
+    })
+    .output(z.object({ version: z.number(), state: z.custom<AppState>() })),
+  watch: oc
+    .route({ summary: "The app state as a stream: a snapshot, then immer patches as it changes." })
+    .output(eventIterator(z.custom<StateMessage>())),
+};
+
+const workspaces = {
+  add: oc
+    .route({ summary: "Register a directory (usually a git checkout) as a workspace. Returns the existing one if the path is already registered." })
+    .input(z.object({ path: z.string().min(1), label: z.string().optional() }))
+    .output(Workspace),
+  update: oc
+    .route({ summary: "Rename (label; null restores the derived name) or archive a workspace." })
+    .input(z.object({ id: workspaceId, label: z.string().nullable().optional(), archived: z.boolean().optional() }))
+    .output(Workspace),
+  refresh: oc
+    .route({ summary: "Re-read a workspace's git facts (branch, upstream, changed files) now." })
+    .input(z.object({ id: workspaceId }))
+    .output(Workspace),
+  browse: oc
+    .route({
+      summary:
+        "List a directory on the server, to pick a workspace from a phone. Defaults to the home directory. Marks git repositories.",
+    })
+    .input(z.object({ path: z.string().optional() }))
+    .output(
+      z.object({
+        path: z.string(),
+        parent: z.string().nullable(),
+        entries: z.array(z.object({ name: z.string(), path: z.string(), repo: z.boolean() })),
+      }),
+    ),
+  createWorktree: oc
+    .route({
+      summary:
+        "Create a linked git worktree of a workspace's repository on a new branch (from the freshly fetched default branch of origin unless `base` is given), register it as a workspace grouped under the repository, and run the repository's setup hook.",
+    })
+    .input(
+      z.object({
+        id: workspaceId,
+        branch: z.string().optional().describe("Branch to create; a memorable random name when omitted."),
+        base: z.string().optional().describe("Commit-ish to branch from."),
+      }),
+    )
+    .output(z.object({ workspace: Workspace, hook: z.object({ ran: z.boolean(), ok: z.boolean(), output: z.string() }).nullable() })),
+  removeWorktree: oc
+    .route({
+      summary:
+        "Remove a linked worktree workspace: runs the teardown hook (a failure stops removal), removes the checkout (refused when dirty unless force), keeps the branch.",
+    })
+    .input(z.object({ id: workspaceId, force: z.boolean().optional() }))
+    .output(ok),
+};
+
+const agents = {
+  create: oc
+    .route({
+      summary:
+        "Create an agent: a conversation with one runtime in a workspace. With `input`, sends it as the first message (the run starts then).",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        runtime: z.string().describe("Runtime id: claude, codex, grok, kimi, pi (see runtimes.list)."),
+        model: z.string().optional().describe("Runtime-native model id; the runtime's default when omitted."),
+        title: z.string().max(200).optional(),
+        input: z.object({ inputId: z.string().uuid(), text: z.string().min(1).max(200_000) }).optional(),
+      }),
+    )
+    .output(z.object({ agent: AgentState, sent: SendResult.nullable() })),
+  send: oc
+    .route({
+      summary:
+        "Send input to an agent. Starts (resumes) its run when none is live. mode auto: prompt when idle, steer or queue when busy; queue: hold for the next turn; interrupt: abort the running turn, then prompt. Idempotent on inputId: a retry returns the first result.",
+    })
+    .input(
+      z.object({
+        agentId,
+        inputId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
+        text: z.string().min(1).max(200_000),
+        mode: InputMode.default("auto"),
+      }),
+    )
+    .output(SendResult),
+  abort: oc
+    .route({ summary: "Interrupt the agent's running turn. The turn's outcome arrives in the log as the runtime reports it." })
+    .input(z.object({ agentId }))
+    .output(z.object({ accepted: z.boolean(), reason: z.string().optional() })),
+  stop: oc
+    .route({ summary: "Stop the agent's live run (its process). The conversation stays; the next input resumes it." })
+    .input(z.object({ agentId }))
+    .output(ok),
+  update: oc
+    .route({
+      summary:
+        "Rename an agent, change its model (the live run restarts on the new model, resuming the conversation), or archive it (stops its run).",
+    })
+    .input(
+      z.object({
+        agentId,
+        title: z.string().max(200).nullable().optional(),
+        model: z.string().nullable().optional(),
+        archived: z.boolean().optional(),
+      }),
+    )
+    .output(AgentState),
+  markSeen: oc
+    .route({ summary: "Record that you have seen the agent's log up to seq (clears its `done` attention)." })
+    .input(z.object({ agentId, seq: z.number().int() }))
+    .output(ok),
+  entries: oc
+    .route({
+      summary:
+        "Read an agent's log. Default: the window starting at the 3rd most recent input. `after` reads forward from a cursor; `before` reads the window before a seq (to load older history); `turns` sets the window size; `full` includes native payloads.",
+    })
+    .input(
+      z.object({
+        agentId,
+        after: z.number().int().optional(),
+        before: z.number().int().optional(),
+        turns: z.number().int().positive().max(1000).optional(),
+        limit: z.number().int().positive().max(50_000).optional(),
+        full: z.boolean().optional(),
+      }),
+    )
+    .output(EntryPage),
+  watch: oc
+    .route({
+      summary:
+        "Stream an agent's log entries after a cursor (-1 for all), as batches; resumes exactly where you left off. Slim entries (no native payloads).",
+    })
+    .input(z.object({ agentId, after: z.number().int() }))
+    .output(eventIterator(z.object({ entries: z.custom<Entry[]>() }))),
+  wait: oc
+    .route({
+      summary:
+        "Wait until an agent's attention becomes one of `until` (default: blocked, done or idle, i.e. not working), or the timeout passes. Returns at once if it already is.",
+    })
+    .input(
+      z.object({
+        agentId,
+        until: z.array(z.enum(["blocked", "done", "working", "idle"])).optional(),
+        afterSeq: z.number().int().optional().describe("Only count a state reached after this log position."),
+        timeoutMs: z.number().int().positive().max(24 * 3600_000).optional(),
+      }),
+    )
+    .output(z.object({ agent: AgentState, timedOut: z.boolean() })),
+  view: oc
+    .route({ summary: "The agent's transcript as plain text: the same fold the UI renders." })
+    .input(z.object({ agentId, turns: z.number().int().positive().optional(), toolChars: z.number().int().min(0).optional() }))
+    .output(z.object({ text: z.string(), headSeq: z.number() })),
+};
+
+const runtimes = {
+  list: oc
+    .route({ summary: "Agent runtimes and whether each is installed here. `refresh` probes again." })
+    .input(z.object({ refresh: z.boolean().optional() }))
+    .output(z.array(RuntimeInfo)),
+  models: oc
+    .route({ summary: "Models a runtime offers (may ask the runtime's provider; cached)." })
+    .input(z.object({ runtime: z.string(), refresh: z.boolean().optional() }))
+    .output(z.object({ models: z.array(ModelInfo), error: z.string().nullable() })),
+};
+
+const git = {
+  changes: oc
+    .route({
+      summary:
+        "Changed files of a workspace. scope working: uncommitted changes against HEAD; branch: everything since the merge base with the default branch; turn: since the snapshot taken when the latest turn of an agent in this workspace started.",
+    })
+    .input(z.object({ workspaceId, scope: DiffScope }))
+    .output(Changes),
+  diff: oc
+    .route({ summary: "The unified diff of one file in a scope (see git.changes)." })
+    .input(z.object({ workspaceId, scope: DiffScope, path: z.string() }))
+    .output(z.object({ patch: z.string(), truncated: z.boolean() })),
+};
+
+const devices = {
+  whoami: oc.route({ summary: "The device (credential) making this request." }).output(Device),
+  list: oc.route({ summary: "Signed-in devices." }).output(z.array(Device)),
+  pair: oc
+    .route({ summary: "A one-time sign-in link for another browser (show it as a QR code on your phone). Expires in 10 minutes." })
+    .input(z.object({ name: z.string().max(100).optional() }))
+    .output(LoginLink),
+  rename: oc
+    .route({ summary: "Rename a device." })
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(100) }))
+    .output(ok),
+  revoke: oc
+    .route({ summary: "Sign a device out everywhere (its credential stops working at once)." })
+    .input(z.object({ id: z.string() }))
+    .output(ok),
+};
+
+const notify = {
+  subscribe: oc
+    .route({ summary: "Subscribe this device to Web Push (a PushSubscription as JSON)." })
+    .input(
+      z.object({
+        endpoint: z.string().url(),
+        keys: z.object({ p256dh: z.string(), auth: z.string() }),
+      }),
+    )
+    .output(ok),
+  unsubscribe: oc.route({ summary: "Stop Web Push for this device." }).output(ok),
+  test: oc.route({ summary: "Send a test notification to this device." }).output(z.object({ sent: z.number() })),
+};
+
+const presence = {
+  update: oc
+    .route({
+      summary:
+        "What this connection is showing (route, agent) and whether the page is visible and focused. Suppresses notifications for what you're looking at.",
+    })
+    .input(
+      z.object({
+        route: z.string().max(500),
+        agentId: z.string().nullable(),
+        visible: z.boolean(),
+        focused: z.boolean(),
+      }),
+    )
+    .output(ok),
+};
+
+const telemetry = {
+  report: oc
+    .route({ summary: "Browser-side log events and errors, written to the server log as client.*." })
+    .input(z.object({ events: z.array(ClientEvent).max(200) }))
+    .output(ok),
+};
+
+const logs = {
+  query: oc
+    .route({ summary: "Recent server log entries matching a filter (newest last)." })
+    .input(LogFilter)
+    .output(z.array(LogEntry)),
+  watch: oc
+    .route({ summary: "Follow the server log live, filtered." })
+    .input(LogFilter)
+    .output(eventIterator(LogEntry)),
+};
+
+export const contract = {
+  app,
+  state,
+  workspaces,
+  agents,
+  runtimes,
+  git,
+  devices,
+  notify,
+  presence,
+  telemetry,
+  logs,
+};
+export type Contract = typeof contract;
