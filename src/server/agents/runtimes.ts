@@ -140,7 +140,8 @@ export class Runtimes {
           listed.kind === "ok"
             ? {
                 models: listed.models
-                  .filter((model) => model.disabled === undefined)
+                  // Claude lists its own "default" alias; no model already means that (Default).
+                  .filter((model) => model.disabled === undefined && model.id !== "default")
                   .map((model) => ({
                     id: model.id,
                     name: model.displayName ?? model.id,

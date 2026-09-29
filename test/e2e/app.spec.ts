@@ -60,6 +60,22 @@ test("C starts another agent set up like the one on screen", async ({ page, rowr
   expect(second?.summary.workspaceId).toBe(ws.id);
 });
 
+test("a long menu in the new-agent dialog scrolls", async ({ page, rowrow }) => {
+  for (let i = 0; i < 16; i++) await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.open(page);
+  await page
+    .getByRole("button", { name: /^New agent/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: /^Workspace: / }).click();
+  // The dialog blocks scrolling outside itself, and the menu is portaled outside it.
+  const list = page.locator("[data-slot=command-list]");
+  await expect(list.getByRole("option").nth(15)).toBeAttached();
+  await list.hover();
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+});
+
 test("⌘K: say what a new agent should do, and it starts", async ({ page, rowrow }, info) => {
   test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
   await rowrow.client.workspaces.add({ path: rowrow.repo() });

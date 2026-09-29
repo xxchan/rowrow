@@ -5,6 +5,13 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { Button } from "@/components/ui/button";
 
+/**
+ * True inside a dialog or sheet. A modal dialog blocks scrolling (wheel and touch) everywhere
+ * outside its content, and a popover's content is portaled outside it: so a popover opened
+ * in a dialog is made modal too (ui/popover.tsx), which lets its own list scroll.
+ */
+export const InModal = React.createContext(false);
+
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
@@ -53,7 +60,7 @@ function DialogContent({
         )}
         {...props}
       >
-        {children}
+        <InModal.Provider value>{children}</InModal.Provider>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

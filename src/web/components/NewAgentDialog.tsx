@@ -23,6 +23,7 @@ import { Check, Cpu, Folder, FolderGit2, GitBranch, LoaderCircle, Plus } from "l
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from "react";
 import { create } from "zustand";
 import type { ModelInfo } from "../../shared/schemas.ts";
+import { versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup, type NewAgentContext } from "../lib/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
@@ -271,7 +272,12 @@ export function NewAgentForm({
             <span className="truncate">{selected?.label ?? "Choose a workspace"}</span>
           </Chip>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-0" onCloseAutoFocus={backToPrompt}>
+        <PopoverContent
+          align="start"
+          collisionPadding={8}
+          className="flex max-h-(--radix-popover-content-available-height) w-80 flex-col p-0"
+          onCloseAutoFocus={backToPrompt}
+        >
           <Command>
             <CommandInput placeholder="Filter workspaces…" />
             <CommandList>
@@ -324,7 +330,12 @@ export function NewAgentForm({
             <span className="truncate">{runtimeInfo?.name ?? "Choose an agent"}</span>
           </Chip>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-64 p-0" onCloseAutoFocus={backToPrompt}>
+        <PopoverContent
+          align="start"
+          collisionPadding={8}
+          className="flex max-h-(--radix-popover-content-available-height) w-72 flex-col p-0"
+          onCloseAutoFocus={backToPrompt}
+        >
           <Command>
             <CommandList>
               <CommandEmpty>
@@ -347,9 +358,19 @@ export function NewAgentForm({
                     }}
                   >
                     <AgentIcon runtime={r.id} label={r.name} />
-                    {r.name}
-                    {r.version !== null && <span className="text-xs text-muted-foreground">{r.version}</span>}
-                    {r.id === runtime && <Check className="ml-auto" />}
+                    <span className="shrink-0 whitespace-nowrap">{r.name}</span>
+                    {r.version !== null && (
+                      <span title={r.version} className="ml-auto truncate text-xs text-muted-foreground">
+                        {versionNumber(r.version)}
+                      </span>
+                    )}
+                    <Check
+                      className={cn(
+                        "shrink-0",
+                        r.version === null && "ml-auto",
+                        r.id !== runtime && "invisible",
+                      )}
+                    />
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -372,7 +393,12 @@ export function NewAgentForm({
               {effectiveEffort !== null && <span className="text-muted-foreground">· {effectiveEffort}</span>}
             </Chip>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-72 p-0" onCloseAutoFocus={backToPrompt}>
+          <PopoverContent
+            align="start"
+            collisionPadding={8}
+            className="flex max-h-(--radix-popover-content-available-height) w-72 flex-col p-0"
+            onCloseAutoFocus={backToPrompt}
+          >
             <ModelMenu
               loaded={loaded}
               model={model}

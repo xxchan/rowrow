@@ -85,3 +85,8 @@ export function formatTokens(n: number): string {
       ? `${Math.round(n / 1000)}k`
       : String(n);
 }
+
+/** A CLI's version number out of whatever it prints ("codex-cli 0.155.1", "2.1.284 (Claude Code)"). */
+export function versionNumber(version: string): string {
+  return /\d+(?:\.\d+)+(?:-[\w.]+)?/.exec(version)?.[0] ?? version;
+}

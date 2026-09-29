@@ -1,9 +1,12 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Popover as PopoverPrimitive } from "radix-ui";
+import { InModal } from "@/components/ui/dialog";
 
-function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+/** Modal inside a dialog or sheet, or its list couldn't scroll (see InModal). */
+function Popover({ modal, ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const inModal = React.useContext(InModal);
+  return <PopoverPrimitive.Root data-slot="popover" modal={modal ?? inModal} {...props} />;
 }
 
 function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
