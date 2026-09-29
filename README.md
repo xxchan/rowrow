@@ -54,6 +54,11 @@ first-class client.
 - **Parallel work in worktrees.** One click makes a git worktree on a fresh branch from
   origin's default branch, grouped under its repository, with your repository's setup
   hooks (`rowrow.json`, or roamgate's and paseo's).
+- **Local first, nothing in between.** Your machine is the only server. rowrow never dials
+  out to a relay, and there is no rowrow account or cloud: your phone connects straight to
+  your machine, over your LAN or a network you already run, such as Tailscale. What rowrow
+  stores (transcripts, logs, device credentials) never leaves it. That makes it usable
+  where remote-control apps that route through a vendor's server are not allowed.
 - **Built to be driven and debugged by agents.** Everything the UI does is a typed API that
   the `rowrow` CLI exposes; every action carries a trace id through structured logs;
   browser errors land in the server log; any transcript can be re-rendered from its log.
@@ -85,9 +90,11 @@ versions.
 
 ## On your phone
 
-rowrow listens on `127.0.0.1` until you decide otherwise, and every request needs a device
-credential even then. The simplest safe way to reach it from your phone is
-[Tailscale](https://tailscale.com):
+Your phone talks to your machine directly; rowrow runs no server of its own for it to go
+through ([D-002](docs/decisions.md)). rowrow listens on `127.0.0.1` until you decide
+otherwise, and every request needs a device credential even then. The simplest safe way to
+reach it from your phone is [Tailscale](https://tailscale.com), which connects your devices
+peer to peer:
 
 ```bash
 tailscale serve --bg 7373
@@ -98,8 +105,13 @@ Then open **Settings → Pair a device** and scan the code with your phone. Over
 phone can also get push notifications (on iPhone: *Add to Home Screen* first, then turn them
 on in Settings). Other options: `--host 0.0.0.0` on a trusted LAN (plain HTTP: no push
 notifications), `--tls-cert/--tls-key` for HTTPS directly, or a tunnel such as
-`cloudflared tunnel --url http://127.0.0.1:7373`. Anyone who can sign in can run commands on
-this machine through its agents: guard your pairing links.
+`cloudflared tunnel --url http://127.0.0.1:7373` (a tunnel is a third party in the path:
+check that your employer allows it). Anyone who can sign in can run commands on this
+machine through its agents: guard your pairing links.
+
+Push notifications are the one thing rowrow sends through someone else: the server hands
+each one to your browser's push service (Apple, Google or Mozilla), encrypted
+so that only your device can read it. They are off until you turn them on for a device.
 
 ## The CLI
 

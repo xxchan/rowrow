@@ -32,8 +32,20 @@ exact, transcripts are structured, and the whole thing works over a phone's netw
 ```
 
 There are two tiers: the server and its clients. Remote control means reaching the
-server over a network you trust (Tailscale, a tunnel, a LAN), with device credentials on
-every request. There is no cloud relay (D-002).
+server over a network you trust (a LAN, Tailscale, a tunnel), with device credentials on
+every request. There is no cloud relay, and the server never dials out to reach its
+clients (D-002).
+
+Local first means the server makes no connection of its own except these, and each one is
+on the user's behalf:
+
+- the agent CLIs, which talk to their model providers exactly as they do in a terminal;
+- `git` and `gh`, for fetches, worktrees and pull request status;
+- Web Push, only to devices that turned notifications on: each notification goes to that
+  browser's push service (Apple, Google, Mozilla), encrypted for the device.
+
+No telemetry, update checks or accounts. Logs, including the browser's, stay in
+`~/.rowrow`.
 
 ## Vocabulary
 

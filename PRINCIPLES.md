@@ -35,6 +35,14 @@ change or change the principle. To change a principle, add an entry to
    dictation, over a flaky network. The desktop adds density and keyboard speed; it
    doesn't get features the phone can't reach.
 
+7. **Local first: the machine is the only server.** Clients connect straight to the
+   machine that runs the agents, over a network the user already trusts (loopback, a LAN,
+   Tailscale). rowrow never dials out to a relay, needs no account, and runs no service of
+   its own; nothing rowrow stores leaves the machine. This is who rowrow is for: people,
+   often at companies, who can't use remote-control apps that route through a vendor's
+   server. A feature that needs a third party in the path is optional, off by default, and
+   says so where you turn it on.
+
 ## Engineering
 
 1. **The agent log is the truth; everything else is a fold.** Each agent has one

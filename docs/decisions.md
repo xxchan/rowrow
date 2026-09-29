@@ -40,13 +40,18 @@ directly over a network the user already trusts: loopback, a LAN, Tailscale, or 
 tunnel. rowrow provides the security (device credentials, TLS, origin checks) and the
 documentation for those setups.
 
-**Why.** Agents can't run while the machine sleeps anyway, so a relay mostly buys
-reachability, which Tailscale and tunnels provide without us operating anything. One
-tier removes the hardest distributed-systems problems.
+**Why.** It is who rowrow is for. Many engineers can't use remote-control apps that dial
+out to a vendor's server: company policy forbids sending code, transcripts or a shell on
+a work machine through a third party. A server that only accepts direct connections, over
+the LAN or a network the company already approves (Tailscale, a corporate VPN), fits
+those rules. Agents can't run while the machine sleeps anyway, so a relay mostly buys
+reachability, which Tailscale and tunnels provide without us operating anything. One tier
+also removes the hardest distributed-systems problems.
 
 **Revisit when** users need access without any VPN or tunnel, or want to read history
-while the machine is off. The API is transport-agnostic (D-003), so a relay can be a
-proxy in front of the same contract.
+while the machine is off. Even then a relay would be opt-in and off by default, never
+required (PRINCIPLES.md, product 7). The API is transport-agnostic (D-003), so a relay can be
+a proxy in front of the same contract.
 
 ## D-003 One oRPC contract; WebSocket for browsers, HTTP for everything else (2026-09-29)
 
