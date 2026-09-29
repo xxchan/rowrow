@@ -1,6 +1,6 @@
 {
   "name": "rowrow",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Run a crew of coding agents in parallel and steer them from any browser, including your phone.",
   "keywords": [
     "agents",
