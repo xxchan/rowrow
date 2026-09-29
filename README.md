@@ -12,6 +12,15 @@ terminal. Agents are driven through their programmatic interfaces with
 screen scraping), transcripts are structured, and a phone on a flaky network is a
 first-class client.
 
+<p align="center">
+  <img src="docs/images/agent.png" alt="An agent's transcript next to what its last turn changed" width="820">
+</p>
+<p align="center">
+  <img src="docs/images/phone-home.png" alt="Agents sorted by who needs you, on a phone" width="240">
+  &nbsp;
+  <img src="docs/images/phone-agent.png" alt="An agent's conversation on a phone" width="240">
+</p>
+
 - **Attention first.** Every agent is `blocked`, `done` (finished and you haven't looked),
   `working` or `idle`. Lists sort by it; you get a notification when an agent finishes or
   needs you, and never for the one you're looking at.
@@ -19,9 +28,12 @@ first-class client.
   continues, and every client resumes exactly where it left off.
 - **Talk to them anywhere.** Send, steer a running turn, queue for the next one, or stop.
   A retried send is never delivered twice.
-- **See what they changed.** The *last turn* diff shows what the agent just did, apart
-  from your own uncommitted work (a snapshot taken when the turn started, stored outside
-  your repository). Uncommitted and whole-branch scopes too.
+- **See what they changed, and answer in place.** The *last turn* diff shows exactly what
+  an agent's latest turn changed (snapshots at its start and end, stored outside your
+  repository), apart from your own work; uncommitted and whole-branch scopes too. Comment
+  on diff lines and the comments become one review message in the agent's composer.
+- **Hand them anything.** Paste or drop a screenshot or a log; it's uploaded to the
+  machine and mentioned by path.
 - **Parallel work in worktrees.** One click makes a git worktree on a fresh branch from
   origin's default branch, grouped under its repository, with your repo's setup hooks.
 - **Built to be debugged by agents.** Everything the UI does is a typed API the `rowrow`
@@ -44,7 +56,8 @@ browser in and opens it. rowrow has no passwords: browsers sign in with one-time
 every signed-in device can be revoked in Settings.
 
 Try it without spending tokens: `pnpm dev` runs a development server with a scripted demo
-agent.
+agent, and `node scripts/demo.ts --profile dev` fills it with a few agents in every state.
+Keyboard: ⌘K goes anywhere, ⌘J goes to the next agent that needs you.
 
 ## On your phone
 

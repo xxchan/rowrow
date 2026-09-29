@@ -95,7 +95,7 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
     summary.reportedEffort ?? summary.effort,
     ws === undefined
       ? null
-      : `${ws.label}${ws.git?.branch === null || ws.git?.branch === undefined ? "" : ` (${ws.git.branch})`}`,
+      : `${ws.label}${ws.git?.branch === null || ws.git?.branch === undefined || ws.git.branch === ws.label ? "" : ` (${ws.git.branch})`}`,
     summary.usage === null ? null : `${formatTokens(summary.usage.input + summary.usage.output)} tokens`,
   ].filter((fact): fact is string => fact !== null && fact !== undefined);
 

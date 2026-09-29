@@ -101,7 +101,7 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
     <ListItem
       href={`/a/${agent.id}`}
       label={title(agent)}
-      description={`${dot.label} · ${ws?.label ?? "?"}${ws?.git?.branch !== undefined && ws.git.branch !== null ? ` (${ws.git.branch})` : ""} · ${runtime}${detail === "" ? "" : ` — ${oneLine(detail)}`}`}
+      description={`${dot.label} · ${ws?.label ?? "?"}${ws?.git?.branch !== undefined && ws.git.branch !== null && ws.git.branch !== ws.label ? ` (${ws.git.branch})` : ""} · ${runtime}${detail === "" ? "" : ` — ${oneLine(detail)}`}`}
       startContent={<StatusDot variant={dot.variant} label={dot.label} isPulsing={dot.pulsing} />}
       endContent={<Text type="supporting">{ago(agent.summary.lastActivityAt, now)}</Text>}
     />

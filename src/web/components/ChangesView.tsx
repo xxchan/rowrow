@@ -123,7 +123,7 @@ export function ChangesView({
       </HStack>
       {changes !== null && (
         <Text type="supporting">
-          {changes.baseLabel === null ? "" : `Against ${changes.baseLabel}. `}
+          {changes.baseLabel === null ? "" : `${scope === "turn" ? "In" : "Against"} ${changes.baseLabel}. `}
           {changes.files.length === 0
             ? ""
             : `${changes.files.length} file${changes.files.length === 1 ? "" : "s"}, +${total?.add ?? 0} −${total?.del ?? 0}${changes.truncated ? " (first 2000 files)" : ""}`}

@@ -330,12 +330,7 @@ function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
     if (part.kind !== "tool") return [];
     const action = classifyTool(runtime, part.tool, part.input);
     const output = part.output ?? "";
-    const detail = [
-      part.input === undefined ? null : `$ ${pretty(part.input)}`,
-      output === "" ? null : output,
-    ]
-      .filter((p) => p !== null)
-      .join("\n\n");
+    const detail = toolDetail(action.kind, part.input, output);
     return [
       {
         key: part.callId,
@@ -343,13 +338,13 @@ function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
         status: part.result === "running" ? "running" : part.result === "failed" ? "error" : "complete",
         ...(action.detail === undefined ? {} : { target: action.detail }),
         ...(part.result === "failed" ? { errorMessage: output.slice(0, 300) } : {}),
-        ...(detail === ""
+        ...(detail === null
           ? {}
           : {
               resultDetail: (
                 <CodeBlock
-                  code={detail.slice(0, 20_000)}
-                  language="bash"
+                  code={detail.code.slice(0, 20_000)}
+                  language={detail.language}
                   width="100%"
                   maxHeight={320}
                   isWrapped
@@ -362,20 +357,49 @@ function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
   return <ChatToolCalls calls={calls} />;
 }
 
-/** Tool input is JSON from most runtimes; show it readable. */
-function pretty(input: string): string {
+/**
+ * What an expanded tool call shows: a command as `$ command` then its output; an edit as
+ * the text it wrote; anything else as its input (JSON, pretty) then its output.
+ */
+function toolDetail(
+  kind: string,
+  input: string | undefined,
+  output: string,
+): { code: string; language: "bash" | "json" | "markdown" } | null {
+  const parsed = parse(input);
+  const field = (...names: string[]): string | null => {
+    for (const name of names) {
+      const value = parsed?.[name];
+      if (typeof value === "string") return value;
+      if (Array.isArray(value) && value.every((v) => typeof v === "string")) return value.join(" ");
+    }
+    return null;
+  };
+  const join = (...parts: (string | null)[]): string =>
+    parts.filter((p) => p !== null && p !== "").join("\n\n");
+  if (kind === "run_command") {
+    const command = field("command", "cmd") ?? input ?? "";
+    return { code: join(`$ ${command}`, output), language: "bash" };
+  }
+  if (kind === "edit_file") {
+    const written = field("content", "new_string", "patch", "diff");
+    if (written !== null)
+      return { code: join(written, output === "" ? null : `→ ${output}`), language: "markdown" };
+  }
+  const shown = parsed === null ? (input ?? null) : JSON.stringify(parsed, null, 2);
+  const code = join(shown, output);
+  return code === "" ? null : { code, language: parsed === null ? "markdown" : "json" };
+}
+
+function parse(input: string | undefined): Record<string, unknown> | null {
+  if (input === undefined) return null;
   try {
     const value: unknown = JSON.parse(input);
-    if (value !== null && typeof value === "object") {
-      const record = value as Record<string, unknown>;
-      const command = record["command"] ?? record["cmd"];
-      if (typeof command === "string") return command;
-      if (Array.isArray(command)) return command.join(" ");
-      return JSON.stringify(value, null, 2);
-    }
-    return String(value);
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   } catch {
-    return input;
+    return null;
   }
 }
 
