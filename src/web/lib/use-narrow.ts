@@ -1,14 +1,23 @@
 import { useSyncExternalStore } from "react";
 
-const QUERY = "(max-width: 767px)";
-
-function subscribe(onChange: () => void): () => void {
-  const media = matchMedia(QUERY);
-  media.addEventListener("change", onChange);
-  return () => media.removeEventListener("change", onChange);
+/** Whether a media query matches, kept current. */
+export function useMedia(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const media = matchMedia(query);
+      media.addEventListener("change", onChange);
+      return () => media.removeEventListener("change", onChange);
+    },
+    () => matchMedia(query).matches,
+  );
 }
 
 /** Phone-width layout: the same breakpoint as Tailwind's `md`, where the side nav becomes a sheet. */
 export function useNarrow(): boolean {
-  return useSyncExternalStore(subscribe, () => matchMedia(QUERY).matches);
+  return useMedia("(max-width: 767px)");
+}
+
+/** Room for the conversation and the inspector side by side (beside the side nav). */
+export function useWide(): boolean {
+  return useMedia("(min-width: 1100px)");
 }

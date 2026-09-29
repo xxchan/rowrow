@@ -12,8 +12,9 @@ file when something lands.
   with a dense, dark-first look in the spirit of roamgate. Accessible names stay, so the e2e
   suite checks the port. The new composer must let Return insert a newline on phones
   (the current one likely swallows it; parity finding 1).
-- **Workspace inspector** (roamgate #227 search, #228 PR/MR status, #229 commit history, file
-  tree, previews, file actions): server side first, then UI on the new stack.
+- **Workspace inspector**: done for search (#227), PR status (#228, GitHub), history (#229),
+  file previews and stage/unstage/discard/delete. Next here: a browsable file tree, GitLab
+  MRs, image and PDF previews.
 - **Approvals from the phone**: answer an agent's permission request or question (oar
   approvals), with per-agent plan/permission mode.
 

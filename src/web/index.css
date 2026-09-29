@@ -38,6 +38,7 @@
   --success: #1f8f55;
   --warning: #a36f00;
   --info: #3867d6;
+  --merged: #7b45c6;
   --code: #f1f3f8;
   --diff-add: rgb(31 143 85 / 0.13);
   --diff-add-strong: rgb(31 143 85 / 0.3);
@@ -76,6 +77,7 @@
   --success: #73d99a;
   --warning: #e8c267;
   --info: #7aa2f7;
+  --merged: #bb9af7;
   --code: #11121a;
   --diff-add: rgb(115 217 154 / 0.1);
   --diff-add-strong: rgb(115 217 154 / 0.26);
@@ -121,6 +123,7 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
+  --color-merged: var(--merged);
   --color-code: var(--code);
   --color-diff-add: var(--diff-add);
   --color-diff-add-strong: var(--diff-add-strong);

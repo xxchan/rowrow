@@ -71,11 +71,46 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
   await page.getByRole("button", { name: /Changes/ }).click();
   const panel =
     info.project.name === "phone"
-      ? page.getByRole("dialog", { name: "Changes" })
-      : page.getByRole("region", { name: "Changes" });
+      ? page.getByRole("dialog")
+      : page.getByRole("region", { name: "Inspector" });
   await expect(panel.getByText("src/hello.ts")).toBeVisible();
   await panel.getByText("src/hello.ts").click();
   await expect(panel.getByText("export const hello = 1;")).toBeVisible();
+});
+
+test("the inspector: stage a change, find a line, read the history", async ({ page, rowrow }, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "inspects",
+    input: { inputId: randomUUID(), text: "/write notes.txt\nthe answer is 42" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.client.workspaces.refresh({ id: ws.id });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await page.getByRole("button", { name: /Changes/ }).click();
+  const inspector =
+    info.project.name === "phone"
+      ? page.getByRole("dialog")
+      : page.getByRole("region", { name: "Inspector" });
+
+  // Stage the new file from the uncommitted list.
+  await inspector.getByRole("tab", { name: "Uncommitted" }).click();
+  await inspector.getByRole("button", { name: "Actions for notes.txt" }).click();
+  await page.getByRole("menuitem", { name: "Stage" }).click();
+  await expect(inspector.getByText("staged", { exact: true })).toBeVisible();
+
+  // Find a line, open it.
+  await inspector.getByRole("tab", { name: "Files" }).click();
+  await inspector.getByRole("searchbox", { name: "Search files" }).fill("answer");
+  await inspector.getByRole("button", { name: /the answer is 42/ }).click();
+  await expect(inspector.getByText("the answer is 42")).toBeVisible();
+
+  // The history has the repository's first commit, and its file.
+  await inspector.getByRole("tab", { name: "History" }).click();
+  await inspector.getByRole("button", { name: /init/ }).click();
+  await expect(inspector.getByRole("button", { name: /README\.md/ })).toBeVisible();
 });
 
 test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {

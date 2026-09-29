@@ -35,9 +35,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
-import { ChangesView } from "../components/ChangesView.tsx";
 import { Composer } from "../components/Composer.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
+import {
+  Inspector,
+  saveInspectorTab,
+  savedInspectorTab,
+  type InspectorTab,
+} from "../components/Inspector.tsx";
 import { SelectionComment } from "../components/SelectionComment.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { StatusDot } from "../components/StatusDot.tsx";
@@ -47,7 +52,7 @@ import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
-import { useNarrow } from "../lib/use-narrow.ts";
+import { useNarrow, useWide } from "../lib/use-narrow.ts";
 import { useNow } from "../lib/use-now.ts";
 
 export function AgentPage({ agentId, route }: { agentId: string; route: Route }) {
@@ -72,6 +77,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const looking = useLooking();
   const now = useNow(5000);
   const narrow = useNarrow();
+  const wide = useWide();
   const { summary } = agent;
   const ws = state.workspaces[summary.workspaceId];
   const dot = statusDot(agent, now);
@@ -89,10 +95,19 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
     return () => clearTimeout(timer);
   }, [client, looking, head, agent.id, agent.seenSeq, transcript.loading]);
 
-  const [showChanges, setShowChanges] = useState(() => !narrow && localStorage.getItem(CHANGES_KEY) === "1");
+  // Remembered open only where it sits beside the conversation; elsewhere it covers it.
+  const [showChanges, setShowChanges] = useState(() => wide && localStorage.getItem(CHANGES_KEY) === "1");
+  const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
+  const chooseTab = (next: InspectorTab): void => {
+    setTab(next);
+    saveInspectorTab(next);
+  };
+  // The button shows the changes: it opens the inspector there, or switches to them, or closes.
   const toggleChanges = (): void => {
-    if (!narrow) localStorage.setItem(CHANGES_KEY, showChanges ? "0" : "1");
-    setShowChanges(!showChanges);
+    const open = !showChanges || tab !== "changes";
+    chooseTab("changes");
+    if (wide) localStorage.setItem(CHANGES_KEY, open ? "1" : "0");
+    setShowChanges(open);
   };
   const changed = ws?.git?.changed ?? 0;
 
@@ -182,7 +197,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
         }
       />
       <div className="min-h-0 flex-1">
-        {showChanges && !narrow && ws !== undefined ? (
+        {showChanges && wide && ws !== undefined ? (
           <ResizablePanelGroup
             orientation="horizontal"
             defaultLayout={savedLayout()}
@@ -193,8 +208,8 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
             </ResizablePanel>
             <ResizableHandle aria-label="Resize the changes panel" />
             <ResizablePanel id="changes" defaultSize={520} minSize={320} maxSize={1100}>
-              <section aria-label="Changes" className="h-full min-h-0 overflow-hidden bg-sidebar/40">
-                <ChangesView workspaceId={ws.id} agentId={agent.id} />
+              <section aria-label="Inspector" className="h-full min-h-0 overflow-hidden bg-sidebar/40">
+                <Inspector workspaceId={ws.id} agentId={agent.id} tab={tab} onTabChange={chooseTab} />
               </section>
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -202,15 +217,28 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
           chat
         )}
       </div>
-      {narrow && ws !== undefined && (
+      {!wide && ws !== undefined && (
         <Sheet open={showChanges} onOpenChange={setShowChanges}>
-          <SheetContent side="bottom" className="h-[88dvh] gap-0 rounded-t-2xl p-0">
+          <SheetContent
+            side={narrow ? "bottom" : "right"}
+            className={
+              narrow ? "h-[88dvh] gap-0 rounded-t-2xl p-0" : "w-[min(560px,90vw)] gap-0 p-0 sm:max-w-none"
+            }
+          >
             <SheetHeader className="border-b px-4 py-3">
-              <SheetTitle>Changes</SheetTitle>
-              <SheetDescription className="sr-only">What changed in {ws.label}</SheetDescription>
+              <SheetTitle>{ws.label}</SheetTitle>
+              <SheetDescription className="sr-only">
+                Changes, files and history of {ws.label}
+              </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-hidden">
-              <ChangesView workspaceId={ws.id} agentId={agent.id} onDelivered={() => setShowChanges(false)} />
+              <Inspector
+                workspaceId={ws.id}
+                agentId={agent.id}
+                tab={tab}
+                onTabChange={chooseTab}
+                onDelivered={() => setShowChanges(false)}
+              />
             </div>
           </SheetContent>
         </Sheet>

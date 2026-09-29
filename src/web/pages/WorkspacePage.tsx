@@ -30,9 +30,14 @@ import { Ellipsis, GitBranch, LoaderCircle, Plus, RefreshCw, Trash2 } from "luci
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { AppState, Workspace } from "../../shared/schemas.ts";
-import { ChangesView } from "../components/ChangesView.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
+import {
+  Inspector,
+  saveInspectorTab,
+  savedInspectorTab,
+  type InspectorTab,
+} from "../components/Inspector.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { StatusDot } from "../components/StatusDot.tsx";
@@ -64,6 +69,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
   const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id);
   const git = ws.git;
 
+  const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
   const [newWorktree, setNewWorktree] = useState(false);
   const [removing, setRemoving] = useState<"ask" | "dirty" | null>(null);
   const [busy, setBusy] = useState(false);
@@ -198,11 +204,19 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
             )}
           </Section>
           {git !== null && !ws.missing && (
-            <Section label="Changes">
-              <div className="h-[min(70dvh,640px)] overflow-hidden rounded-lg border bg-card">
-                <ChangesView workspaceId={ws.id} />
-              </div>
-            </Section>
+            <section
+              aria-label="Inspector"
+              className="h-[min(75dvh,720px)] overflow-hidden rounded-lg border bg-card"
+            >
+              <Inspector
+                workspaceId={ws.id}
+                tab={tab}
+                onTabChange={(next) => {
+                  setTab(next);
+                  saveInspectorTab(next);
+                }}
+              />
+            </section>
           )}
           {worktrees.length > 0 && (
             <Section label={`Worktrees · ${worktrees.length}`}>

@@ -1,13 +1,33 @@
 // What changed in a workspace (roamgate #37): the last turn (against the snapshot taken
 // when it started), uncommitted work, or the whole branch. Files load as a list; a file's
 // diff loads when you open it. Refreshes itself when the workspace's git facts change,
-// which happens after every turn.
+// which happens after every turn. Uncommitted files can be staged, unstaged, discarded or
+// deleted; each action carries the file's stamp, so nothing happens to a file that changed
+// since you looked (D-019).
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import { ChevronRight, LoaderCircle, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { ChangedFile, Changes, DiffScope } from "../../shared/schemas.ts";
+import { ORPCError } from "@orpc/client";
+import { Ellipsis, LoaderCircle, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import type { BulkAction, ChangedFile, Changes, DiffScope, FileAction } from "../../shared/schemas.ts";
 import {
   addAnnotation,
   annotationsFor,
@@ -16,16 +36,25 @@ import {
   useAnnotations,
   type Annotation,
 } from "../lib/annotations.ts";
+import type { Client } from "../lib/connection.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
-import { DiffView } from "./DiffView.tsx";
 import { ErrorText } from "./ErrorText.tsx";
+import { FileDiffRow } from "./FileDiffRow.tsx";
 
 const SCOPE_KEY = "rowrow.changesScope";
 
+interface Confirmation {
+  readonly title: string;
+  readonly description: string;
+  readonly action: string;
+  readonly run: () => Promise<void>;
+}
+
 /**
- * `agentId`: whose composer review feedback goes to ("Add to message"); without it the
- * feedback can only be copied. `onDelivered` runs after it was added (to close a sheet).
+ * `agentId`: whose composer review feedback goes to ("Add to message"), and whose last turn
+ * the Last turn scope shows; without it the feedback can only be copied. `onDelivered` runs
+ * after it was added (to close a sheet).
  */
 export function ChangesView({
   workspaceId,
@@ -49,6 +78,8 @@ export function ChangesView({
     changes: Changes | null;
     error: string | null;
   } | null>(null);
+  const [confirming, setConfirming] = useState<Confirmation | null>(null);
+  const [acting, setActing] = useState(false);
   const key = `${workspaceId}:${scope}:${gitVersion}:${reload}`;
 
   useEffect(() => {
@@ -88,6 +119,74 @@ export function ChangesView({
     { add: 0, del: 0 },
   );
 
+  /** Runs a working-tree action; shows the list it returns, or explains a refusal. */
+  const act = async (label: string, run: (c: Client) => Promise<{ changes: Changes }>): Promise<void> => {
+    if (client === null) return;
+    setActing(true);
+    try {
+      const { changes: next } = await run(client);
+      setResult({ key, scope: "working", changes: next, error: null });
+    } catch (error) {
+      if (error instanceof ORPCError && error.code === "CONFLICT") {
+        toast.warning("That changed since you looked, so nothing was done. Here's the current state.");
+        setReload((n) => n + 1);
+      } else {
+        toast.error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+        report("warn", "changes.action_failed", error, { workspaceId, action: label });
+      }
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const fileAction = (file: ChangedFile, action: FileAction): void => {
+    const stamp = file.stamp;
+    if (stamp === undefined) return;
+    const run = (): Promise<void> =>
+      act(ACTION_LABEL[action], (c) =>
+        c.git.fileAction({ workspaceId, action, path: file.path, oldPath: file.oldPath, stamp }),
+      );
+    if (action === "discardUnstaged")
+      setConfirming({
+        title: `Discard the unstaged changes to ${file.path}?`,
+        description: "The edits that aren't staged are gone for good. Anything staged stays.",
+        action: "Discard",
+        run,
+      });
+    else if (action === "deleteUntracked")
+      setConfirming({
+        title: `Delete ${file.path}?`,
+        description: "It's untracked, so git has no copy of it: it's gone for good.",
+        action: "Delete",
+        run,
+      });
+    else void run();
+  };
+
+  const bulkAction = (action: BulkAction): void => {
+    const files = (changes?.files ?? []).flatMap((f) =>
+      f.stamp === undefined ? [] : [{ path: f.path, oldPath: f.oldPath, stamp: f.stamp }],
+    );
+    const run = (): Promise<void> =>
+      act(BULK_LABEL[action], (c) => c.git.bulkAction({ workspaceId, action, files }));
+    if (action === "discardAllUnstaged")
+      setConfirming({
+        title: "Discard every unstaged change?",
+        description: "Edits that aren't staged are gone for good, in every file. Staged changes stay.",
+        action: "Discard all",
+        run,
+      });
+    else if (action === "deleteAllUntracked")
+      setConfirming({
+        title: "Delete every untracked file?",
+        description: "git has no copy of untracked files: they're gone for good.",
+        action: "Delete all",
+        run,
+      });
+    else void run();
+  };
+
+  const working = scope === "working" && changes !== null && changes.files.length > 0;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-2">
@@ -113,12 +212,13 @@ export function ChangesView({
             </TabsList>
           </Tabs>
           <div className="flex-1" />
-          {current === null && (
+          {(current === null || acting) && (
             <LoaderCircle
               className="size-4 animate-spin text-muted-foreground"
               aria-label="Loading changes"
             />
           )}
+          {working && <BulkActions files={changes.files} onAction={bulkAction} />}
           <Button
             variant="ghost"
             size="icon"
@@ -134,9 +234,7 @@ export function ChangesView({
             {changes.baseLabel === null
               ? ""
               : `${scope === "turn" ? "In" : "Against"} ${changes.baseLabel}. `}
-            {changes.files.length === 0 ? (
-              ""
-            ) : (
+            {changes.files.length > 0 && (
               <>
                 {`${changes.files.length} file${changes.files.length === 1 ? "" : "s"}, `}
                 <span className="text-success">{`+${total?.add ?? 0}`}</span>{" "}
@@ -172,7 +270,7 @@ export function ChangesView({
         {changes !== null && (
           <div className="flex flex-col">
             {changes.files.map((file) => (
-              <FileRow
+              <ChangedFileRow
                 key={`${scope}:${file.path}`}
                 workspaceId={workspaceId}
                 scope={scope}
@@ -182,25 +280,194 @@ export function ChangesView({
                 annotations={annotations.filter(
                   (a) => a.source.kind === "diff" && a.source.path === file.path && a.source.scope === scope,
                 )}
+                onAction={scope === "working" ? (action) => fileAction(file, action) : undefined}
               />
             ))}
           </div>
         )}
       </div>
+      <AlertDialog
+        open={confirming !== null}
+        onOpenChange={(open) => (open ? undefined : setConfirming(null))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="break-words">{confirming?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirming?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                const run = confirming?.run;
+                setConfirming(null);
+                if (run !== undefined) void run();
+              }}
+            >
+              {confirming?.action}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-const STATUS: Record<ChangedFile["status"], string> = {
-  added: "A",
-  modified: "M",
-  deleted: "D",
-  renamed: "R",
-  copied: "C",
-  untracked: "U",
-  conflicted: "!",
-  typechange: "T",
+const ACTION_LABEL: Record<FileAction, string> = {
+  stage: "Stage",
+  unstage: "Unstage",
+  discardUnstaged: "Discard",
+  deleteUntracked: "Delete",
+  markResolved: "Mark resolved",
 };
+
+const BULK_LABEL: Record<BulkAction, string> = {
+  stageAll: "Stage all",
+  unstageAll: "Unstage all",
+  discardAllUnstaged: "Discard all",
+  deleteAllUntracked: "Delete all untracked",
+};
+
+/** The actions that make sense for this file's state. */
+function actionsFor(file: ChangedFile): FileAction[] {
+  if (file.status === "conflicted") return ["markResolved"];
+  const out: FileAction[] = [];
+  if (file.unstaged === true) out.push("stage");
+  if (file.staged === true) out.push("unstage");
+  if (file.status === "untracked") out.push("deleteUntracked");
+  else if (file.unstaged === true) out.push("discardUnstaged");
+  return out;
+}
+
+function ChangedFileRow({
+  workspaceId,
+  scope,
+  file,
+  version,
+  annotations,
+  agentId,
+  onAction,
+}: {
+  workspaceId: string;
+  scope: DiffScope;
+  file: ChangedFile;
+  version: string;
+  annotations: readonly Annotation[];
+  agentId?: string;
+  onAction: ((action: FileAction) => void) | undefined;
+}) {
+  const client = useClient();
+  const load = useCallback(async () => {
+    if (client === null) throw new Error("not connected");
+    return client.git.diff({
+      workspaceId,
+      scope,
+      path: file.path,
+      ...(agentId === undefined ? {} : { agentId }),
+    });
+  }, [client, workspaceId, scope, file.path, agentId]);
+  const actions = onAction === undefined || file.stamp === undefined ? [] : actionsFor(file);
+  const staged =
+    file.staged === true ? (
+      <span className="shrink-0 rounded bg-success/15 px-1 text-[10px] font-medium text-success">
+        {file.unstaged === true ? "partly staged" : "staged"}
+      </span>
+    ) : undefined;
+  return (
+    <FileDiffRow
+      file={file}
+      version={version}
+      load={load}
+      annotations={annotations}
+      onComment={(ref, comment) =>
+        addAnnotation(workspaceId, { kind: "diff", path: file.path, scope, ...ref }, comment)
+      }
+      onRemove={(id) => removeAnnotations(new Set([id]))}
+      badge={staged}
+      actions={
+        actions.length === 0 || onAction === undefined ? undefined : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground md:opacity-0 md:group-hover/file:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                aria-label={`Actions for ${file.path}`}
+              >
+                <Ellipsis />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {actions.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                  variant={
+                    action === "discardUnstaged" || action === "deleteUntracked" ? "destructive" : "default"
+                  }
+                  onSelect={() => onAction(action)}
+                >
+                  {action === "discardUnstaged"
+                    ? "Discard unstaged changes…"
+                    : action === "deleteUntracked"
+                      ? "Delete file…"
+                      : ACTION_LABEL[action]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      }
+    />
+  );
+}
+
+function BulkActions({
+  files,
+  onAction,
+}: {
+  files: readonly ChangedFile[];
+  onAction: (action: BulkAction) => void;
+}) {
+  const anyUnstaged = files.some((f) => f.unstaged === true && f.status !== "conflicted");
+  const anyStaged = files.some((f) => f.staged === true);
+  const anyModified = files.some(
+    (f) => f.unstaged === true && f.status !== "untracked" && f.status !== "conflicted",
+  );
+  const anyUntracked = files.some((f) => f.status === "untracked");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground">
+          All files
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem disabled={!anyUnstaged} onSelect={() => onAction("stageAll")}>
+          Stage all
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!anyStaged} onSelect={() => onAction("unstageAll")}>
+          Unstage all
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={!anyModified}
+          onSelect={() => onAction("discardAllUnstaged")}
+        >
+          Discard all unstaged changes…
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          variant="destructive"
+          disabled={!anyUntracked}
+          onSelect={() => onAction("deleteAllUntracked")}
+        >
+          Delete all untracked files…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /** Your review comments on this workspace: add them to the agent's message, copy, or clear. */
 function ReviewBar({
@@ -248,121 +515,3 @@ function ReviewBar({
     </div>
   );
 }
-
-function FileRow({
-  workspaceId,
-  scope,
-  file,
-  version,
-  annotations,
-  agentId,
-}: {
-  workspaceId: string;
-  scope: DiffScope;
-  file: ChangedFile;
-  version: string;
-  annotations: readonly Annotation[];
-  agentId?: string;
-}) {
-  const client = useClient();
-  const [open, setOpen] = useState(false);
-  const [diff, setDiff] = useState<
-    { version: string; patch: string; truncated: boolean } | { version: string; error: string } | null
-  >(null);
-
-  useEffect(() => {
-    if (!open || client === null || diff?.version === version) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await client.git.diff({
-          workspaceId,
-          scope,
-          path: file.path,
-          ...(agentId === undefined ? {} : { agentId }),
-        });
-        if (!cancelled) setDiff({ version, ...result });
-      } catch (error) {
-        if (!cancelled) setDiff({ version, error: error instanceof Error ? error.message : String(error) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, client, workspaceId, scope, file.path, version, diff?.version, agentId]);
-
-  return (
-    <div className="flex flex-col">
-      <button
-        type="button"
-        className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-accent/60"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-      >
-        <ChevronRight
-          className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
-        />
-        <span
-          className={cn(
-            "w-3.5 shrink-0 text-center font-mono text-[11px] font-semibold",
-            STATUS_COLOR[file.status],
-          )}
-        >
-          {STATUS[file.status]}
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
-          {file.oldPath === null ? file.path : `${file.oldPath} → ${file.path}`}
-        </span>
-        {annotations.length > 0 && (
-          <span className="shrink-0 text-[11px] text-primary">{`${annotations.length} comment${annotations.length === 1 ? "" : "s"}`}</span>
-        )}
-        <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
-          {file.additions === null ? (
-            "binary"
-          ) : (
-            <>
-              <span className="text-success">{`+${file.additions}`}</span>{" "}
-              <span className="text-destructive">{`−${file.deletions ?? 0}`}</span>
-            </>
-          )}
-        </span>
-      </button>
-      {open && (
-        <div className="pt-1 pb-3 pl-1">
-          {diff === null || diff.version !== version ? (
-            <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" /> Loading diff
-            </div>
-          ) : "error" in diff ? (
-            <ErrorText className="px-2">{diff.error}</ErrorText>
-          ) : diff.patch === "" ? (
-            <p className="px-2 text-xs text-muted-foreground">No textual diff (binary or too large).</p>
-          ) : (
-            <>
-              <DiffView
-                patch={diff.patch}
-                annotations={annotations}
-                onComment={(ref, comment) =>
-                  addAnnotation(workspaceId, { kind: "diff", path: file.path, scope, ...ref }, comment)
-                }
-                onRemove={(id) => removeAnnotations(new Set([id]))}
-              />
-              {diff.truncated && <p className="px-2 pt-1 text-xs text-muted-foreground">Cut at 512 KB.</p>}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-const STATUS_COLOR: Record<ChangedFile["status"], string> = {
-  added: "text-success",
-  untracked: "text-success",
-  modified: "text-warning",
-  renamed: "text-warning",
-  copied: "text-warning",
-  typechange: "text-warning",
-  deleted: "text-destructive",
-  conflicted: "text-destructive",
-};
