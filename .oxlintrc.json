@@ -46,7 +46,15 @@
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/consistent-return": "off",
     "typescript/no-unnecessary-type-parameters": "off",
-    "unicorn/consistent-function-scoping": "off"
+    "unicorn/consistent-function-scoping": "off",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": [
+          "**/*.css"
+        ]
+      }
+    ]
   },
   "overrides": [
     {

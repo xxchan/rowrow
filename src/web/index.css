@@ -1,0 +1,14 @@
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  font-family: var(--font-family-body);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}

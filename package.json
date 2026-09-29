@@ -32,6 +32,8 @@
     "check": "run-p -l typecheck lint format:check && vitest run"
   },
   "dependencies": {
+    "@astryxdesign/core": "0.6.3",
+    "@astryxdesign/theme-neutral": "0.6.3",
     "@botiverse/oar": "^0.8.0",
     "@hono/node-server": "^2.1.1",
     "@orpc/client": "^1.15.4",
@@ -39,23 +41,37 @@
     "@orpc/openapi": "^1.15.4",
     "@orpc/server": "^1.15.4",
     "@orpc/zod": "^1.15.4",
+    "@stylexjs/stylex": "^0.19.1",
     "hono": "^4.13.10",
     "immer": "^11.1.18",
+    "lucide-react": "^1.48.0",
     "pino": "^10.3.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "web-push": "^3.6.7",
     "ws": "^8.22.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.6.3",
     "@playwright/test": "^1.63.0",
+    "@stylexjs/babel-plugin": "0.19.1",
+    "@stylexjs/unplugin": "0.19.1",
     "@types/node": "^24.19.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.1.1",
     "npm-run-all2": "^9.0.3",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "oxlint-tsgolint": "^7.0.2001",
     "typescript": "^7.0.2",
+    "vite": "^8.3.1",
     "vitest": "^5.0.2"
   },
   "devEngines": {
