@@ -1,8 +1,21 @@
 {
   "name": "rowrow",
   "version": "0.1.0",
-  "private": true,
   "description": "Run a crew of coding agents in parallel and steer them from any browser, including your phone.",
+  "keywords": [
+    "agents",
+    "ai",
+    "claude-code",
+    "cli",
+    "codex",
+    "coding-agents",
+    "mobile",
+    "remote-control"
+  ],
+  "homepage": "https://github.com/xxchan/rowrow#readme",
+  "bugs": {
+    "url": "https://github.com/xxchan/rowrow/issues"
+  },
   "license": "Apache-2.0",
   "author": "xxchan",
   "repository": {
@@ -10,13 +23,23 @@
     "url": "git+https://github.com/xxchan/rowrow.git"
   },
   "bin": {
-    "rowrow": "./bin/rowrow.mjs"
+    "rowrow": "lib/cli/main.js"
   },
+  "files": [
+    "lib",
+    "dist/web",
+    "!dist/web/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "scripts": {
     "setup": "pnpm install",
     "dev": "node scripts/dev.ts",
-    "build": "vite build",
+    "build": "run-p -l build:web build:node",
+    "build:web": "vite build",
+    "build:node": "node --disable-warning=ExperimentalWarning scripts/build-node.ts",
+    "prepack": "pnpm build",
     "start": "vite build && node src/cli/main.ts serve",
     "rowrow": "node src/cli/main.ts",
     "typecheck": "run-p -l typecheck:node typecheck:web typecheck:e2e",
@@ -29,6 +52,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vite build && playwright test",
+    "test:package": "node scripts/test-package.ts",
     "shot": "node scripts/shot.ts",
     "check": "run-p -l typecheck lint format:check && vitest run"
   },
@@ -42,14 +66,9 @@
     "@orpc/zod": "^1.15.4",
     "hono": "^4.13.10",
     "immer": "^11.1.18",
-    "pino": "^10.3.1",
-    "qrcode": "^1.5.4",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
     "web-push": "^3.6.7",
     "ws": "^8.22.0",
-    "zod": "^4.6.5",
-    "zustand": "^5.0.15"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@lobehub/icons-static-svg": "^1.95.1",
@@ -72,7 +91,10 @@
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "oxlint-tsgolint": "^7.0.2001",
+    "qrcode": "^1.5.4",
     "radix-ui": "^1.6.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "react-resizable-panels": "^4.14.1",
     "sonner": "^2.0.8",
     "streamdown": "^2.6.0",
@@ -82,7 +104,8 @@
     "typescript": "^7.0.2",
     "use-stick-to-bottom": "^1.1.6",
     "vite": "^8.3.1",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "zustand": "^5.0.15"
   },
   "devEngines": {
     "runtime": {

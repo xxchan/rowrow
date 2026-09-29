@@ -4,5 +4,5 @@
   "semi": true,
   "singleQuote": false,
   "trailingComma": "all",
-  "ignorePatterns": [".deps/**", "dist/**", "pnpm-lock.yaml", "docs/**/*.md", "*.md"]
+  "ignorePatterns": [".deps/**", "dist/**", "lib/**", "pnpm-lock.yaml", "docs/**/*.md", "*.md"]
 }

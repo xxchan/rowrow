@@ -13,6 +13,7 @@ pnpm install        # pnpm fetches Node 24 (devEngines) when your shell has anot
 pnpm dev            # a server (profile dev, scripted runtime) + Vite with hot reload; prints a sign-in link
 pnpm check          # typecheck + lint + format check + unit and integration tests: must pass before a commit
 pnpm test:e2e       # builds the web app, then Playwright on a desktop and a phone viewport
+pnpm test:package   # packs the npm package, installs it with npm in a temp prefix, and runs it
 pnpm rowrow …       # the CLI (node src/cli/main.ts …)
 pnpm shot <route>   # a screenshot of the real UI, signed in: --mobile, --dark, --profile dev (default)
 ```
@@ -73,7 +74,9 @@ Don't change the user's data or agents while debugging unless they asked.
   imports or `@botiverse/oar/observe`. `src/web` talks to the server only through the
   contract. Lint enforces both.
 - **Erasable TypeScript**, run directly by Node 24: relative imports carry `.ts`; no enums,
-  namespaces or parameter properties.
+  namespaces or parameter properties. The npm package runs the same modules stripped into
+  `lib/*.js` (D-018), so runtime code never names a `.ts` file, and imports are literal
+  strings (never a computed `import()`).
 - **Log events, not prose.** `log.info("agent.run.started", { runtime })` with a stable,
   dot-namespaced name. Never swallow an error: log it with context, or return it to the
   caller as a `UserError` whose message says what to do.
@@ -88,3 +91,15 @@ Don't change the user's data or agents while debugging unless they asked.
   `ROWROW_HOME`.
 - **Decide explicitly.** A choice that constrains later work gets an entry in
   `docs/decisions.md`, with what would make us revisit it.
+
+## Releasing
+
+CI publishes to npm (D-018); nobody runs `npm publish` by hand.
+
+1. Bump `version` in package.json (`npm version 0.2.0 --no-git-tag-version`), commit it,
+   and push it to main.
+2. Tag that commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+3. `.github/workflows/release.yml` checks that the tag matches the version, runs
+   `pnpm check`, packs and smoke-tests the tarball, publishes it with provenance (npm
+   trusted publishing, no token), and creates the GitHub release. A prerelease
+   (`0.3.0-rc.1`) goes to npm's `next` tag.

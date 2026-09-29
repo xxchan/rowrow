@@ -1,0 +1,99 @@
+# Publishes rowrow to npm when a version tag (v1.2.3) is pushed; AGENTS.md says how to cut a
+# release, docs/decisions.md (D-018) why it works this way.
+#
+# npm trusted publishing: npm trusts this file (release.yml) in xxchan/rowrow, in the `npm`
+# environment, and swaps the publish job's OIDC token for a short-lived publish token. No npm
+# token is stored anywhere, and npm attaches a provenance attestation to every version.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Runs our code and our dependencies' code, so it gets no credentials.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false # a release never restores a cache
+      - name: The tag is v + package.json's version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match package.json's version $version (its tag is v$version)"
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      # typecheck + lint + format check + unit and integration tests
+      - run: pnpm check
+      - name: Build and pack
+        run: npm pack # prepack builds dist/web and lib/
+      - name: Install the tarball and run it
+        run: node scripts/test-package.ts "rowrow-${GITHUB_REF_NAME#v}.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: rowrow-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Runs only npm and gh, on the tarball the build job made and tested.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Must match the environment in the package's trusted publisher on npmjs.com.
+    environment: npm
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # the OIDC token for npm trusted publishing and provenance
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+      - name: Publish to npm
+        run: |
+          # Trusted publishing needs npm 11.5.1 or later; Node 24.15.0 comes with 11.12.1.
+          npm_version=$(npm --version)
+          if [ "$(printf '%s\n' 11.5.1 "$npm_version" | sort -V | head -n 1)" != 11.5.1 ]; then
+            echo "::error::npm $npm_version can't publish with trusted publishing (needs 11.5.1 or later)"
+            exit 1
+          fi
+          version=${GITHUB_REF_NAME#v}
+          # No token and no --provenance: npm finds the OIDC token itself and, for a public
+          # package from a public repository, adds provenance on its own. A prerelease
+          # (1.2.0-rc.1) goes to the `next` dist-tag; npm refuses one without a tag anyway.
+          case "$version" in
+            *-*) npm publish "./rowrow-$version.tgz" --tag next ;;
+            *) npm publish "./rowrow-$version.tgz" ;;
+          esac
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag --prerelease ;;
+            *) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag ;;
+          esac

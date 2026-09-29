@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# The npm package's build output (scripts/build-node.ts); src/web/lib is source.
+/lib/
+*.tgz
 .deps/
 .dev/
 coverage/

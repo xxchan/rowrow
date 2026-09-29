@@ -240,9 +240,12 @@ export async function installService(profile: string, serveArgs: readonly string
     throw new Error(`the web app isn't built yet: run \`pnpm build\` in ${root} first`);
   }
   fs.mkdirSync(paths.dir, { recursive: true });
+  // The CLI next to this file: src/cli/main.ts in a checkout, lib/cli/main.js in the npm
+  // package (docs/decisions.md, D-018).
+  const cli = path.join(import.meta.dirname, `main${path.extname(import.meta.filename)}`);
   const spec: ServiceSpec = {
     profile,
-    argv: [process.execPath, path.join(import.meta.dirname, "main.ts"), "serve", ...serveArgs],
+    argv: [process.execPath, cli, "serve", ...serveArgs],
     env: {
       // What this shell can run, the service can run (a service manager's own PATH is bare).
       PATH: process.env["PATH"] ?? "/usr/bin:/bin",
@@ -260,7 +263,7 @@ It starts when you log in and restarts if it crashes.
 
   rowrow open${flag}              sign this browser in
   rowrow service status${flag}    what the service manager says
-  rowrow service restart${flag}   after \`git pull && pnpm build\`
+  rowrow service restart${flag}   after ${cli.endsWith(".ts") ? "`git pull && pnpm build`" : "`npm install -g rowrow`"}
   rowrow logs${flag}              the server's log (startup output: ${spec.logFile})
 
 Definition: ${target.file}
