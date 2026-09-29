@@ -1,21 +1,21 @@
-// What the agent runs on, next to where you write to it: its model, effort and how full its
-// context is at a glance, the rest of the session one tap away. Each value is what the
-// runtime reported, or else what you asked for; a value nobody reported says so.
+// What the next message runs on, next to where you write it. At a glance: the model, the
+// effort, and how full the context is (the one value that moves, and the one that asks you
+// to act: quiet until it fills up). One tap: the same three in full, a way to change the
+// model, and the fine print. Who and where (runtime, workspace, status) are the header's.
+// Each value is what the runtime reported, else what you asked for; nobody's guess.
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Cpu } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Copy } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import type { AgentState } from "../../shared/schemas.ts";
-import { ago, formatTokens } from "../lib/format.ts";
-import { useApp } from "../lib/store.ts";
-import { useNow } from "../lib/use-now.ts";
+import { formatTokens } from "../lib/format.ts";
+import { report } from "../lib/telemetry.ts";
 
 export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
   const { summary } = agent;
-  const runtimeName = useApp((s) => s.state?.runtimes[summary.runtime]?.name) ?? summary.runtime;
   const [open, setOpen] = useState(false);
-  const now = useNow(open ? 5000 : 60_000);
   const model = summary.reportedModel ?? summary.model;
   const effort = summary.reportedEffort ?? summary.effort;
   const context = summary.context;
@@ -46,115 +46,130 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        collisionPadding={12}
-        className="w-[min(20rem,calc(100vw-1.5rem))] p-0"
-      >
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 px-4 py-3 text-xs">
-          <Row label="Runtime">{runtimeName}</Row>
-          <Row label="Model">
-            {model ?? "The runtime's default"}
-            {summary.model === null
-              ? model !== null && <Note>the runtime's default</Note>
-              : summary.model !== model && <Note>{`you asked for ${summary.model}`}</Note>}
-          </Row>
-          <Row label="Effort">{effort ?? <span className="text-muted-foreground">Default</span>}</Row>
-          <Row label="Context">
-            {context === null || context.tokens === null ? (
-              <span className="text-muted-foreground">
-                {context === null ? "Not reported yet" : "Unknown until the next answer"}
-              </span>
+      <PopoverContent side="top" align="start" collisionPadding={12} className="w-72 p-0">
+        <div className="flex flex-col gap-3.5 px-4 pt-3.5 pb-4">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium break-all">{model ?? "Default model"}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {provenance(summary.model, model, effort)}
+              </p>
+            </div>
+            {!summary.archived && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 px-2.5 text-xs"
+                aria-label="Change model and effort"
+                onClick={() => {
+                  setOpen(false);
+                  onSwitchModel();
+                }}
+              >
+                Change
+              </Button>
+            )}
+          </div>
+          <div className="text-xs">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-muted-foreground">Context</span>
+              {context === null || context.tokens === null ? (
+                <span className="text-muted-foreground">
+                  {context === null ? "not reported yet" : "unknown until the next answer"}
+                </span>
+              ) : (
+                <span className="tabular-nums">
+                  {context.contextWindow === null
+                    ? `${formatTokens(context.tokens)} tokens`
+                    : `${formatTokens(context.tokens)} of ${formatTokens(context.contextWindow)}`}
+                  {percent !== null && (
+                    <span className={fullness(percent)}>{` · ${formatPercent(percent)}`}</span>
+                  )}
+                </span>
+              )}
+            </div>
+            {percent !== null && (
+              <div
+                role="meter"
+                aria-label="Context used"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(percent)}
+                className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted-foreground/15"
+              >
+                <div
+                  className={cn("h-full rounded-full bg-current", fullness(percent, "text-primary"))}
+                  style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 border-t px-4 py-2.5 text-xs text-muted-foreground">
+          <dt>Tokens</dt>
+          <dd className="tabular-nums">
+            {summary.usage === null
+              ? "not reported yet"
+              : `${formatTokens(summary.usage.input)} in · ${formatTokens(summary.usage.output)} out`}
+          </dd>
+          <dt>Session</dt>
+          <dd className="flex min-w-0 items-center gap-1">
+            {summary.sessionId === null ? (
+              "starts with the first message"
             ) : (
               <>
-                {context.contextWindow === null
-                  ? `${formatTokens(context.tokens)} tokens`
-                  : `${formatTokens(context.tokens)} of ${formatTokens(context.contextWindow)}`}
-                {percent !== null && (
-                  <>
-                    <span className={cn("pl-1.5", fullness(percent))}>{formatPercent(percent)}</span>
-                    <div
-                      role="meter"
-                      aria-label="Context used"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(percent)}
-                      className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted-foreground/20"
-                    >
-                      <div
-                        className={cn("h-full rounded-full bg-current", fullness(percent, "text-primary"))}
-                        style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-                      />
-                    </div>
-                  </>
-                )}
+                <span className="truncate font-mono">{summary.sessionId}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="-my-1 size-6 shrink-0 text-muted-foreground [&_svg]:size-3.5"
+                  aria-label="Copy session id"
+                  onClick={() => void copy(summary.sessionId ?? "")}
+                >
+                  <Copy />
+                </Button>
               </>
             )}
-          </Row>
-          <Row label="Tokens">
-            {summary.usage === null ? (
-              <span className="text-muted-foreground">Not reported yet</span>
-            ) : (
-              `${formatTokens(summary.usage.input)} in · ${formatTokens(summary.usage.output)} out`
-            )}
-          </Row>
-          <Row label="Session">
-            {summary.sessionId === null ? (
-              <span className="text-muted-foreground">Starts with the first message</span>
-            ) : (
-              <span className="font-mono break-all select-all">{summary.sessionId}</span>
-            )}
-          </Row>
-          <Row label="Process">
-            {summary.run === null ? (
-              <span className="text-muted-foreground">Not running; the next message starts it</span>
-            ) : (
-              `Running, started ${startedAgo(summary.run.since, now)}`
-            )}
-          </Row>
+          </dd>
         </dl>
-        {!summary.archived && (
-          <div className="border-t p-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start"
-              onClick={() => {
-                setOpen(false);
-                onSwitchModel();
-              }}
-            >
-              <Cpu /> Model and effort…
-            </Button>
-          </div>
-        )}
       </PopoverContent>
     </Popover>
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 tabular-nums">{children}</dd>
-    </>
-  );
+async function copy(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success("Session id copied");
+  } catch (error) {
+    toast.error(
+      window.isSecureContext
+        ? `Couldn't copy: ${error instanceof Error ? error.message : String(error)}`
+        : "Couldn't copy: browsers allow it only over https or on localhost",
+    );
+    report("warn", "session_info.copy_failed", error);
+  }
 }
 
-function Note({ children }: { children: ReactNode }) {
-  return <span className="block text-muted-foreground">{children}</span>;
+/** Where the model and effort come from, in one short line under the model's name. */
+function provenance(asked: string | null, model: string | null, effort: string | null): string {
+  const effortNote = effort === null ? "default effort" : `${effort} effort`;
+  if (asked === null) {
+    // With nothing reported, the name above already says "Default model".
+    if (model === null) return capitalize(effortNote);
+    return effort === null ? "Default model and effort" : `Default model · ${effortNote}`;
+  }
+  if (asked !== model) return `Asked for ${asked} · ${effortNote}`;
+  return capitalize(effortNote);
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** Warn as the context fills up: that's when an agent starts compacting or forgetting. */
 function fullness(percent: number, otherwise = ""): string {
   return percent >= 90 ? "text-destructive" : percent >= 75 ? "text-warning" : otherwise;
-}
-
-function startedAgo(at: number, now: number): string {
-  const since = ago(at, now);
-  return since === "now" ? "just now" : `${since} ago`;
 }
 
 function formatPercent(percent: number): string {

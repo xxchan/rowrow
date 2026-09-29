@@ -240,10 +240,10 @@ test("the model and context sit by the composer, the rest of the session one tap
   await expect(details).toContainText("script-1");
   await details.click();
   const popover = page.getByRole("dialog");
-  await expect(popover.getByText("Scripted demo")).toBeVisible();
+  await expect(popover.getByText("Default model and effort")).toBeVisible();
   await expect(popover.getByText(/ of 200k/)).toBeVisible();
   await expect(popover.getByRole("meter", { name: "Context used" })).toBeAttached();
-  await popover.getByRole("button", { name: "Model and effort…" }).click();
+  await popover.getByRole("button", { name: "Change model and effort" }).click();
   await expect(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
 });
 
