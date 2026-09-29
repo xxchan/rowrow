@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { launchdPlist, systemdUnit, type ServiceSpec } from "./service.ts";
+import { inNpxCache, launchdPlist, systemdUnit, type ServiceSpec } from "./service.ts";
 
 // Values a shell, XML and systemd would each mangle if they weren't escaped.
 const awkward = `/certs/it's "mine" 100%$HOME & <co>.pem`;
@@ -52,4 +52,15 @@ test("the systemd unit quotes each word, and escapes specifiers and variables wh
   expect(unit).toContain('Environment="ROWROW_HOME=/Users/me/rowrow data"\n');
   expect(unit).toContain("WorkingDirectory=/Users/me/my code\n");
   expect(unit).toContain("Restart=on-failure\n");
+});
+
+test("a service is never installed from npx's cache", () => {
+  expect(inNpxCache("/Users/me/.npm/_npx/3f1c/node_modules/rowrow/lib/cli/service.js")).toBe(true);
+  expect(
+    inNpxCache(
+      "C:\\Users\\me\\AppData\\Local\\npm-cache\\_npx\\3f1c\\node_modules\\rowrow\\lib\\cli\\service.js",
+    ),
+  ).toBe(true);
+  expect(inNpxCache("/usr/local/lib/node_modules/rowrow/lib/cli/service.js")).toBe(false);
+  expect(inNpxCache("/Users/me/code/rowrow/src/cli/service.ts")).toBe(false);
 });

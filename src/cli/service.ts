@@ -226,7 +226,17 @@ async function waitForServer(profile: string, since: number, timeoutMs = 30_000)
   }
 }
 
+/** Whether `file` runs from npx's cache, which npm clears now and then. */
+export function inNpxCache(file: string): boolean {
+  return file.split(/[\\/]/).includes("_npx");
+}
+
 export async function installService(profile: string, serveArgs: readonly string[]): Promise<void> {
+  if (inNpxCache(import.meta.filename)) {
+    throw new Error(
+      "rowrow is running from npx's cache, which npm clears now and then, so a service started from here would stop working. Install it first (npm install -g rowrow), then run: rowrow service install",
+    );
+  }
   const paths = profilePaths(rowrowHome(), profile);
   const target = platform(profile);
   const running = readServer(profile);

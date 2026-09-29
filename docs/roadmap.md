@@ -18,12 +18,13 @@ file when something lands.
 - **The / command picker** (#226): the runtime's own skills and commands, read by oar in the
   workspace; and **agent icons** (each runtime's mark, with its state on the corner).
 
-## In flight
+- **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
+  trusted publishing and provenance; `npx rowrow serve` to try it.
 
-- **Approvals from the phone**: answer an agent's permission request or question (oar
-  approvals), with per-agent plan/permission mode.
-- **npm package** (D-018): built, tested in CI, and published by GitHub Actions on a version
-  tag (trusted publishing). The first publish waits on npmjs.com's trusted-publisher setup.
+## Parked
+
+- **Permission prompts from the phone** (D-022): agents run with prompts off, by design.
+  oar's side is ready (botiverse/oar#26, on hold) if that changes.
 
 ## Next, in build order
 

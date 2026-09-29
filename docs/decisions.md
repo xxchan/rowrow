@@ -185,6 +185,8 @@ them and an `answer` call. That is the first oar change on the roadmap.
 
 **Revisit** as soon as the oar change lands.
 
+> Revisited in D-022: the oar change exists (botiverse/oar#26), and prompts stay off.
+
 ## D-012 Node 24 runs the server's TypeScript directly (2026-09-29)
 
 > Revisited in D-018, for the npm package: it runs `lib/`, JavaScript stripped from this
@@ -418,3 +420,25 @@ installed, and there is no index to build or keep fresh.
 
 **Revisit when** content search is too slow on big repositories (then ripgrep given git's file
 list, or a persistent index).
+
+## D-022 Agents run without permission prompts, by design; approvals are parked (2026-09-29)
+
+**Context.** D-011 waited for oar to pause on an agent's permission prompts and questions.
+It can now: botiverse/oar#26 adds `approvals: "ask"` and `Session.answer` for Claude Code,
+Codex and Kimi, and rowrow could show an Allow / Deny card on the phone.
+
+**Decision.** Prompts stay off, in oar and in rowrow (oar's default, as today). #26 is on
+hold, unmerged. An agent that needs a decision says so in its reply and ends its turn: it
+shows as `done`, and you answer in the composer.
+
+**Why.** rowrow is for agents that keep going while you're away. Prompts would turn most
+turns into `blocked` waits for a tap, and the protection they buy is thin next to what an
+agent with a shell can do anyway. rowrow's safety is elsewhere: worktrees, repositories you'd
+hand a colleague, and review after the fact (each turn's diff, discard, history).
+
+**Limits.** Nothing stops a destructive command before it runs, and a runtime's mid-turn
+structured question can't be answered (with prompts off, none arrive; one that did would
+show as a request rowrow can't answer).
+
+**Revisit when** agents should work on repositories you don't trust, or a runtime's own
+sandbox becomes worth gating on: #26 is ready to take up.

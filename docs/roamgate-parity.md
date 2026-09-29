@@ -22,7 +22,7 @@
 - **Last column:** for have rows, it shows where rowrow implements the feature. For partial and missing rows, it holds the design sketch.
 - **Work in flight, assumed to land first:**
   - The Workspace Inspector (#227, #228, #229, and file actions).
-  - Approvals from the phone.
+  - Approvals from the phone (since parked: agents run with prompts off by design, D-022).
 
 **Summary**
 
@@ -44,7 +44,7 @@
 |---|---|---|---|---|
 | Agent status (working / blocked / done / idle), pushed per pane (FEATURES "Agent Awareness"; #20) | Know which agent needs me without checking each one | have | Better than roamgate. Status comes from the runtime via oar, plus the live phase ("Thinking", "Running a command"), "Silent for …" stalls, and Failed (`src/shared/summary.ts`, `src/web/lib/format.ts`) | — |
 | Attention-first ordering; idle agents ordered by session-file recency (#137, #161) | See the most urgent first | have | Home groups agents as Needs you / Working / Idle. The side nav has a "Needs you" section. Order is by attention, then last activity (`HomePage.tsx`, `Shell.tsx`) | — |
-| Answer the agent's permission dialog or question in its TUI (blocked status + key grid) | Approve, deny or answer from the phone | in progress | oar approvals (D-011). The summary fold already carries `pending`, and `Transcript.tsx` shows `app_request` as a "can't answer yet" placeholder. Per-agent plan/permission mode belongs in the same work | P0 |
+| Answer the agent's permission dialog or question in its TUI (blocked status + key grid) | Approve, deny or answer from the phone | deliberately different | Agents run with prompts off, by design (D-022): an agent that needs a decision asks in its reply and ends its turn, and you answer in the composer. oar's side exists (botiverse/oar#26, on hold) if that changes | — |
 | Agent list layouts: Nested, Separate, Compact. Sort by attention, workspace or manual; grouping; drag to reorder (`web/src/agentOrder.ts`, `workspaceAgentLayout.ts`; #137, #185) | Organize 10+ agents my way | partial | The layout is fixed: Home by attention, side nav by workspace. Add a sort/group picker on Home (attention, workspace, recent), saved per device. Skip manual order, which fights attention-first | P2 |
 | Switch model mid-session through the agent's own TUI (e.g. `/model`) | Move to a stronger or cheaper model mid-task | partial | `agents.update {model, effort}` restarts the run with the conversation resumed, and the transcript notes "Switched model". But only the New agent dialog offers the choice. Add a model/effort picker to the agent header menu, fed by `runtimes.models` | P1 |
 | Session inspection for Codex, Claude, Kimi, Grok Build, Pi, Muse Code and Antigravity (`server/src/agent/*-session.ts`; #173, #187, #231, #233) | Use whichever agent CLI I like | partial | Claude Code, Codex, Grok, Kimi and Pi are supported through oar (`src/server/agents/runtimes.ts`). Add Muse and Antigravity in oar, not in rowrow (PRINCIPLES eng. 6); `runtimes.list` then picks them up | P2 |
@@ -195,7 +195,7 @@
 |---|---|---|---|---|
 | Full browser terminal (FEATURES "Full Browser Terminal"; `server/src/bridge/*`) | (a) Run a quick command without spending tokens: tests, `git status`, restarting a server. (b) Watch a long-running process. (c) Fix something by hand | deliberately different; (a) and (b) missing | There's no PTY (D-001). Add `commands.run {workspaceId, command}`: a non-interactive `sh -c` in the workspace with streamed, bounded output, an exit code and Stop. Keep recent runs per workspace in their own log, not an agent's. "Send output to agent" fills the composer. (c) stays with ssh | P1 |
 | Dev servers running in panes (implicit: `pnpm dev` in a split) | See the app being built, from the phone too | missing | Mark a run as long-lived, detect the port it listens on, and link `http://<server host>:<port>`, which works over Tailscale. No proxy at first | P2 |
-| Mobile key grid: Esc, Ctrl, arrows, Tab, Shift+Tab (#4, #77) | Interrupt, answer menus, switch plan/auto modes, recall history | deliberately different | Covered by Stop, steer/queue and ↑ history (`hasHistory`). Approvals and per-agent mode are in progress. Frequent text goes to quick replies (section 2) | — |
+| Mobile key grid: Esc, Ctrl, arrows, Tab, Shift+Tab (#4, #77) | Interrupt, answer menus, switch plan/auto modes, recall history | deliberately different | Covered by Stop, steer/queue and ↑ history (`hasHistory`). Permission prompts are off by design (D-022). Frequent text goes to quick replies (section 2) | — |
 | Selection and copy; OSC 52 clipboard relay (#108, #109, #118) | Copy output | deliberately different | The transcript is plain DOM text. The missing whole-reply copy is listed in section 3 | — |
 | Cmd-click or long-press links and paths (#202, #208, #257, #272; open PRs #275, #276) | Open what the agent mentions | partial | Tracked in section 3: paths open in the inspector | P1 |
 | Tabs and panes: split, resize, zoom, focus neighbors (#89, #183) | See several things at once; organize parallel work | deliberately different | Agents are the unit (D-007); the transcript and Changes already sit side by side. Maybe later: a second agent beside the first on wide screens | P2 |
@@ -210,7 +210,7 @@
 
 ## Top 10 gaps, in build order
 
-This order assumes approvals and the Workspace Inspector land first.
+This order assumed the Workspace Inspector lands first (it has); approvals have since been parked (D-022).
 
 1. **Model/effort switcher on the agent page.** The contract, fold and transcript notice already exist, so this is a small piece of UI for a daily need.
 2. **Phone "next agent that needs you", plus badges.** ⌘J is keyboard-only and attention is rowrow's first principle, so the phone needs the same one-tap jump and a count you can see at a glance.

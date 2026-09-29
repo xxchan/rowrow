@@ -58,21 +58,21 @@ first-class client.
 ## Install
 
 Needs Node.js 24 or later, git, and at least one agent CLI you're already signed in to
-(`claude`, `codex`, `grok`, `kimi` or `pi`).
+(`claude`, `codex`, `grok`, `kimi` or `pi`). To try it, nothing to install:
 
 ```bash
-npm install -g rowrow
-rowrow serve                   # serves rowrow on http://127.0.0.1:7373
+npx rowrow serve               # serves rowrow on http://127.0.0.1:7373
 ```
 
 `rowrow serve` prints a one-time sign-in link; open it. Later, `rowrow open` signs a
 browser in and opens it. There are no passwords: browsers sign in with one-time links, and
 every signed-in device can be revoked in Settings.
 
-To keep rowrow running without a terminal (it starts when you log in and restarts after a
-crash), run it as a service instead, with the same flags as `serve`:
+To keep it, install it and run it as a service: it starts when you log in, restarts after a
+crash, and needs no terminal. The service takes the same flags as `serve`:
 
 ```bash
+npm install -g rowrow
 rowrow service install         # launchd on macOS, systemd on Linux
 rowrow service status          # also: restart (after npm install -g rowrow), uninstall
 ```
@@ -148,8 +148,9 @@ pnpm check                     # typecheck, lint, format, unit and integration t
 
 ## Status
 
-Early and moving fast: no compatibility promises before 1.0. Agents run without approval
-prompts for now (oar's default), so give them repositories you'd give a colleague, ideally in
-worktrees. Answering an agent's permission requests from your phone comes next.
+Early and moving fast: no compatibility promises before 1.0. Agents run with permission
+prompts off, by design ([D-022](docs/decisions.md)): they can do whatever your shell can, so
+give them repositories you'd give a colleague, ideally in worktrees, and look at what each
+turn changed.
 
 Apache-2.0
