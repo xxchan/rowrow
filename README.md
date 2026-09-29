@@ -56,6 +56,14 @@ pnpm start                     # builds the web app and serves it on http://127.
 browser in and opens it. rowrow has no passwords: browsers sign in with one-time links, and
 every signed-in device can be revoked in Settings.
 
+To keep it running without a terminal (it starts when you log in and restarts after a
+crash), run it as a service, with the same flags as `serve`:
+
+```bash
+pnpm build && pnpm rowrow service install       # launchd on macOS, systemd on Linux
+pnpm rowrow service status                      # also: restart (after git pull && pnpm build), uninstall
+```
+
 Try it without spending tokens: `pnpm dev` runs a development server with a scripted demo
 agent, and `node scripts/demo.ts --profile dev` fills it with a few agents in every state.
 Keyboard: ⌘K goes anywhere, ⌘J goes to the next agent that needs you.
@@ -68,7 +76,7 @@ credential even then. The simplest safe way to reach it from your phone is
 
 ```bash
 tailscale serve --bg 7373
-pnpm rowrow serve --public-url https://<machine>.<tailnet>.ts.net
+pnpm rowrow service install --public-url https://<machine>.<tailnet>.ts.net   # or: serve
 ```
 
 Then open **Settings → Pair a device** and scan the code with your phone. Over HTTPS the

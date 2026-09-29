@@ -26,6 +26,10 @@ Server
   rowrow pair [name]               a one-time sign-in link for another device (show it as a QR code)
   rowrow status                    server, live runs, connected clients, recent problems
 
+Service (keeps the server running: starts at login, restarts after a crash)
+  rowrow service install [serve flags…]   launchd on macOS, systemd --user on Linux
+  rowrow service status|restart|uninstall
+
 Agents
   rowrow agents [--all]            list agents, the ones that need you first
   rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--wait]
@@ -131,6 +135,37 @@ async function main(argv: string[]): Promise<void> {
       idleTimeoutMs: duration(str("idle-timeout"), 30 * 60_000),
       open: bool("open"),
     });
+    return;
+  }
+
+  if (command === "service") {
+    const profile = str("profile") ?? process.env["ROWROW_PROFILE"] ?? "default";
+    const service = await import("./service.ts");
+    const [action = "status"] = rest;
+    if (action === "install") {
+      if (profile !== "default" && str("port") === undefined)
+        throw new Error(`a service for profile "${profile}" needs a fixed --port`);
+      if ((str("tls-cert") === undefined) !== (str("tls-key") === undefined))
+        throw new Error("--tls-cert and --tls-key go together");
+      duration(str("idle-timeout"), 0);
+      const pass = (flag: string, value: string | undefined): string[] =>
+        value === undefined ? [] : [`--${flag}`, value];
+      const file = (value: string | undefined): string | undefined =>
+        value === undefined ? undefined : path.resolve(value);
+      await service.installService(profile, [
+        ...(profile === "default" ? [] : ["--profile", profile]),
+        ...pass("host", str("host")),
+        ...pass("port", str("port")),
+        ...pass("public-url", str("public-url")),
+        ...pass("tls-cert", file(str("tls-cert"))),
+        ...pass("tls-key", file(str("tls-key"))),
+        ...pass("idle-timeout", str("idle-timeout")),
+        ...(bool("test-runtime") ? ["--test-runtime"] : []),
+      ]);
+    } else if (action === "uninstall") service.uninstallService(profile);
+    else if (action === "restart") await service.restartService(profile);
+    else if (action === "status") service.serviceStatus(profile);
+    else throw new Error(`unknown service command "${action}" (install, status, restart, uninstall)`);
     return;
   }
 

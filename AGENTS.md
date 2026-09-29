@@ -47,6 +47,7 @@ rowrow agents                     # every agent, the ones that need attention fi
 rowrow agent view <id>            # the transcript, folded exactly as the UI folds it
 rowrow agent entries <id> --full  # the raw log, with native payloads
 rowrow state agents.<id>          # the AppState every client renders
+rowrow service status             # when it runs as a service: what launchd/systemd says
 ```
 
 Where things are (`~/.rowrow/<profile>/`, or `$ROWROW_HOME/<profile>/`):
@@ -54,6 +55,8 @@ Where things are (`~/.rowrow/<profile>/`, or `$ROWROW_HOME/<profile>/`):
 - `rowrow.db`: everything durable (`sqlite3` it: `entries` is every agent's log).
 - `logs/rowrow.jsonl`: structured logs of the server and of every browser.
 - `server.json` (mode 0600): the running server's address and a token for the local CLI.
+- `service.log`: the server's stdout and stderr when launchd runs it (systemd: `journalctl
+  --user -u rowrow-<profile>`). A crash loop shows up here first.
 - `worktrees/`, `snapshots/`: git worktrees rowrow made; private objects for turn diffs.
 
 Don't change the user's data or agents while debugging unless they asked.
