@@ -33,3 +33,18 @@ jobs:
             test-results
             playwright-report
           retention-days: 7
+
+  package:
+    # The npm package, packed, installed with npm and run the way a user would
+    # (scripts/test-package.ts; the release workflow runs the same test before publishing).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/test-package.ts
