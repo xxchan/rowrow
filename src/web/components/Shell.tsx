@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Toaster } from "@/components/ui/sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   ChevronRight,
@@ -15,6 +16,7 @@ import {
   FolderGit2,
   GitBranch,
   House,
+  Keyboard,
   Menu,
   Plus,
   Search,
@@ -32,6 +34,7 @@ import { useNarrow } from "../lib/use-narrow.ts";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
+import { ShortcutsDialog, useShortcuts } from "./ShortcutsDialog.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
@@ -67,6 +70,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       </div>
       <NewAgentDialog route={route} />
       <CommandMenu route={route} />
+      <ShortcutsDialog />
       <Toaster position="top-center" />
     </div>
   );
@@ -261,11 +265,30 @@ function Nav({ route }: { route: Route }) {
           )}
         </NavSection>
       </div>
-      <div className="border-t border-sidebar-border px-2 py-2">
-        <NavRow href="/settings" selected={route.name === "settings"} indent={8}>
-          <Settings className="size-4 shrink-0 text-muted-foreground" />
-          <span className="flex-1">Settings</span>
-        </NavRow>
+      <div className="flex items-center gap-1 border-t border-sidebar-border px-2 py-2">
+        <div className="min-w-0 flex-1">
+          <NavRow href="/settings" selected={route.name === "settings"} indent={8}>
+            <Settings className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1">Settings</span>
+          </NavRow>
+        </div>
+        {/* Shortcuts need a keyboard: not on a phone. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="hidden text-muted-foreground hover:bg-sidebar-accent md:inline-flex"
+              aria-label="Keyboard shortcuts"
+              onClick={() => useShortcuts.getState().setOpen(true)}
+            >
+              <Keyboard />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Keyboard shortcuts <Kbd>?</Kbd>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </nav>
   );

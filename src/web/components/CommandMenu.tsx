@@ -1,7 +1,7 @@
 // ⌘K: jump to any agent or workspace, run an action (herdr's goto picker), or type what a new
 // agent should do and start it (D-023). ⌘J: go to the next agent that needs you, in
-// attention order. C: a new agent, set up for the page you're on. Everything reachable by
-// keyboard.
+// attention order. C: a new agent, set up for the page you're on. ⌘,: Settings. ?: every
+// shortcut (ShortcutsDialog). Everything reachable by keyboard.
 import {
   CommandDialog,
   CommandEmpty,
@@ -12,7 +12,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { useCommandState } from "cmdk";
-import { Folder, House, Pencil, Plus, Settings } from "lucide-react";
+import { Folder, House, Keyboard, Pencil, Plus, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
@@ -26,6 +26,7 @@ import { useApp, useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNewAgent } from "./NewAgentDialog.tsx";
 import { AgentAvatar } from "./AgentIcon.tsx";
+import { useShortcuts } from "./ShortcutsDialog.tsx";
 
 export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean) => void }>((set) => ({
   isOpen: false,
@@ -63,13 +64,11 @@ export function CommandMenu({ route }: { route: Route }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const mod = event.metaKey || event.ctrlKey;
+      const bare = !mod && !event.altKey && !event.repeat && !busyTarget(event.target);
       if (
-        !mod &&
-        !event.altKey &&
+        bare &&
         !event.shiftKey &&
-        !event.repeat &&
         event.key.toLowerCase() === "c" &&
-        !busyTarget(event.target) &&
         !useNewAgent.getState().isOpen &&
         !useCommandMenu.getState().isOpen
       ) {
@@ -77,10 +76,19 @@ export function CommandMenu({ route }: { route: Route }) {
         openNewAgent({});
         return;
       }
+      // Shift is how most layouts type "?", so it isn't checked.
+      if (bare && event.key === "?") {
+        event.preventDefault();
+        useShortcuts.getState().setOpen(true);
+        return;
+      }
       if (!mod || event.shiftKey || event.altKey) return;
       if (event.key === "k") {
         event.preventDefault();
         setOpen(!useCommandMenu.getState().isOpen);
+      } else if (event.key === ",") {
+        event.preventDefault();
+        navigate("/settings");
       } else if (event.key === "j" && state !== null) {
         event.preventDefault();
         const current = route.name === "agent" ? route.agentId : null;
@@ -255,6 +263,14 @@ export function CommandMenu({ route }: { route: Route }) {
           >
             <Settings /> Settings
             <CommandShortcut>⌘,</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            value="action:shortcuts"
+            keywords={["Keyboard shortcuts", "keys", "hotkeys", "cheatsheet", "help"]}
+            onSelect={() => run(() => useShortcuts.getState().setOpen(true))}
+          >
+            <Keyboard /> Keyboard shortcuts
+            <CommandShortcut>?</CommandShortcut>
           </CommandItem>
         </CommandGroup>
       </CommandList>

@@ -310,6 +310,28 @@ test("⌘K jumps to an agent by name; ⌘J goes to the next one that needs you",
   await expect(page).toHaveURL(new RegExp(`/a/${loud.id}$`));
 });
 
+test("? lists every keyboard shortcut, and so does the button beside Settings", async ({
+  page,
+  rowrow,
+}, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+
+  const sheet = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await page.keyboard.press("?");
+  await expect(sheet.getByText("Next agent that needs you")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+
+  await page.getByRole("button", { name: "Keyboard shortcuts" }).click();
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("ControlOrMeta+,");
+  await expect(page).toHaveURL(/\/settings$/);
+});
+
 test("the service worker shows what the server pushes", async ({ page, context, rowrow }, info) => {
   test.skip(info.project.name === "phone", "one run is enough: it's the same Chromium");
   await context.grantPermissions(["notifications"], { origin: rowrow.url });

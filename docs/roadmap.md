@@ -18,6 +18,8 @@ file when something lands.
 - **The / command picker** (#226): the runtime's own skills and commands, read by oar in the
   workspace; and **agent icons** (each runtime's mark, with its state on the corner).
 
+- **Keyboard shortcuts sheet**: `?` anywhere, or the keyboard button beside Settings.
+
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.
 
