@@ -5,7 +5,14 @@
     "correctness": "error",
     "suspicious": "error"
   },
-  "ignorePatterns": [".deps/**", "dist/**", "node_modules/**", "test-results/**", "playwright-report/**"],
+  "ignorePatterns": [
+    ".deps/**",
+    "dist/**",
+    "lib/**",
+    "node_modules/**",
+    "test-results/**",
+    "playwright-report/**"
+  ],
   "rules": {
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error",
@@ -34,7 +41,7 @@
     "import/no-unassigned-import": [
       "error",
       {
-        "allow": ["**/*.css", "../src/cli/main.ts"]
+        "allow": ["**/*.css"]
       }
     ]
   },
