@@ -16,6 +16,13 @@ const ISOLATED: Readonly<Record<string, string>> = {
   GIT_COMMITTER_NAME: "rowrow test",
   GIT_COMMITTER_EMAIL: "test@rowrow.invalid",
   GIT_TERMINAL_PROMPT: "0",
+  // No background maintenance: a commit may start a detached `git maintenance` that writes
+  // into .git after the test has moved on (seen on CI: an old ref landing in a re-inited repo).
+  GIT_CONFIG_COUNT: "2",
+  GIT_CONFIG_KEY_0: "maintenance.auto",
+  GIT_CONFIG_VALUE_0: "false",
+  GIT_CONFIG_KEY_1: "gc.auto",
+  GIT_CONFIG_VALUE_1: "0",
 };
 
 /** Call once per test file, before any git runs. */

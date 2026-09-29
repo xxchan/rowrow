@@ -58,10 +58,16 @@ export async function startTestServer(
     repo(name = "repo") {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), `rowrow-${name}-`));
       const git = (...args: string[]): void => {
-        execFileSync("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args], {
-          cwd: dir,
-          stdio: "ignore",
-        });
+        // No background maintenance: nothing may write into the repository after the test moves on.
+        const config = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
+        execFileSync(
+          "git",
+          [...config, "-c", "user.name=test", "-c", "user.email=test@example.com", ...args],
+          {
+            cwd: dir,
+            stdio: "ignore",
+          },
+        );
       };
       git("init", "-q", "-b", "main");
       fs.writeFileSync(path.join(dir, "README.md"), "# test\n");

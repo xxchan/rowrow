@@ -53,10 +53,16 @@ export const test = base.extend<{ rowrow: Rowrow }>({
         repo() {
           const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-e2e-repo-"));
           const git = (...args: string[]): void => {
-            execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", ...args], {
-              cwd: dir,
-              stdio: "ignore",
-            });
+            // No background maintenance: nothing may write into the repository after the test moves on.
+            const config = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
+            execFileSync(
+              "git",
+              [...config, "-c", "user.name=e2e", "-c", "user.email=e2e@example.com", ...args],
+              {
+                cwd: dir,
+                stdio: "ignore",
+              },
+            );
           };
           git("init", "-q", "-b", "main");
           fs.writeFileSync(path.join(dir, "README.md"), "# e2e\n");

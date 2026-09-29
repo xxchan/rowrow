@@ -374,9 +374,10 @@ describe("file actions", () => {
 
   it("works before the first commit", async () => {
     t = await startTestServer();
-    const repo = t.repo();
-    fs.rmSync(path.join(repo, ".git"), { recursive: true, force: true });
+    // A fresh directory, never a re-inited one: nothing of an earlier repository can linger.
+    const repo = tempDir();
     sh(repo, "init", "-q", "-b", "main");
+    write(repo, "README.md", "# unborn\n");
     sh(repo, "add", "README.md");
     const { id } = await t.client.workspaces.add({ path: repo });
     let changes = await list(id);
