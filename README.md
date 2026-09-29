@@ -54,11 +54,9 @@ first-class client.
 - **Parallel work in worktrees.** One click makes a git worktree on a fresh branch from
   origin's default branch, grouped under its repository, with your repository's setup
   hooks (`rowrow.json`, or roamgate's and paseo's).
-- **Local first, nothing in between.** Your machine is the only server. rowrow never dials
-  out to a relay, and there is no rowrow account or cloud: your phone connects straight to
-  your machine, over your LAN or a network you already run, such as Tailscale. What rowrow
-  stores (transcripts, logs, device credentials) never leaves it. That makes it usable
-  where remote-control apps that route through a vendor's server are not allowed.
+- **Local first, no relay.** Your phone connects straight to your machine, over your LAN
+  or Tailscale. No rowrow server, account or cloud: usable where remote-control apps that
+  relay through a vendor are not.
 - **Built to be driven and debugged by agents.** Everything the UI does is a typed API that
   the `rowrow` CLI exposes; every action carries a trace id through structured logs;
   browser errors land in the server log; any transcript can be re-rendered from its log.
@@ -72,12 +70,9 @@ Needs Node.js 24 or later, git, and at least one agent CLI you're already signed
 npx rowrow@latest serve        # serves rowrow on http://127.0.0.1:7373
 ```
 
-`rowrow serve` prints a one-time sign-in link; open it. Later, `rowrow open` signs a
-browser in and opens it. There are no passwords: browsers sign in with one-time links, and
-every signed-in device can be revoked in Settings.
-
-To keep it, install it and run it as a service: it starts when you log in, restarts after a
-crash, and needs no terminal. The service takes the same flags as `serve`:
+Open the one-time sign-in link it prints (later, `rowrow open`). No passwords; revoke any
+device in Settings. To keep it running across logins and crashes, install it as a service
+(same flags as `serve`):
 
 ```bash
 npm install -g rowrow
@@ -85,33 +80,23 @@ rowrow service install         # launchd on macOS, systemd on Linux
 rowrow service status          # also: restart (after npm install -g rowrow), uninstall
 ```
 
-The service runs the `node` it was installed with, so install it again after switching Node
-versions.
+After switching Node versions, run `rowrow service install` again.
 
 ## On your phone
 
-Your phone talks to your machine directly; rowrow runs no server of its own for it to go
-through ([D-002](docs/decisions.md)). rowrow listens on `127.0.0.1` until you decide
-otherwise, and every request needs a device credential even then. The simplest safe way to
-reach it from your phone is [Tailscale](https://tailscale.com), which connects your devices
-peer to peer:
+rowrow listens on `127.0.0.1` and every request needs a device credential. The simplest
+safe way in from your phone is [Tailscale](https://tailscale.com):
 
 ```bash
 tailscale serve --bg 7373
 rowrow service install --public-url https://<machine>.<tailnet>.ts.net   # or: rowrow serve
 ```
 
-Then open **Settings → Pair a device** and scan the code with your phone. Over HTTPS the
-phone can also get push notifications (on iPhone: *Add to Home Screen* first, then turn them
-on in Settings). Other options: `--host 0.0.0.0` on a trusted LAN (plain HTTP: no push
-notifications), `--tls-cert/--tls-key` for HTTPS directly, or a tunnel such as
-`cloudflared tunnel --url http://127.0.0.1:7373` (a tunnel is a third party in the path:
-check that your employer allows it). Anyone who can sign in can run commands on this
-machine through its agents: guard your pairing links.
-
-Push notifications are the one thing rowrow sends through someone else: the server hands
-each one to your browser's push service (Apple, Google or Mozilla), encrypted
-so that only your device can read it. They are off until you turn them on for a device.
+Then scan the code in **Settings → Pair a device**. Over HTTPS you also get push
+notifications (on iPhone, *Add to Home Screen* first); they go through your browser's push
+service, encrypted, and are the only thing rowrow sends via a third party. On a trusted
+LAN, `--host 0.0.0.0` works too (plain HTTP, no push). Anyone who can sign in can run
+commands on this machine: guard your pairing links.
 
 ## The CLI
 
