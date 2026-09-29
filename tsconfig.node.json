@@ -4,13 +4,6 @@
     "lib": ["es2024"],
     "types": ["node"]
   },
-  "include": [
-    "src/shared",
-    "src/server",
-    "src/cli",
-    "scripts",
-    "test",
-    "vitest.config.ts",
-    "playwright.config.ts"
-  ]
+  "include": ["src/shared", "src/server", "src/cli", "scripts", "test", "vitest.config.ts"],
+  "exclude": ["test/e2e"]
 }

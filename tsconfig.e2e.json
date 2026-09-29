@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // Tests run in Node and, through page.evaluate, in the browser.
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["node"]
+  },
+  "include": ["test/e2e", "playwright.config.ts"]
+}
