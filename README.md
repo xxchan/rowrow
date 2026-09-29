@@ -64,7 +64,7 @@ Needs Node.js 24 or later, git, and at least one agent CLI you're already signed
 (`claude`, `codex`, `grok`, `kimi` or `pi`). To try it, nothing to install:
 
 ```bash
-npx rowrow serve               # serves rowrow on http://127.0.0.1:7373
+npx rowrow@latest serve        # serves rowrow on http://127.0.0.1:7373
 ```
 
 `rowrow serve` prints a one-time sign-in link; open it. Later, `rowrow open` signs a
