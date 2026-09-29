@@ -21,6 +21,8 @@ export interface ActorDeps {
   /** Environment for the agent's runs (ROWROW_* so the agent can use the rowrow CLI). */
   readonly env: (agentId: string) => Record<string, string>;
   readonly idleTimeoutMs: number;
+  /** Called before an input starts a new turn (the "last turn" diff baseline). */
+  readonly beforeTurn?: (agentId: string) => Promise<void>;
 }
 
 interface LiveRun {
@@ -143,13 +145,17 @@ export class AgentActor {
     const { session, runId } = run;
     const options = { inputId: input.inputId };
     const running = session.status().value.kind === "running";
-    if (!running) return { runId, ...landing("prompted", await session.prompt(input.text, options)) };
+    if (!running) {
+      await this.deps.beforeTurn?.(this.id);
+      return { runId, ...landing("prompted", await session.prompt(input.text, options)) };
+    }
     switch (input.mode) {
       case "queue":
         return { runId, ...landing("queued", await session.queue(input.text, options)) };
       case "interrupt": {
         await session.abort();
         await awaitIdleFor(session, 30_000);
+        await this.deps.beforeTurn?.(this.id);
         return { runId, ...landing("prompted", await session.prompt(input.text, options)) };
       }
       case "auto": {

@@ -145,6 +145,15 @@
         "typescript/unbound-method": "off",
         "typescript/no-non-null-assertion": "off"
       }
+    },
+    {
+      "files": [
+        "test/e2e/**"
+      ],
+      "rules": {
+        "no-empty-pattern": "off",
+        "react/rules-of-hooks": "off"
+      }
     }
   ]
 }

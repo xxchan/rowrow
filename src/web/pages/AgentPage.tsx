@@ -3,7 +3,11 @@
 // attention on every device (docs/decisions.md, D-008).
 import { ChatLayout, ChatMessageList } from "@astryxdesign/core/Chat";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Layout, LayoutContent, LayoutHeader } from "@astryxdesign/core/Layout";
+import { BottomSheet } from "@astryxdesign/core/BottomSheet";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Layout, LayoutContent, LayoutHeader, LayoutPanel } from "@astryxdesign/core/Layout";
+import { ResizeHandle, useResizable } from "@astryxdesign/core/Resizable";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
@@ -11,8 +15,11 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import * as stylex from "@stylexjs/stylex";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { FileDiff } from "lucide-react";
+import { useNarrow } from "../lib/use-narrow.ts";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
+import { ChangesView } from "../components/ChangesView.tsx";
 import { Composer } from "../components/Composer.tsx";
 import { Transcript } from "../components/Transcript.tsx";
 import { statusDot, title } from "../lib/format.ts";
@@ -52,6 +59,22 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
     return () => clearTimeout(timer);
   }, [client, looking, head, agent.id, agent.seenSeq, transcript.loading]);
 
+  const narrow = useNarrow();
+  const [showChanges, setShowChanges] = useState(() => localStorage.getItem(CHANGES_KEY) === "1");
+  const toggleChanges = (): void => {
+    setShowChanges((open) => {
+      if (!narrow) localStorage.setItem(CHANGES_KEY, open ? "0" : "1");
+      return !open;
+    });
+  };
+  const panel = useResizable({
+    defaultSize: 520,
+    minSize: 320,
+    maxSize: 1100,
+    autoSaveId: "rowrow-changes-panel",
+  });
+  const changed = ws?.git?.changed ?? 0;
+
   const act = async (label: string, run: () => Promise<unknown>): Promise<void> => {
     try {
       await run();
@@ -77,97 +100,134 @@ function AgentView({ agent, state }: { agent: AgentState; state: AppState }) {
   ].filter((fact): fact is string => fact !== null && fact !== undefined);
 
   return (
-    <Layout
-      height="fill"
-      header={
-        <LayoutHeader hasDivider>
-          <HStack gap={2} vAlign="center" padding={3}>
-            <StatusDot variant={dot.variant} label={dot.label} isPulsing={dot.pulsing} />
-            <StackItem size="fill">
-              <VStack gap={0}>
-                <Heading level={2}>{title(agent)}</Heading>
-                <Text type="supporting">{`${dot.label} · ${facts.join(" · ")}`}</Text>
-              </VStack>
-            </StackItem>
-            <MoreMenu
-              label="Agent actions"
-              items={[
-                ...(ws === undefined
-                  ? []
-                  : [{ label: `Open workspace ${ws.label}`, onClick: () => navigate(`/w/${ws.id}`) }]),
-                {
-                  label: "Rename",
-                  onClick: () => {
-                    const next = prompt("Rename agent", summary.title ?? "");
-                    if (next !== null && client !== null)
-                      void act("Rename", () =>
-                        client.agents.update({
-                          agentId: agent.id,
-                          title: next.trim() === "" ? null : next.trim(),
-                        }),
-                      );
-                  },
-                },
-                ...(summary.run === null || client === null
-                  ? []
-                  : [
-                      {
-                        label: "Stop the agent process",
-                        onClick: () => void act("Stop", () => client.agents.stop({ agentId: agent.id })),
-                      },
-                    ]),
-                client === null
-                  ? { label: "Archive", onClick: () => undefined }
-                  : summary.archived
-                    ? {
-                        label: "Unarchive",
-                        onClick: () =>
-                          void act("Unarchive", () =>
-                            client.agents.update({ agentId: agent.id, archived: false }),
-                          ),
-                      }
-                    : {
-                        label: "Archive",
-                        onClick: () =>
-                          void act("Archive", () =>
-                            client.agents.update({ agentId: agent.id, archived: true }),
-                          ),
-                      },
-              ]}
-            />
-          </HStack>
-        </LayoutHeader>
-      }
-      content={
-        <LayoutContent padding={0} isScrollable={false}>
-          <ChatLayout composer={<Composer agent={agent} />} xstyle={styles.chat}>
-            <ChatMessageList
-              isStreaming={summary.status.kind === "running"}
-              {...(transcript.hasMore && client !== null
-                ? { scrollToTopAction: () => loadOlder(client, agent.id) }
-                : {})}
-              emptyState={
-                transcript.loading ? (
-                  <Spinner label="Loading the conversation" />
-                ) : (
-                  <EmptyState
-                    title="Nothing yet"
-                    description="Write the first message below. The agent starts working in its workspace when it arrives."
-                    isCompact
-                  />
-                )
-              }
-            >
-              {transcript.timeline.blocks.length === 0 ? null : (
-                <Transcript timeline={transcript.timeline} runtime={summary.runtime} />
+    <>
+      <Layout
+        height="fill"
+        header={
+          <LayoutHeader hasDivider>
+            <HStack gap={2} vAlign="center" padding={3}>
+              <StatusDot variant={dot.variant} label={dot.label} isPulsing={dot.pulsing} />
+              <StackItem size="fill">
+                <VStack gap={0}>
+                  <Heading level={2}>{title(agent)}</Heading>
+                  <Text type="supporting">{`${dot.label} · ${facts.join(" · ")}`}</Text>
+                </VStack>
+              </StackItem>
+              {ws?.git !== null && ws !== undefined && (
+                <Button
+                  label={changed > 0 ? `Changes · ${changed}` : "Changes"}
+                  variant={showChanges ? "secondary" : "ghost"}
+                  size="sm"
+                  icon={<Icon icon={FileDiff} size="sm" />}
+                  isIconOnly={narrow && changed === 0}
+                  onClick={toggleChanges}
+                />
               )}
-            </ChatMessageList>
-          </ChatLayout>
-        </LayoutContent>
-      }
-    />
+              <MoreMenu
+                label="Agent actions"
+                items={[
+                  ...(ws === undefined
+                    ? []
+                    : [{ label: `Open workspace ${ws.label}`, onClick: () => navigate(`/w/${ws.id}`) }]),
+                  {
+                    label: "Rename",
+                    onClick: () => {
+                      const next = prompt("Rename agent", summary.title ?? "");
+                      if (next !== null && client !== null)
+                        void act("Rename", () =>
+                          client.agents.update({
+                            agentId: agent.id,
+                            title: next.trim() === "" ? null : next.trim(),
+                          }),
+                        );
+                    },
+                  },
+                  ...(summary.run === null || client === null
+                    ? []
+                    : [
+                        {
+                          label: "Stop the agent process",
+                          onClick: () => void act("Stop", () => client.agents.stop({ agentId: agent.id })),
+                        },
+                      ]),
+                  client === null
+                    ? { label: "Archive", onClick: () => undefined }
+                    : summary.archived
+                      ? {
+                          label: "Unarchive",
+                          onClick: () =>
+                            void act("Unarchive", () =>
+                              client.agents.update({ agentId: agent.id, archived: false }),
+                            ),
+                        }
+                      : {
+                          label: "Archive",
+                          onClick: () =>
+                            void act("Archive", () =>
+                              client.agents.update({ agentId: agent.id, archived: true }),
+                            ),
+                        },
+                ]}
+              />
+            </HStack>
+          </LayoutHeader>
+        }
+        {...(showChanges && !narrow && ws !== undefined
+          ? {
+              end: (
+                <>
+                  <ResizeHandle
+                    direction="horizontal"
+                    isReversed
+                    hasDivider
+                    resizable={panel.props}
+                    label="Resize the changes panel"
+                  />
+                  <LayoutPanel width={panel.size} padding={3} label="Changes">
+                    <ChangesView workspaceId={ws.id} />
+                  </LayoutPanel>
+                </>
+              ),
+            }
+          : {})}
+        content={
+          <LayoutContent padding={0} isScrollable={false}>
+            <ChatLayout composer={<Composer agent={agent} />} xstyle={styles.chat}>
+              <ChatMessageList
+                isStreaming={summary.status.kind === "running"}
+                {...(transcript.hasMore && client !== null
+                  ? { scrollToTopAction: () => loadOlder(client, agent.id) }
+                  : {})}
+                emptyState={
+                  transcript.loading ? (
+                    <Spinner label="Loading the conversation" />
+                  ) : (
+                    <EmptyState
+                      title="Nothing yet"
+                      description="Write the first message below. The agent starts working in its workspace when it arrives."
+                      isCompact
+                    />
+                  )
+                }
+              >
+                {transcript.timeline.blocks.length === 0 ? null : (
+                  <Transcript timeline={transcript.timeline} runtime={summary.runtime} />
+                )}
+              </ChatMessageList>
+            </ChatLayout>
+          </LayoutContent>
+        }
+      />
+      {narrow && ws !== undefined && (
+        <BottomSheet isOpen={showChanges} onOpenChange={setShowChanges} label="Changes" height="tall">
+          <ChangesView workspaceId={ws.id} />
+        </BottomSheet>
+      )}
+    </>
   );
 }
+
+const CHANGES_KEY = "rowrow.changesOpen";
 
 const styles = stylex.create({
   // The chat fills the page below the header and scrolls inside itself, so the composer stays put.

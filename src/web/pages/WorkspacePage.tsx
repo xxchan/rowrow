@@ -11,6 +11,7 @@ import { Heading, Text } from "@astryxdesign/core/Text";
 import { useToast } from "@astryxdesign/core/Toast";
 import { Plus, RefreshCw } from "lucide-react";
 import type { AppState, Workspace } from "../../shared/schemas.ts";
+import { ChangesView } from "../components/ChangesView.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { useApp, useClient } from "../lib/store.ts";
@@ -125,6 +126,12 @@ function WorkspaceView({ ws, state }: { ws: Workspace; state: AppState }) {
                 </List>
               )}
             </VStack>
+            {git !== null && !ws.missing && (
+              <VStack gap={1}>
+                <Text type="label">Changes</Text>
+                <ChangesView workspaceId={ws.id} />
+              </VStack>
+            )}
             {worktrees.length > 0 && (
               <VStack gap={1}>
                 <Text type="label">{`Worktrees · ${worktrees.length}`}</Text>

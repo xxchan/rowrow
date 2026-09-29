@@ -64,6 +64,11 @@ const MIGRATIONS: readonly string[] = [
     taken_at integer not null
   );
   `,
+  // 2: the commit a rowrow-made worktree started from (the branch scope's merge-base hint)
+  `
+  alter table workspaces add column base text;
+  alter table workspaces add column base_label text;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

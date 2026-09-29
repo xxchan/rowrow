@@ -8,11 +8,10 @@ import type { HostInfo } from "../shared/schemas.ts";
 import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
 import { AgentService } from "./agents/service.ts";
-import { createRouter, type GitOps } from "./api/router.ts";
+import { createRouter } from "./api/router.ts";
 import { startHttp } from "./api/server.ts";
 import { Devices } from "./auth/devices.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
-import { UserError } from "./errors.ts";
 import { Notifier } from "./notify/notifier.ts";
 import { Presence } from "./notify/presence.ts";
 import { Push } from "./notify/push.ts";
@@ -20,6 +19,8 @@ import { augmentPathFromLoginShell } from "./shell-env.ts";
 import { StateStore } from "./state/store.ts";
 import { Db } from "./store/db.ts";
 import { closeLog, log, logFile, serializeError, setupLog } from "./telemetry/log.ts";
+import { SnapshotStore } from "./git/snapshots.ts";
+import { createGitOps } from "./workspaces/git-ops.ts";
 import { Workspaces } from "./workspaces/service.ts";
 
 export interface RunningServer {
@@ -112,6 +113,9 @@ export async function startServer(
   const workspaces = new Workspaces(db, state);
   workspaces.load();
   const agentLog = new AgentLog(db);
+  const snapshots = new SnapshotStore(paths.snapshots);
+  // Created after the agents, which it needs; the agents reach it only once turns start.
+  let git: ReturnType<typeof createGitOps> | null = null;
   const agents = new AgentService({
     db,
     log: agentLog,
@@ -127,24 +131,22 @@ export async function startServer(
       ROWROW_WORKSPACE_ID: agents.summary(agentId).workspaceId,
       ROWROW_PROFILE: options.profile,
     }),
+    snapshotTurn: async (workspaceId, agentId) => git?.snapshotTurn(workspaceId, agentId),
   });
   agents.load();
+  git = createGitOps({
+    db,
+    workspaces,
+    store: snapshots,
+    worktreesRoot: paths.worktrees,
+    stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
+  });
+  const pruneTimer = setInterval(
+    () => void snapshots.prune(7 * 24 * 3600_000).catch(() => undefined),
+    6 * 3600_000,
+  );
+  pruneTimer.unref();
   const notifier = new Notifier(agents, workspaces, presence, push);
-
-  const git: GitOps = {
-    createWorktree: async () => {
-      throw new UserError("worktrees are not available yet");
-    },
-    removeWorktree: async () => {
-      throw new UserError("worktrees are not available yet");
-    },
-    changes: async () => {
-      throw new UserError("diffs are not available yet");
-    },
-    diff: async () => {
-      throw new UserError("diffs are not available yet");
-    },
-  };
 
   const router = createRouter({
     host,
@@ -215,6 +217,7 @@ export async function startServer(
       closing ??= (async () => {
         log.info("server.stopping", {});
         notifier.close();
+        clearInterval(pruneTimer);
         workspaces.close();
         await agents.shutdown();
         await http.close();

@@ -280,3 +280,38 @@ describe("auth", () => {
     expect(status).toBe(403);
   });
 });
+
+describe("git", () => {
+  it("shows what the last turn changed, apart from earlier uncommitted work", async () => {
+    t = await startTestServer();
+    const repo = t.repo();
+    const ws = await t.client.workspaces.add({ path: repo });
+    fs.writeFileSync(path.join(repo, "before.txt"), "already here\n"); // not the turn's doing
+    const { agent, sent } = await t.client.agents.create({ workspaceId: ws.id, runtime: "scripted", input: input("/write src/new.txt\nhello") });
+    await t.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 5000 });
+
+    const turn = await t.client.git.changes({ workspaceId: ws.id, scope: "turn" });
+    expect(turn.files.map((f) => f.path)).toEqual(["src/new.txt"]);
+    const working = await t.client.git.changes({ workspaceId: ws.id, scope: "working" });
+    expect(working.files.map((f) => f.path).sort()).toEqual(["before.txt", "src/new.txt"]);
+    const diff = await t.client.git.diff({ workspaceId: ws.id, scope: "turn", path: "src/new.txt" });
+    expect(diff.patch).toContain("+hello");
+  });
+
+  it("creates a worktree grouped under its repository, and removes it", async () => {
+    t = await startTestServer();
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { workspace: wt, hook } = await t.client.workspaces.createWorktree({ id: ws.id, branch: "feature/x" });
+    expect(hook).toBeNull();
+    expect(wt.parentId).toBe(ws.id);
+    expect(wt.git?.branch).toBe("feature/x");
+    expect(wt.git?.linked).toBe(true);
+    expect(wt.label).toBe("feature/x");
+
+    fs.writeFileSync(path.join(wt.path, "wip.txt"), "unsaved work\n");
+    await expect(t.client.workspaces.removeWorktree({ id: wt.id })).rejects.toThrow(/uncommitted changes/);
+    await t.client.workspaces.removeWorktree({ id: wt.id, force: true });
+    expect(fs.existsSync(wt.path)).toBe(false);
+    expect((await t.client.state.get()).state.workspaces[wt.id]?.archived).toBe(true);
+  });
+});
