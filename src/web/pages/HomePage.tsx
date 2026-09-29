@@ -8,7 +8,7 @@ import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
 import { PageHeader } from "../components/Shell.tsx";
-import { StatusDot } from "../components/StatusDot.tsx";
+import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { RouterLink, type Route } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
@@ -92,7 +92,16 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
         href={`/a/${agent.id}`}
         className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
       >
-        <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} className="mt-1.5" />
+        <span className="mt-0.5">
+          <AgentAvatar
+            runtime={agent.summary.runtime}
+            runtimeName={runtime}
+            tone={dot.tone}
+            label={dot.label}
+            pulsing={dot.pulsing}
+            ring="ring-card"
+          />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{title(agent)}</span>

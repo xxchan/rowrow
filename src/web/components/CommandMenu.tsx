@@ -18,7 +18,7 @@ import { statusDot, title } from "../lib/format.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import { useNewAgent } from "./NewAgentDialog.tsx";
-import { StatusDot } from "./StatusDot.tsx";
+import { AgentAvatar } from "./AgentIcon.tsx";
 
 export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean) => void }>((set) => ({
   isOpen: false,
@@ -97,7 +97,13 @@ export function CommandMenu({ route }: { route: Route }) {
         ]}
         onSelect={() => run(() => navigate(`/a/${agent.id}`))}
       >
-        <StatusDot tone={dot.tone} label={dot.label} />
+        <AgentAvatar
+          runtime={agent.summary.runtime}
+          tone={dot.tone}
+          label={dot.label}
+          size="sm"
+          ring="ring-popover"
+        />
         <span className="truncate">{title(agent)}</span>
         <span className="ml-auto truncate text-xs text-muted-foreground">{`${dot.label} · ${ws?.label ?? ""}`}</span>
       </CommandItem>

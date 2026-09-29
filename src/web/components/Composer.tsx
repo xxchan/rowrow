@@ -6,8 +6,9 @@
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ArrowUp, LoaderCircle, Paperclip, Square } from "lucide-react";
+import { ArrowUp, LoaderCircle, Paperclip, Slash, Square } from "lucide-react";
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -17,7 +18,7 @@ import {
 } from "react";
 import type { InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
-import type { AgentState, SendResult } from "../../shared/schemas.ts";
+import type { AgentState, SendResult, SkillInfo } from "../../shared/schemas.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
@@ -37,6 +38,47 @@ export function Composer({ agent }: { agent: AgentState }) {
   const [status, setStatus] = useState<{ type: "error" | "warning" | "busy"; message: string } | null>(null);
   const [dragging, setDragging] = useState(false);
   const quickReplies = useApp((s) => s.state?.settings.quickReplies ?? []);
+  // The / menu: what the runtime accepts as /name here (roamgate #226). Fills the draft, never sends.
+  const [skills, setSkills] = useState<{ list: SkillInfo[]; error: string | null } | null>(null);
+  const [highlight, setHighlight] = useState(0);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const typed = /^\/(\S*)$/.exec(draft)?.[1];
+  const menuOpen = typed !== undefined && dismissed !== draft;
+  const matches =
+    typed === undefined || skills === null
+      ? []
+      : skills.list
+          .filter((skill) => skill.name.toLowerCase().includes(typed.toLowerCase()))
+          .sort(
+            (a, b) =>
+              Number(!a.name.toLowerCase().startsWith(typed.toLowerCase())) -
+              Number(!b.name.toLowerCase().startsWith(typed.toLowerCase())),
+          )
+          .slice(0, 50);
+  const wantsSkills = typed !== undefined && skills === null;
+  useEffect(() => {
+    if (!wantsSkills || client === null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await client.runtimes.skills({ runtime: agent.summary.runtime, workspaceId });
+        if (!cancelled) setSkills({ list: result.skills, error: result.error });
+      } catch (error) {
+        if (!cancelled)
+          setSkills({ list: [], error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsSkills, client, agent.summary.runtime, workspaceId]);
+  const pick = (skill: SkillInfo): void => {
+    const text = `/${skill.name} `;
+    caret.current = text.length;
+    setDraft(agent.id, text);
+    setHighlight(0);
+    inputRef.current?.focus();
+  };
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
   const disabled = archived || client === null;
@@ -129,6 +171,27 @@ export function Composer({ agent }: { agent: AgentState }) {
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (menuOpen && matches.length > 0) {
+      const current = Math.min(highlight, matches.length - 1);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setHighlight((current + (event.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        const chosen = matches[current];
+        if (chosen !== undefined) {
+          event.preventDefault();
+          pick(chosen);
+          return;
+        }
+      }
+    }
+    if (menuOpen && event.key === "Escape") {
+      event.preventDefault();
+      setDismissed(draft);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
       // On a touch screen Return is a newline, unless you mean it (⌘/Ctrl+Return).
       if (touch && !event.metaKey && !event.ctrlKey) return;
@@ -163,7 +226,41 @@ export function Composer({ agent }: { agent: AgentState }) {
 
   const context = agent.summary.context?.percent;
   return (
-    <div className="mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+    <div className="relative mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+      {menuOpen && (
+        <div
+          role="listbox"
+          aria-label="Commands"
+          className="absolute inset-x-3 bottom-full z-20 mb-2 max-h-72 overflow-y-auto rounded-xl border bg-popover p-1 shadow-xl md:inset-x-6"
+        >
+          {skills === null ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" /> Loading commands
+            </div>
+          ) : matches.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {skills.error ?? (skills.list.length === 0 ? "No commands here." : "No command matches.")}
+            </p>
+          ) : (
+            matches.map((skill, index) => (
+              <button
+                key={skill.name}
+                type="button"
+                role="option"
+                aria-selected={index === Math.min(highlight, matches.length - 1)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => pick(skill)}
+                className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left aria-selected:bg-accent"
+              >
+                <span className="font-mono text-[13px]">{`/${skill.name}`}</span>
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  {skill.description ?? skill.source ?? ""}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
       <div
         className={cn(
           "overflow-hidden rounded-xl border bg-card shadow-sm transition-colors focus-within:border-ring/60",
@@ -246,6 +343,28 @@ export function Composer({ agent }: { agent: AgentState }) {
               void attach(picked);
             }}
           />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                aria-label="Commands"
+                disabled={disabled || (draft !== "" && typed === undefined)}
+                onClick={() => {
+                  if (draft === "") {
+                    caret.current = 1;
+                    setDraft(agent.id, "/");
+                  }
+                  setDismissed(null);
+                  inputRef.current?.focus();
+                }}
+              >
+                <Slash />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Commands and skills (type /)</TooltipContent>
+          </Tooltip>
           {context !== null && context !== undefined && (
             <span className="text-[11px] text-muted-foreground tabular-nums">{`context ${Math.round(context)}%`}</span>
           )}

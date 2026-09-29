@@ -8,7 +8,7 @@ import {
   type Session,
   type SessionOptions,
 } from "@botiverse/oar";
-import type { ModelInfo, RuntimeInfo } from "../../shared/schemas.ts";
+import type { ModelInfo, RuntimeInfo, SkillInfo } from "../../shared/schemas.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import { scriptedDemoRuntime } from "./scripted.ts";
 
@@ -21,10 +21,12 @@ interface Known {
 
 const PROBE_TIMEOUT_MS = 10_000;
 const MODELS_TTL_MS = 10 * 60_000;
+const SKILLS_TTL_MS = 60_000;
 
 export class Runtimes {
   private readonly known = new Map<string, Known>();
   private readonly models = new Map<string, { at: number; models: ModelInfo[]; error: string | null }>();
+  private readonly skillsCache = new Map<string, { at: number; skills: SkillInfo[]; error: string | null }>();
 
   constructor(options: { readonly testRuntime: boolean; readonly probe: boolean }) {
     const list: { runtime: Runtime; test: boolean }[] = options.probe
@@ -159,6 +161,47 @@ export class Runtimes {
       }
     }
     this.models.set(id, { at: Date.now(), ...result });
+    return result;
+  }
+
+  /** What the runtime accepts as `/name` in `cwd`: its skills and custom commands, read natively. */
+  async skills(id: string, cwd: string): Promise<{ skills: SkillInfo[]; error: string | null }> {
+    const key = `${id}\0${cwd}`;
+    const cached = this.skillsCache.get(key);
+    if (cached !== undefined && Date.now() - cached.at < SKILLS_TTL_MS) return cached;
+    const known = this.known.get(id);
+    if (known === undefined) return { skills: [], error: `unknown runtime "${id}"` };
+    if (known.installation === null) await this.probe(known);
+    let result: { skills: SkillInfo[]; error: string | null };
+    if (known.installation === null) result = { skills: [], error: known.info.reason };
+    else {
+      try {
+        const listed = await known.runtime.skills(known.installation, { cwd, timeoutMs: 15_000 });
+        result =
+          listed.kind === "ok"
+            ? {
+                skills: listed.items
+                  .filter((skill) => skill.enabled !== false)
+                  .map((skill) => ({
+                    name: skill.name,
+                    description: skill.description ?? null,
+                    source: skill.source ?? null,
+                  }))
+                  .sort((a, b) => a.name.localeCompare(b.name)),
+                error: null,
+              }
+            : {
+                skills: [],
+                error:
+                  listed.kind === "unsupported"
+                    ? `${known.info.name} doesn't list its commands`
+                    : listed.reason,
+              };
+      } catch (error) {
+        result = { skills: [], error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    this.skillsCache.set(key, { at: Date.now(), ...result });
     return result;
   }
 }

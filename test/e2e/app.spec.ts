@@ -133,6 +133,25 @@ test("a quick reply added in Settings is one tap away in the composer", async ({
   await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
 });
 
+test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "commands",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const composer = page.getByRole("textbox", { name: "Message input" });
+  await composer.fill("/str");
+  await expect(page.getByRole("option", { name: /\/stream/ })).toBeVisible();
+  await composer.press("Enter");
+  // Picking fills the draft; it doesn't send.
+  await expect(composer).toHaveValue("/stream ");
+  await composer.pressSequentially("3");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(/chunk 1 .*chunk 3/)).toBeVisible();
+});
+
 test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent, sent } = await rowrow.client.agents.create({

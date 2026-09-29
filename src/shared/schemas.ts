@@ -114,6 +114,17 @@ export const ModelInfo = z.object({
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
+/** A skill or custom command a runtime accepts as `/name` in a message (roamgate #226). */
+export const SkillInfo = z.object({
+  name: z.string().describe("Typed as /name."),
+  description: z.string().nullable(),
+  source: z
+    .string()
+    .nullable()
+    .describe("Where the runtime found it (project, user, plugin…), in its own words."),
+});
+export type SkillInfo = z.infer<typeof SkillInfo>;
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 /** Preferences that follow you to every device (kept on the server, part of the app state). */

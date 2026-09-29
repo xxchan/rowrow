@@ -9,14 +9,23 @@
 //   /stream <n>             say n chunks, 40 ms apart
 //   /fail <reason>          end the turn failed with <reason>
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown.
-import type { Runtime } from "@botiverse/oar";
+import type { Runtime, SkillEntry } from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
+/** Its commands, listed the way a real runtime lists its skills, so the / menu has something to show. */
+const COMMANDS: readonly SkillEntry[] = [
+  { name: "echo", description: "Say exactly the rest of the line" },
+  { name: "write", description: "Write the lines that follow to a file, as a Write tool call" },
+  { name: "sleep", description: "Work for that many milliseconds (stoppable), then say so" },
+  { name: "stream", description: "Say that many chunks, 40 ms apart" },
+  { name: "fail", description: "End the turn failed, with the rest of the line as the reason" },
+];
+
 export function scriptedDemoRuntime(): Runtime {
-  return scriptedRuntime({
+  const runtime = scriptedRuntime({
     id: "scripted",
     brand: { name: "Scripted demo", icon: null },
     model: "script-1",
@@ -63,6 +72,17 @@ export function scriptedDemoRuntime(): Runtime {
       }
     },
   });
+  return {
+    ...runtime,
+    skills: async (_installation, options) => ({
+      kind: "ok",
+      scope: { kind: "workspace", cwd: options?.cwd ?? process.cwd() },
+      observedAt: new Date().toISOString(),
+      view: "discovered",
+      items: COMMANDS.map((command) => ({ ...command, source: "scripted" })),
+      partial: false,
+    }),
+  };
 }
 
 async function demo(turn: ScriptedTurn): Promise<void> {

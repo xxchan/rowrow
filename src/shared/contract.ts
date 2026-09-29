@@ -31,6 +31,7 @@ import {
   SeenFile,
   SendResult,
   Settings,
+  SkillInfo,
   type StateMessage,
   Workspace,
 } from "./schemas.ts";
@@ -279,6 +280,13 @@ const runtimes = {
     .route({ summary: "Models a runtime offers (may ask the runtime's provider; cached)." })
     .input(z.object({ runtime: z.string(), refresh: z.boolean().optional() }))
     .output(z.object({ models: z.array(ModelInfo), error: z.string().nullable() })),
+  skills: oc
+    .route({
+      summary:
+        "What a runtime accepts as /name in a message, in a workspace: its skills and custom commands, read natively (cached for a minute). `error` says why there are none when the runtime can't list them.",
+    })
+    .input(z.object({ runtime: z.string(), workspaceId }))
+    .output(z.object({ skills: z.array(SkillInfo), error: z.string().nullable() })),
 };
 
 const git = {

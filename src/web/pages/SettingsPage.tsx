@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { AppState, Device, LoginLink } from "../../shared/schemas.ts";
 import { PageHeader } from "../components/Shell.tsx";
+import { AgentIcon } from "../components/AgentIcon.tsx";
 import { StatusDot } from "../components/StatusDot.tsx";
 import { ago } from "../lib/format.ts";
 import { currentSubscription, disablePush, enablePush, pushSupport } from "../lib/push.ts";
@@ -203,6 +204,7 @@ export function SettingsPage({ route }: { route: Route }) {
                     tone={runtime.installed ? "success" : "neutral"}
                     label={runtime.installed ? "Installed" : "Not installed"}
                   />
+                  <AgentIcon runtime={runtime.id} label={runtime.name} />
                   <span className="text-sm font-medium">{runtime.name}</span>
                   <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
                     {runtime.installed

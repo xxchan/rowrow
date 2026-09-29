@@ -306,6 +306,12 @@ export function createRouter(s: Services) {
       models: os.runtimes.models.handler(async ({ input }) =>
         s.runtimes.listModels(input.runtime, input.refresh ?? false),
       ),
+      skills: os.runtimes.skills.handler(async ({ input }) => {
+        const ws = s.workspaces.get(input.workspaceId);
+        if (ws === undefined)
+          throw new ORPCError("NOT_FOUND", { message: `no workspace ${input.workspaceId}` });
+        return s.runtimes.skills(input.runtime, ws.path);
+      }),
     },
 
     git: {

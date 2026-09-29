@@ -51,7 +51,7 @@ import {
 } from "../components/Inspector.tsx";
 import { SelectionComment } from "../components/SelectionComment.tsx";
 import { PageHeader } from "../components/Shell.tsx";
-import { StatusDot } from "../components/StatusDot.tsx";
+import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
@@ -149,7 +149,16 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
       <PageHeader
         route={route}
         title={title(agent)}
-        status={<StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />}
+        status={
+          <AgentAvatar
+            runtime={summary.runtime}
+            runtimeName={runtime}
+            tone={dot.tone}
+            label={dot.label}
+            pulsing={dot.pulsing}
+            size="lg"
+          />
+        }
         subtitle={`${dot.label} · ${facts.join(" · ")}`}
         actions={
           <>

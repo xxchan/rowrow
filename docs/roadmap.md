@@ -15,6 +15,8 @@ file when something lands.
 - **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
 - **Model and effort switcher**, **one tap to the next agent that needs you** (and the Home
   Screen badge), and **quick replies** kept on the server for every device.
+- **The / command picker** (#226): the runtime's own skills and commands, read by oar in the
+  workspace; and **agent icons** (each runtime's mark, with its state on the corner).
 
 ## In flight
 
@@ -24,17 +26,15 @@ file when something lands.
 
 ## Next, in build order
 
-1. **Command/skill picker** (roamgate #226): `runtimes.commands` from oar, a `/` trigger in the
-   composer; fills the draft, never sends; IME-safe.
-2. **Revert a file to the start of the agent's last turn**, from the turn snapshots, refusing
+1. **Revert a file to the start of the agent's last turn**, from the turn snapshots, refusing
    if the file changed since the turn ended.
-3. **Run a command in a workspace** (`commands.run`): tests, `git status`, restarting a dev
+2. **Run a command in a workspace** (`commands.run`): tests, `git status`, restarting a dev
    server, without tokens or a terminal. Streamed output, exit code, Stop, "send output to
    agent".
-4. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
-5. **File paths open in the inspector**, from tool calls, inline code and diffs.
-6. **Notification preferences and per-agent mute.**
-7. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
+3. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
+4. **File paths open in the inspector**, from tool calls, inline code and diffs.
+5. **Notification preferences and per-agent mute.**
+6. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
 
 ## Later (P2)
 

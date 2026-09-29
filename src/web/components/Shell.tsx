@@ -32,6 +32,7 @@ import { useNarrow } from "../lib/use-narrow.ts";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
+import { AgentIcon } from "./AgentIcon.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
 /** The phone nav sheet: open only for the route it was opened on, so navigating closes it. */
@@ -149,6 +150,11 @@ function Nav({ route }: { route: Route }) {
         selected={agent.id === selectedAgent}
         indent={depth === null ? 8 : indent(depth)}
       >
+        <AgentIcon
+          runtime={agent.summary.runtime}
+          label={state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}
+          className="size-3.5"
+        />
         <span className="min-w-0 flex-1 truncate">
           {title(agent)}
           {ws !== undefined && <span className="text-muted-foreground"> · {ws}</span>}

@@ -23,6 +23,7 @@ import { navigate } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { AddWorkspace } from "./AddWorkspace.tsx";
+import { AgentIcon } from "./AgentIcon.tsx";
 import { ErrorText } from "./ErrorText.tsx";
 
 const LAST_RUNTIME = "rowrow.lastRuntime";
@@ -212,6 +213,7 @@ function NewAgentForm({ onDone }: { onDone: () => void }) {
             <SelectContent>
               {runtimes.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
+                  <AgentIcon runtime={r.id} label={r.name} />
                   {r.name}
                   {r.version !== null && <span className="text-xs text-muted-foreground">{r.version}</span>}
                 </SelectItem>

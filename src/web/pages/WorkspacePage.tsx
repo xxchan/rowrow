@@ -40,7 +40,7 @@ import {
 } from "../components/Inspector.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
 import { PageHeader } from "../components/Shell.tsx";
-import { StatusDot } from "../components/StatusDot.tsx";
+import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
@@ -186,7 +186,14 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
                         href={`/a/${agent.id}`}
                         className="flex items-center gap-3 px-3 py-2.5 hover:bg-accent/60"
                       >
-                        <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
+                        <AgentAvatar
+                          runtime={agent.summary.runtime}
+                          runtimeName={state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}
+                          tone={dot.tone}
+                          label={dot.label}
+                          pulsing={dot.pulsing}
+                          ring="ring-card"
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium">{title(agent)}</div>
                           <div className="truncate text-xs text-muted-foreground">
