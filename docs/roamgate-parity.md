@@ -158,7 +158,7 @@
 |---|---|---|---|---|
 | Light, dark or system theme, plus accent colors (`web/src/appearance.ts`) | Comfort | partial | Follows the system only. Add a per-device override; skip accents | P2 |
 | Interface scale 80–150% (#94, #141) | Legibility on small or distant screens | missing | A per-device text size applied to the root font size | P2 |
-| Keyboard shortcuts: reference and editor, presets, 3 bindings per action, JSON import/export (#139) | Keyboard speed on the desktop | partial | Only ⌘K and ⌘J (`CommandMenu.tsx`). Add a "?" sheet, plus next/previous agent, focus composer, toggle Changes and stop turn. No editor until someone asks | P2 |
+| Keyboard shortcuts: reference and editor, presets, 3 bindings per action, JSON import/export (#139) | Keyboard speed on the desktop | partial | ⌘K, ⌘J and C (new agent, D-023) (`CommandMenu.tsx`). Add a "?" sheet, plus next/previous agent, focus composer, toggle Changes and stop turn. No editor until someone asks | P2 |
 | Connection details: server, socket, version (`ConfigMenu.tsx`) | Know what I'm connected to | have | Settings → Server: machine, versions (rowrow, oar, node), address, data directory, uptime | — |
 | Integration versions, Herdr status and managed Herdr setup (#191, #222) | Know whether my agent CLI is installed and working | partial | Settings → Agent runtimes shows installed, version and reason, with "Check again". It doesn't show sign-in status or quota. oar 0.8 has provider auth (status, device-code login) and account usage (`usedRatio`, `resetsAt`, `rateLimited`). Show "not signed in" before an agent fails, and show quota windows | P2 |
 

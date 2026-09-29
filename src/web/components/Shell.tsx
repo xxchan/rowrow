@@ -65,7 +65,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         )}
         <main className="flex min-w-0 flex-1 flex-col">{children}</main>
       </div>
-      <NewAgentDialog />
+      <NewAgentDialog route={route} />
       <CommandMenu route={route} />
       <Toaster position="top-center" />
     </div>
@@ -222,6 +222,12 @@ function Nav({ route }: { route: Route }) {
       <div className="px-3 pb-2">
         <Button size="sm" className="w-full" onClick={() => openNewAgent({})}>
           <Plus /> New agent
+          <Kbd
+            aria-hidden
+            className="ml-auto hidden bg-primary-foreground/15 text-primary-foreground md:inline-flex"
+          >
+            C
+          </Kbd>
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">

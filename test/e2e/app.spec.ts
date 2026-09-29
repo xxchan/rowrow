@@ -8,15 +8,16 @@ test("a signed-out browser is asked to sign in, not shown an error", async ({ pa
   await expect(page.getByRole("heading", { name: "Sign in to rowrow" })).toBeVisible();
 });
 
-test("sign in with a one-time link, create an agent, and read its answer", async ({ page, rowrow }, info) => {
-  test.skip(info.project.name === "phone", "the new-agent dialog is covered on desktop");
+test("sign in with a one-time link, create an agent, and read its answer", async ({ page, rowrow }) => {
   await rowrow.client.workspaces.add({ path: rowrow.repo() });
   await rowrow.open(page);
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
 
+  // On a phone it's the button at the bottom, and the dialog is a sheet over the keyboard.
   await page.getByRole("button", { name: "New agent" }).first().click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Agent").click();
+  const dialog = page.getByRole("dialog", { name: "New agent" });
+  await expect(dialog.getByLabel("First message")).toBeFocused();
+  await dialog.getByRole("button", { name: /^Agent: / }).click();
   await page.getByRole("option", { name: /Scripted demo/ }).click();
   await dialog.getByLabel("First message").fill("/echo hello from e2e");
   await dialog.getByRole("button", { name: "Create and send" }).click();
@@ -24,6 +25,76 @@ test("sign in with a one-time link, create an agent, and read its answer", async
   await expect(page).toHaveURL(/\/a\/ag_/);
   await expect(page.getByText("hello from e2e", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "/echo hello from e2e" })).toBeVisible();
+});
+
+test("C starts another agent set up like the one on screen", async ({ page, rowrow }, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "the first one",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await expect(page.getByRole("heading", { name: "the first one" })).toBeVisible();
+
+  await page.keyboard.press("c");
+  const dialog = page.getByRole("dialog", { name: "New agent" });
+  await expect(dialog.getByRole("button", { name: `Workspace: ${ws.label}` })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Agent: Scripted demo" })).toBeVisible();
+  await expect(dialog.getByLabel("First message")).toBeFocused();
+  await page.keyboard.type("/echo the second one");
+
+  // Closing keeps what you wrote.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press("c");
+  await expect(dialog.getByLabel("First message")).toHaveValue("/echo the second one");
+
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(page).not.toHaveURL(new RegExp(`/a/${agent.id}$`));
+  await expect(page.getByText("the second one", { exact: true })).toBeVisible();
+  const { state } = await rowrow.client.state.get();
+  const second = Object.values(state.agents).find((a) => a.id !== agent.id);
+  expect(second?.summary.workspaceId).toBe(ws.id);
+});
+
+test("⌘K: say what a new agent should do, and it starts", async ({ page, rowrow }, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.open(page);
+  // Earlier versions remembered only the runtime; that still counts.
+  await page.evaluate(() => localStorage.setItem("rowrow.lastRuntime", "scripted"));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("/echo from the palette");
+  await expect(page.getByRole("option", { name: /Start an agent: “\/echo from the palette”/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/a\/ag_/);
+  await expect(page.getByText("from the palette", { exact: true })).toBeVisible();
+});
+
+test("the home page starts an agent from the box above the list", async ({ page, rowrow }, info) => {
+  test.skip(info.project.name === "phone", "on a phone it's the New agent button");
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.client.agents.create({ workspaceId: ws.id, runtime: "scripted", title: "already here" });
+  await rowrow.open(page);
+  const composer = page.getByRole("form", { name: "Start an agent" });
+  await composer.getByRole("button", { name: /^Agent: / }).click();
+  await page.getByRole("option", { name: /Scripted demo/ }).click();
+  await composer.getByLabel("What should a new agent do?").fill("/echo from home");
+  await composer.getByLabel("What should a new agent do?").press("Enter");
+  await expect(page).toHaveURL(/\/a\/ag_/);
+  await expect(page.getByText("from home", { exact: true })).toBeVisible();
+
+  // It remembers: the next one in that workspace starts with the same agent runtime.
+  await page.keyboard.press("c");
+  await expect(
+    page.getByRole("dialog", { name: "New agent" }).getByRole("button", { name: "Agent: Scripted demo" }),
+  ).toBeVisible();
 });
 
 test("send a message from the composer and see the reply stream in", async ({ page, rowrow }) => {

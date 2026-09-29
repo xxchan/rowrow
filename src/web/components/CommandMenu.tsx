@@ -1,5 +1,7 @@
-// ⌘K: jump to any agent or workspace, or run an action (herdr's goto picker). ⌘J: go to
-// the next agent that needs you, in attention order. Everything reachable by keyboard.
+// ⌘K: jump to any agent or workspace, run an action (herdr's goto picker), or type what a new
+// agent should do and start it (D-023). ⌘J: go to the next agent that needs you, in
+// attention order. C: a new agent, set up for the page you're on. Everything reachable by
+// keyboard.
 import {
   CommandDialog,
   CommandEmpty,
@@ -9,14 +11,19 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { Folder, House, Plus, Settings } from "lucide-react";
-import { useEffect } from "react";
+import { useCommandState } from "cmdk";
+import { Folder, House, Pencil, Plus, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { create } from "zustand";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { statusDot, title } from "../lib/format.ts";
+import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
+import { resolveSetup } from "../lib/new-agent-setup.ts";
 import { navigate, type Route } from "../lib/router.ts";
-import { useApp } from "../lib/store.ts";
+import { useApp, useClient } from "../lib/store.ts";
+import { report } from "../lib/telemetry.ts";
 import { useNewAgent } from "./NewAgentDialog.tsx";
 import { AgentAvatar } from "./AgentIcon.tsx";
 
@@ -36,14 +43,40 @@ export function needsYou(state: AppState): AgentState[] {
     );
 }
 
+/** Where a bare key is someone typing, or belongs to something open, not a shortcut. */
+function busyTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest('input, textarea, select, [role="dialog"], [role="menu"], [role="listbox"]') !== null)
+  );
+}
+
 export function CommandMenu({ route }: { route: Route }) {
   const { isOpen, setOpen } = useCommandMenu();
+  const client = useClient();
   const state = useApp((s) => s.state);
   const openNewAgent = useNewAgent((s) => s.open);
+  // What's typed, and whether it matches nothing, as cmdk sees it (the palette resets when it closes).
+  const [search, setSearch] = useState({ query: "", noMatch: false });
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const mod = event.metaKey || event.ctrlKey;
+      if (
+        !mod &&
+        !event.altKey &&
+        !event.shiftKey &&
+        !event.repeat &&
+        event.key.toLowerCase() === "c" &&
+        !busyTarget(event.target) &&
+        !useNewAgent.getState().isOpen &&
+        !useCommandMenu.getState().isOpen
+      ) {
+        event.preventDefault();
+        openNewAgent({});
+        return;
+      }
       if (!mod || event.shiftKey || event.altKey) return;
       if (event.key === "k") {
         event.preventDefault();
@@ -57,13 +90,43 @@ export function CommandMenu({ route }: { route: Route }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [route, setOpen, state]);
+  }, [route, setOpen, state, openNewAgent]);
 
   const run = (action: () => void): void => {
     setOpen(false);
     // Act after this keystroke is done: closing the palette returns focus to whatever had it
     // before (often a link), and the same Enter would otherwise activate that too.
     setTimeout(action, 0);
+  };
+
+  const text = isOpen ? search.query.trim() : "";
+  const noMatch = search.noMatch;
+  const setup = state === null || text === "" ? null : resolveSetup(state, contextOf(route), loadPrefs());
+  const startIn =
+    setup === null
+      ? ""
+      : [
+          state?.workspaces[setup.workspaceId ?? ""]?.label,
+          state?.runtimes[setup.runtime ?? ""]?.name,
+          setup.isolate ? "new worktree" : undefined,
+        ]
+          .filter((part) => part !== undefined)
+          .join(" · ");
+  /** Start an agent with the query as its first message, set up for this page; else open the dialog with it. */
+  const start = async (): Promise<void> => {
+    const workspaceId = setup?.workspaceId ?? null;
+    const runtime = setup?.runtime ?? null;
+    if (client === null || setup === null || workspaceId === null || runtime === null) {
+      openNewAgent({ draft: text });
+      return;
+    }
+    try {
+      const id = await startAgent(client, { ...setup, workspaceId, runtime, branch: "", text });
+      navigate(`/a/${id}`);
+    } catch (error) {
+      report("warn", "agent.create_failed", error);
+      toast.error(`Couldn't start the agent: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const urgent = state === null ? [] : needsYou(state);
@@ -118,9 +181,39 @@ export function CommandMenu({ route }: { route: Route }) {
       description="Type to filter; Enter opens the highlighted one."
       className="top-[20%] translate-y-0 sm:max-w-xl"
     >
-      <CommandInput placeholder="Go to an agent or workspace, or run an action…" />
+      <CommandInput
+        placeholder="Go to an agent or workspace, or say what a new agent should do…"
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || text === "" || event.nativeEvent.isComposing) return;
+          // Return starts one when nothing else matches; ⌘Return always does; ⌥Return edits it first.
+          if (event.altKey) {
+            event.preventDefault();
+            run(() => openNewAgent({ draft: text }));
+          } else if (event.metaKey || event.ctrlKey || noMatch) {
+            event.preventDefault();
+            run(() => void start());
+          }
+        }}
+      />
       <CommandList className="max-h-[min(60dvh,420px)]">
-        <CommandEmpty>Nothing matches.</CommandEmpty>
+        <SearchState onChange={setSearch} />
+        {text === "" ? (
+          <CommandEmpty>Nothing matches.</CommandEmpty>
+        ) : (
+          noMatch && (
+            <CommandGroup heading="New agent" forceMount>
+              <CommandItem forceMount value="start" onSelect={() => run(() => void start())}>
+                <Plus />
+                <span className="min-w-0 truncate">{`Start an agent: “${text}”`}</span>
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{startIn}</span>
+              </CommandItem>
+              <CommandItem forceMount value="edit" onSelect={() => run(() => openNewAgent({ draft: text }))}>
+                <Pencil /> Edit before starting…
+                <CommandShortcut>⌥↵</CommandShortcut>
+              </CommandItem>
+            </CommandGroup>
+          )
+        )}
         {urgent.length > 0 && <CommandGroup heading="Needs you">{urgent.map(agentItem)}</CommandGroup>}
         {others.length > 0 && <CommandGroup heading="Agents">{others.map(agentItem)}</CommandGroup>}
         {workspaces.length > 0 && (
@@ -146,6 +239,7 @@ export function CommandMenu({ route }: { route: Route }) {
             onSelect={() => run(() => openNewAgent({}))}
           >
             <Plus /> New agent
+            <CommandShortcut>C</CommandShortcut>
           </CommandItem>
           <CommandItem
             value="action:home"
@@ -166,4 +260,12 @@ export function CommandMenu({ route }: { route: Route }) {
       </CommandList>
     </CommandDialog>
   );
+}
+
+/** Reports what's typed and whether it matches nothing (only cmdk's children can ask it). */
+function SearchState({ onChange }: { onChange: (search: { query: string; noMatch: boolean }) => void }) {
+  const query = useCommandState((s) => s.search);
+  const noMatch = useCommandState((s) => s.search !== "" && s.filtered.count === 0);
+  useEffect(() => onChange({ query, noMatch }), [query, noMatch, onChange]);
+  return null;
 }

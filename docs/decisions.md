@@ -442,3 +442,35 @@ show as a request rowrow can't answer).
 
 **Revisit when** agents should work on repositories you don't trust, or a runtime's own
 sandbox becomes worth gating on: #26 is ready to take up.
+
+## D-023 A new agent starts from where you are; C opens it; this browser remembers the setup (2026-09-29)
+
+**Context.** Starting an agent was a form of six fields: workspace, runtime, model, effort,
+worktree, first message. It always started on the first workspace and remembered only the
+runtime, so starting a second agent like the one on screen took about ten clicks. There was
+no key for it.
+
+**Decision.** The first message comes first; the rest are chips already filled in:
+
+- from an agent: its workspace (the repository, in a new worktree, when it works in one)
+  and its runtime, model and effort;
+- from a workspace: that workspace; from anywhere else: the workspace you last started one in;
+- runtime, model, effort and the worktree choice: what you last used in that workspace.
+
+`C` opens it from anywhere a bare key isn't typing (Linear's and GitHub's "create"). In ⌘K,
+text that matches nothing becomes "Start an agent: …" (⌘Return starts one even when
+something matches; ⌥Return opens the dialog with it). The home page has the same composer
+above the list; on a phone the dialog is a bottom sheet, opened from a button at the bottom.
+The resolution is a pure function (`src/web/lib/new-agent-setup.ts`), unit-tested.
+
+**Why.** Most new agents go where you already are, set up like the last one there. Chips keep
+every choice one key or tap away without making you read a form. The remembered setup lives
+in `localStorage`: it's this device's preference, not a fact about agents (the log is the
+truth), and losing it costs one choice.
+
+**Limits.** A phone and a laptop remember separately. `C` does nothing while a text box has
+focus (the composer, often): ⌘K works there. Bare-letter shortcuts now exist, so later ones
+must skip text boxes and open menus the same way (`busyTarget` in `CommandMenu.tsx`).
+
+**Revisit when** people want the setup to follow them across devices (move it into the
+server's `settings` group), or someone asks to rebind keys.

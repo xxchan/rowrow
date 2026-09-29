@@ -1,23 +1,28 @@
 // Home: every agent, the ones that need you first (PRINCIPLES.md, product 1). On a phone
-// this is the screen you open from the home screen icon.
+// this is the screen you open from the home screen icon. Above the list, a composer starts
+// the next agent (D-023); on a phone that's the New agent button at the bottom.
 import { Button } from "@/components/ui/button";
 import { Bot, Plus } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
-import { useNewAgent } from "../components/NewAgentDialog.tsx";
+import { NewAgentForm, useNewAgent } from "../components/NewAgentDialog.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { RouterLink, type Route } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
+import { useNarrow } from "../lib/use-narrow.ts";
 import { useNow } from "../lib/use-now.ts";
 
 export function HomePage({ route }: { route: Route }) {
   const state = useApp((s) => s.state) as AppState;
   const open = useNewAgent((s) => s.open);
   const now = useNow(15_000);
+  const narrow = useNarrow();
+  const [draft, setDraft] = useState("");
+  const hasWorkspace = Object.values(state.workspaces).some((w) => !w.archived);
   const agents = useMemo(
     () =>
       Object.values(state.agents)
@@ -41,38 +46,63 @@ export function HomePage({ route }: { route: Route }) {
         title="Agents"
         route={route}
         actions={
-          <Button size="sm" onClick={() => open({})}>
+          <Button size="sm" className="hidden md:inline-flex" onClick={() => open({})}>
             <Plus /> New agent
           </Button>
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {agents.length === 0 ? (
+        {!hasWorkspace ? (
           <EmptyState
             icon={<Bot />}
-            title={Object.keys(state.workspaces).length === 0 ? "Add a workspace to start" : "No agents yet"}
+            title="Add a workspace to start"
             description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
             actions={<Button onClick={() => open({})}>New agent</Button>}
           />
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-4 md:px-6 md:py-6">
-            {groups
-              .filter(([, list]) => list.length > 0)
-              .map(([name, list]) => (
-                <section key={name}>
-                  <h2 className="px-2 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-                    {`${name} · ${list.length}`}
-                  </h2>
-                  <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-                    {list.map((agent) => (
-                      <AgentRow key={agent.id} agent={agent} state={state} now={now} />
-                    ))}
-                  </ul>
-                </section>
-              ))}
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-3 pt-4 pb-24 md:px-6 md:py-6">
+            {!narrow && (
+              <NewAgentForm
+                variant="inline"
+                context={{ kind: "anywhere" }}
+                draft={draft}
+                onDraft={setDraft}
+                onDone={() => setDraft("")}
+              />
+            )}
+            {agents.length === 0 ? (
+              <EmptyState
+                icon={<Bot />}
+                title="No agents yet"
+                description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
+              />
+            ) : (
+              groups
+                .filter(([, list]) => list.length > 0)
+                .map(([name, list]) => (
+                  <section key={name}>
+                    <h2 className="px-2 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                      {`${name} · ${list.length}`}
+                    </h2>
+                    <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+                      {list.map((agent) => (
+                        <AgentRow key={agent.id} agent={agent} state={state} now={now} />
+                      ))}
+                    </ul>
+                  </section>
+                ))
+            )}
           </div>
         )}
       </div>
+      {narrow && hasWorkspace && (
+        <Button
+          className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-20 h-12 rounded-full px-5 text-[15px] shadow-lg"
+          onClick={() => open({})}
+        >
+          <Plus /> New agent
+        </Button>
+      )}
     </>
   );
 }

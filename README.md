@@ -34,6 +34,9 @@ first-class client.
   looked), `working` or `idle`, and every list sorts by it. You get a push notification when
   an agent finishes or needs you, never for the one you're looking at; one tap (or ⌘J)
   takes you to the next one, and the Home Screen icon counts them.
+- **Start one in a keystroke.** Press `C` (or type the task into ⌘K) and write what it
+  should do: the workspace, agent, model and effort are already those of the page you're on
+  and what you used there last, one chip away if you want others.
 - **Agents outlive the browser.** Close the tab, lose Wi-Fi, switch to your phone: work goes
   on, and every client resumes exactly where it left off.
 - **Talk to them from anywhere.** Send, steer a running turn, queue for the next one, or
