@@ -6,24 +6,26 @@ roamgate feature, the need behind it, and rowrow's status) is in
 matches or beats roamgate; the gaps are below. Moving fast: reorder freely, and update this
 file when something lands.
 
+## Done recently
+
+- **New web UI** (D-017): Tailwind and components we own, dense and dark-first; Return on a
+  phone inserts a newline; the menu button counts the agents that need you.
+- **Workspace inspector**: search (#227), PR status (#228, GitHub), history (#229), file
+  previews, and stage/unstage/discard/delete on uncommitted files.
+- **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
+
 ## In flight
 
-- **New web UI** (D-017). Astryx is out: Tailwind + components we own (shadcn/ui on Radix),
-  with a dense, dark-first look in the spirit of roamgate. Accessible names stay, so the e2e
-  suite checks the port. The new composer must let Return insert a newline on phones
-  (the current one likely swallows it; parity finding 1).
-- **Workspace inspector**: done for search (#227), PR status (#228, GitHub), history (#229),
-  file previews and stage/unstage/discard/delete. Next here: a browsable file tree, GitLab
-  MRs, image and PDF previews.
 - **Approvals from the phone**: answer an agent's permission request or question (oar
   approvals), with per-agent plan/permission mode.
+- **npm package**, published by GitHub Actions on a version tag (trusted publishing).
 
 ## Next, in build order
 
 1. **Model/effort switcher on the agent page.** `agents.update {model, effort}` exists; only
    the control is missing.
-2. **"Next agent that needs you" on phones**, a needs-you count on the menu, and the app icon
-   badge (`navigator.setAppBadge`). ⌘J is keyboard-only today.
+2. **"Next agent that needs you" on phones** and the app icon badge
+   (`navigator.setAppBadge`). ⌘J is keyboard-only; the menu button already counts them.
 3. **Quick replies**: chips above the phone composer that fill the draft (never send), stored
    in a new server-side `settings` group so every device has them.
 4. **Command/skill picker** (roamgate #226): `runtimes.commands` from oar, a `/` trigger in the
@@ -39,6 +41,8 @@ file when something lands.
 10. **"rowrow was updated: Reload" banner**, then npm packaging with `rowrow update`.
 
 ## Later (P2)
+
+Inspector: a browsable file tree, GitLab MRs, image and PDF previews.
 
 Diff readability (highlighting, search, side by side, image diffs); workspace management in
 the UI (rename, archive, pin, forget, discover worktrees, review hooks before running them,
