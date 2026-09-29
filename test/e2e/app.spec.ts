@@ -223,6 +223,30 @@ test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {
   await expect(page.getByText(/chunk 1 .*chunk 3/)).toBeVisible();
 });
 
+test("the model and context sit by the composer, the rest of the session one tap away", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "session",
+    input: { inputId: randomUUID(), text: "/echo hi" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const details = page.getByRole("button", { name: "Session details" });
+  await expect(details).toContainText("script-1");
+  await details.click();
+  const popover = page.getByRole("dialog");
+  await expect(popover.getByText("Scripted demo")).toBeVisible();
+  await expect(popover.getByText(/ of 200k/)).toBeVisible();
+  await expect(popover.getByRole("meter", { name: "Context used" })).toBeAttached();
+  await popover.getByRole("button", { name: "Model and effort…" }).click();
+  await expect(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
+});
+
 test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent, sent } = await rowrow.client.agents.create({

@@ -130,20 +130,17 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
     }
   };
 
-  const model = summary.reportedModel ?? summary.model;
+  // Who and where; what it runs on (model, effort, context) sits by the composer.
   const runtime = state.runtimes[summary.runtime]?.name ?? summary.runtime;
   const branch = ws?.git?.branch;
   const facts = [
     runtime,
-    model,
-    summary.reportedEffort ?? summary.effort,
     ws === undefined
       ? null
       : `${ws.label}${branch === null || branch === undefined || branch === ws.label ? "" : ` (${branch})`}`,
-    summary.usage === null ? null : `${formatTokens(summary.usage.input + summary.usage.output)} tokens`,
-  ].filter((fact): fact is string => fact !== null && fact !== undefined);
+  ].filter((fact): fact is string => fact !== null);
 
-  const chat = <Chat agent={agent} />;
+  const chat = <Chat agent={agent} onSwitchModel={() => setSwitching(true)} />;
   return (
     <>
       <PageHeader
@@ -324,7 +321,7 @@ function savedLayout(): Record<string, number> | undefined {
 }
 
 /** The conversation, stuck to the bottom while the agent writes, and the composer under it. */
-function Chat({ agent }: { agent: AgentState }) {
+function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
   const client = useClient();
   const transcript = useTranscript(agent.id);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -397,7 +394,7 @@ function Chat({ agent }: { agent: AgentState }) {
           <ArrowDown /> Latest
         </Button>
       )}
-      <Composer agent={agent} />
+      <Composer agent={agent} onSwitchModel={onSwitchModel} />
       <SelectionComment container={chatRef} workspaceId={agent.summary.workspaceId} agentId={agent.id} />
     </div>
   );
@@ -574,12 +571,4 @@ function ModelDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function formatTokens(n: number): string {
-  return n >= 1_000_000
-    ? `${(n / 1_000_000).toFixed(1)}M`
-    : n >= 1000
-      ? `${Math.round(n / 1000)}k`
-      : String(n);
 }

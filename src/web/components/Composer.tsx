@@ -22,12 +22,13 @@ import type { AgentState, SendResult, SkillInfo } from "../../shared/schemas.ts"
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
+import { SessionInfo } from "./SessionInfo.tsx";
 
 const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 /** What you sent to each agent in this tab, for ↑ in an empty composer. */
 const sentHistory = new Map<string, string[]>();
 
-export function Composer({ agent }: { agent: AgentState }) {
+export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
   const workspaceId = agent.summary.workspaceId;
   const client = useClient();
   const draft = useDrafts((s) => s.byAgent[agent.id] ?? "");
@@ -224,7 +225,6 @@ export function Composer({ agent }: { agent: AgentState }) {
     void attach(files);
   };
 
-  const context = agent.summary.context?.percent;
   return (
     <div className="relative mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
       {menuOpen && (
@@ -365,10 +365,8 @@ export function Composer({ agent }: { agent: AgentState }) {
             </TooltipTrigger>
             <TooltipContent>Commands and skills (type /)</TooltipContent>
           </Tooltip>
-          {context !== null && context !== undefined && (
-            <span className="text-[11px] text-muted-foreground tabular-nums">{`context ${Math.round(context)}%`}</span>
-          )}
-          <div className="ml-auto flex items-center gap-1">
+          <SessionInfo agent={agent} onSwitchModel={onSwitchModel} />
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             {working && !empty && (
               <Button variant="ghost" size="sm" className="h-8" onClick={() => void send(draft, "queue")}>
                 Queue
