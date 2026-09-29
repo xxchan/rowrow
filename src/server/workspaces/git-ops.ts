@@ -1,7 +1,8 @@
 // What the API does with git (docs/git.md for the mechanics): worktrees with the
-// repository's hooks, the three diff scopes, and the "last turn" baseline, a snapshot
-// taken when a workspace goes from quiet to active (an agent's turn starts while no other
-// agent there is working).
+// repository's hooks, the three diff scopes, and each agent's "last turn": snapshots of
+// its workspace when its turn starts and when it ends, so the turn diff is exactly what
+// changed during that turn. (Another agent working in the same checkout at the same time
+// shows up in it too: files don't know who wrote them.)
 import type { Changes, DiffScope, Workspace } from "../../shared/schemas.ts";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
@@ -28,9 +29,24 @@ export interface GitOpsDeps {
 /** How long a turn may wait for its baseline before starting without one. */
 const CAPTURE_BUDGET_MS = 5000;
 
-export function createGitOps(
-  deps: GitOpsDeps,
-): GitOps & { snapshotTurn(workspaceId: string, agentId: string): Promise<void> } {
+interface TurnRow {
+  agent_id: string;
+  workspace_id: string;
+  start_tree: string | null;
+  end_tree: string | null;
+  started_at: number;
+  ended_at: number | null;
+  note: string | null;
+}
+
+export interface TurnSnapshots {
+  /** Before a turn starts. Waits at most CAPTURE_BUDGET_MS; never throws. */
+  turnStarted(workspaceId: string, agentId: string): Promise<void>;
+  /** After the runtime ended the turn. Never throws. */
+  turnEnded(agentId: string): Promise<void>;
+}
+
+export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
   const { db, workspaces, store } = deps;
 
   const gitWorkspace = (id: string): Workspace & { git: NonNullable<Workspace["git"]> } => {
@@ -42,8 +58,16 @@ export function createGitOps(
 
   const baseOf = (id: string): string | null =>
     db.get<{ base: string | null }>("select base from workspaces where id = ?", id)?.base ?? null;
-  const baselineOf = (id: string): string | null =>
-    db.get<{ tree: string }>("select tree from turn_snapshots where workspace_id = ?", id)?.tree ?? null;
+  /** The turn a "turn" diff is about: this agent's latest, or the workspace's latest of any agent. */
+  const turnOf = (workspaceId: string, agentId?: string): TurnRow | undefined =>
+    agentId === undefined
+      ? db.get<TurnRow>(
+          "select * from agent_turns where workspace_id = ? order by started_at desc limit 1",
+          workspaceId,
+        )
+      : db.get<TurnRow>("select * from agent_turns where agent_id = ?", agentId);
+  const clock = (at: number): string =>
+    new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   const hook = async (
     event: HookEvent,
@@ -132,43 +156,49 @@ export function createGitOps(
       log.info("worktree.removed", { ws: workspaceId, force });
     },
 
-    async changes(workspaceId, scope: DiffScope): Promise<Changes> {
+    async changes(workspaceId, scope: DiffScope, agentId?: string): Promise<Changes> {
       const ws = gitWorkspace(workspaceId);
+      const turn = scope === "turn" ? turnOf(workspaceId, agentId) : undefined;
       let changes: Changes;
       try {
         changes = await listChanges({
           dir: ws.path,
           scope,
-          turnBaseline: baselineOf(workspaceId),
+          turnBaseline: turn?.start_tree ?? null,
+          turnEnd: turn?.end_tree ?? null,
           defaultBase: baseOf(workspaceId),
           store,
         });
       } catch (error) {
         throw new UserError(error instanceof Error ? error.message : String(error));
       }
-      if (scope !== "turn" || changes.base === null) return changes;
-      // Say whose turn and when: the baseline belongs to the workspace, and any agent there may have started it.
-      const snapshot = db.get<{ agent_id: string | null; taken_at: number }>(
-        "select agent_id, taken_at from turn_snapshots where workspace_id = ?",
-        workspaceId,
-      );
-      if (snapshot === undefined) return changes;
-      const who = snapshot.agent_id === null ? null : deps.agentTitle(snapshot.agent_id);
-      const when = new Date(snapshot.taken_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (scope !== "turn") return changes;
+      if (turn === undefined)
+        return {
+          ...changes,
+          note: "No turn yet: rowrow snapshots the workspace when a turn starts and ends.",
+        };
+      if (turn.start_tree === null)
+        return { ...changes, note: turn.note ?? "The start of the latest turn wasn't captured." };
+      // Say whose turn and when.
+      const who = deps.agentTitle(turn.agent_id);
+      const span = `${clock(turn.started_at)}–${turn.ended_at === null ? "now" : clock(turn.ended_at)}`;
       return {
         ...changes,
-        baseLabel: `the start of the latest turn${who === null ? "" : ` (${who})`}, ${when}`,
+        baseLabel: `${who === null ? "the latest turn" : `${who}'s latest turn`} (${span})`,
       };
     },
 
-    async diff(workspaceId, scope, path) {
+    async diff(workspaceId, scope, path, agentId?: string) {
       const ws = gitWorkspace(workspaceId);
+      const turn = scope === "turn" ? turnOf(workspaceId, agentId) : undefined;
       try {
         return await fileDiff({
           dir: ws.path,
           scope,
           path,
-          turnBaseline: baselineOf(workspaceId),
+          turnBaseline: turn?.start_tree ?? null,
+          turnEnd: turn?.end_tree ?? null,
           defaultBase: baseOf(workspaceId),
           store,
         });
@@ -177,31 +207,52 @@ export function createGitOps(
       }
     },
 
-    /** Record the "last turn" baseline for a workspace. Never throws; never waits past its budget. */
-    async snapshotTurn(workspaceId, agentId) {
+    async turnStarted(workspaceId, agentId) {
       const ws = workspaces.get(workspaceId);
       if (ws?.git === null || ws === undefined || ws.missing) return;
       const started = Date.now();
+      db.run(
+        "insert into agent_turns (agent_id, workspace_id, start_tree, end_tree, started_at, ended_at, note) values (?, ?, null, null, ?, null, ?) on conflict(agent_id) do update set workspace_id = excluded.workspace_id, start_tree = null, end_tree = null, started_at = excluded.started_at, ended_at = null, note = excluded.note",
+        agentId,
+        workspaceId,
+        started,
+        "capturing the start of the turn…",
+      );
       // A capture that finishes after the turn started may include the agent's own edits:
       // then there is no baseline rather than a wrong one.
       let late = false;
       const capture = (async (): Promise<void> => {
         try {
           const result = await store.capture(ws.path);
+          const stillThisTurn =
+            db.get<{ started_at: number }>("select started_at from agent_turns where agent_id = ?", agentId)
+              ?.started_at === started;
+          if (!stillThisTurn) return;
           if (late) {
-            db.run("delete from turn_snapshots where workspace_id = ?", workspaceId);
+            db.run(
+              "update agent_turns set note = ? where agent_id = ?",
+              "The snapshot took too long, so this turn has no baseline.",
+              agentId,
+            );
             log.warn("turn.snapshot_late", { ws: workspaceId, agent: agentId, ms: Date.now() - started });
           } else if (result.kind === "ok") {
             db.run(
-              "insert into turn_snapshots (workspace_id, tree, agent_id, taken_at) values (?, ?, ?, ?) on conflict(workspace_id) do update set tree = excluded.tree, agent_id = excluded.agent_id, taken_at = excluded.taken_at",
-              workspaceId,
+              "update agent_turns set start_tree = ?, note = null where agent_id = ?",
               result.tree,
               agentId,
-              result.at,
             );
-            log.info("turn.snapshot", { ws: workspaceId, agent: agentId, ms: Date.now() - started });
+            log.info("turn.snapshot", {
+              ws: workspaceId,
+              agent: agentId,
+              edge: "start",
+              ms: Date.now() - started,
+            });
           } else {
-            db.run("delete from turn_snapshots where workspace_id = ?", workspaceId);
+            db.run(
+              "update agent_turns set note = ? where agent_id = ?",
+              `Not captured: ${result.reason}`,
+              agentId,
+            );
             log.warn("turn.snapshot_refused", { ws: workspaceId, agent: agentId, reason: result.reason });
           }
         } catch (error) {
@@ -217,6 +268,36 @@ export function createGitOps(
           }, CAPTURE_BUDGET_MS).unref(),
         ),
       ]);
+    },
+
+    async turnEnded(agentId) {
+      const turn = db.get<TurnRow>("select * from agent_turns where agent_id = ?", agentId);
+      if (turn === undefined || turn.start_tree === null || turn.ended_at !== null) return;
+      const ws = workspaces.get(turn.workspace_id);
+      if (ws === undefined || ws.missing) return;
+      try {
+        const result = await store.capture(ws.path);
+        if (result.kind === "ok") {
+          db.run(
+            "update agent_turns set end_tree = ?, ended_at = ? where agent_id = ? and started_at = ?",
+            result.tree,
+            Date.now(),
+            agentId,
+            turn.started_at,
+          );
+          log.info("turn.snapshot", { ws: turn.workspace_id, agent: agentId, edge: "end" });
+        } else {
+          db.run(
+            "update agent_turns set ended_at = ?, note = ? where agent_id = ? and started_at = ?",
+            Date.now(),
+            `The end wasn't captured (${result.reason}); comparing with now.`,
+            agentId,
+            turn.started_at,
+          );
+        }
+      } catch (error) {
+        log.error("turn.snapshot_failed", { agent: agentId, err: serializeError(error) });
+      }
     },
   };
 }

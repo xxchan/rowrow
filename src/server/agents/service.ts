@@ -51,8 +51,9 @@ export interface AgentServiceDeps {
   readonly workspaces: Workspaces;
   readonly idleTimeoutMs: number;
   readonly env: (agentId: string) => Record<string, string>;
-  /** Take the "last turn" baseline of a workspace (git). */
-  readonly snapshotTurn?: (workspaceId: string, agentId: string) => Promise<void>;
+  /** A turn is about to start / has ended: snapshot the workspace ("last turn" diffs, git). */
+  readonly turnStarted?: (workspaceId: string, agentId: string) => Promise<void>;
+  readonly turnEnded?: (agentId: string) => Promise<void>;
 }
 
 const PUBLISH_EVERY_MS = 1000;
@@ -264,13 +265,9 @@ export class AgentService {
     });
   }
 
-  /** A workspace goes from quiet to active: snapshot it, so "last turn" shows what this activity changed. */
+  /** Snapshot the workspace before this agent's turn starts, so "last turn" shows what the turn changed. */
   private async beforeTurn(agentId: string): Promise<void> {
-    const { workspaceId } = this.require(agentId).summary;
-    const othersWorking = [...this.agents.values()].some(
-      (a) => a.id !== agentId && a.summary.workspaceId === workspaceId && a.summary.status.kind === "running",
-    );
-    if (!othersWorking) await this.deps.snapshotTurn?.(workspaceId, agentId);
+    await this.deps.turnStarted?.(this.require(agentId).summary.workspaceId, agentId);
   }
 
   /** Stop the live runs of every agent in a workspace (its checkout is about to go away). */
@@ -303,7 +300,8 @@ export class AgentService {
     if (noticeable(before, agent.summary)) this.publish(agent);
     else this.publishLater(agent);
     if (entry.kind === "oar" && agent.summary.lastTurn?.seq === entry.seq) {
-      // A turn ended: its files probably changed.
+      // A turn ended: snapshot its end, and its files probably changed.
+      void this.deps.turnEnded?.(agentId);
       this.deps.workspaces.refreshSoon(agent.summary.workspaceId);
     }
   }

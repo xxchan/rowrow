@@ -230,3 +230,27 @@ doesn't matter yet.
 **Revisit when** CSS size or class collisions between the two StyleX outputs become a
 measured problem (then use `@astryxdesign/build/vite`), or Astryx makes breaking changes
 faster than we can follow (pin and wait).
+
+## D-015 "Last turn" is per agent, from a snapshot at its start to one at its end (2026-09-29)
+
+**Context.** The first version kept one baseline per workspace, taken when the workspace
+went from quiet to active, and compared it with the worktree *now* (the approach
+roamgate #37 describes). Seeding a demo exposed the flaw: with several agents taking turns
+in one checkout, agent X's "last turn" showed whichever agent went last, and anything done
+after X's turn ended leaked into X's diff.
+
+**Decision.** Each agent keeps its own latest turn: a snapshot when rowrow starts the turn
+(bounded: 5 s, else no baseline rather than a late, wrong one) and another when the runtime
+ends it. The turn diff compares the two; while the turn runs, it compares the start with the
+worktree now. The workspace page shows the workspace's most recent turn by any agent.
+
+**Why.** "What did this agent just change?" is the question people ask when an agent
+finishes, and it's per agent. The end snapshot makes the answer stable after the fact.
+
+**Limits.** Agents working in the same checkout at the same time show up in each other's
+turns: files don't know who wrote them, and we never claim attribution. Worktrees (one
+agent per checkout) avoid it. A turn the runtime starts on its own (a queued input) has no
+fresh start snapshot, so it merges with the previous one.
+
+**Revisit when** runtimes report file edits reliably enough to attribute changes per tool
+call.

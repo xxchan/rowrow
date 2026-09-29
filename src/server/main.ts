@@ -132,7 +132,8 @@ export async function startServer(
       ROWROW_WORKSPACE_ID: agents.summary(agentId).workspaceId,
       ROWROW_PROFILE: options.profile,
     }),
-    snapshotTurn: async (workspaceId, agentId) => git?.snapshotTurn(workspaceId, agentId),
+    turnStarted: async (workspaceId, agentId) => git?.turnStarted(workspaceId, agentId),
+    turnEnded: async (agentId) => git?.turnEnded(agentId),
   });
   agents.load();
   git = createGitOps({

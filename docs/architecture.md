@@ -184,9 +184,14 @@ message says what to do next.
 - **Hooks** come from `rowrow.json` at the repository root: `worktree.setup`, `opened`,
   `teardown`, `removed`. A failed teardown blocks removal.
 - **Diffs** have three scopes: working tree, branch (against the merge base with the
-  default branch), and last turn (against a snapshot taken when the turn started). A
-  snapshot never touches your index or object store: it is written to a private object
-  directory that borrows the repository's objects as alternates.
+  default branch), and an agent's last turn (between snapshots taken when the turn started
+  and when it ended, D-015). A snapshot never touches your index or object store: it is
+  written to a private object directory that borrows the repository's objects as
+  alternates.
+- **Review.** Comments on diff lines collect per workspace in the browser and compile into
+  one "Review feedback" message that fills the agent's composer; you send it.
+- **Files.** Pasted, dropped or picked files are uploaded to the profile's `uploads/`
+  (kept a week) and mentioned by absolute path, which every runtime can read.
 
 ## Observability
 

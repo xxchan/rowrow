@@ -69,6 +69,20 @@ const MIGRATIONS: readonly string[] = [
   alter table workspaces add column base text;
   alter table workspaces add column base_label text;
   `,
+  // 3: "last turn" baselines per agent, with the end of the turn (docs/git.md)
+  `
+  drop table turn_snapshots;
+  create table agent_turns (
+    agent_id text primary key,
+    workspace_id text not null,
+    start_tree text,
+    end_tree text,
+    started_at integer not null,
+    ended_at integer,
+    note text
+  );
+  create index agent_turns_by_workspace on agent_turns (workspace_id, started_at);
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

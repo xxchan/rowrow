@@ -275,13 +275,22 @@ const git = {
   changes: oc
     .route({
       summary:
-        "Changed files of a workspace. scope working: uncommitted changes against HEAD; branch: everything since the merge base with the default branch; turn: since the snapshot taken when the latest turn of an agent in this workspace started.",
+        "Changed files of a workspace. scope working: uncommitted changes against HEAD; branch: everything since the merge base with the default branch; turn: what an agent's latest turn changed (snapshots at its start and end; `agentId` picks the agent).",
     })
-    .input(z.object({ workspaceId, scope: DiffScope }))
+    .input(
+      z.object({
+        workspaceId,
+        scope: DiffScope,
+        agentId: z
+          .string()
+          .optional()
+          .describe("Turn scope: whose latest turn (default: the workspace's latest, by any agent)."),
+      }),
+    )
     .output(Changes),
   diff: oc
     .route({ summary: "The unified diff of one file in a scope (see git.changes)." })
-    .input(z.object({ workspaceId, scope: DiffScope, path: z.string() }))
+    .input(z.object({ workspaceId, scope: DiffScope, path: z.string(), agentId: z.string().optional() }))
     .output(z.object({ patch: z.string(), truncated: z.boolean() })),
 };
 

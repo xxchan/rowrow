@@ -49,8 +49,13 @@ export interface GitOps {
     hook: { ran: boolean; ok: boolean; output: string } | null;
   }>;
   removeWorktree(workspaceId: string, force: boolean): Promise<void>;
-  changes(workspaceId: string, scope: DiffScope): Promise<Changes>;
-  diff(workspaceId: string, scope: DiffScope, path: string): Promise<{ patch: string; truncated: boolean }>;
+  changes(workspaceId: string, scope: DiffScope, agentId?: string): Promise<Changes>;
+  diff(
+    workspaceId: string,
+    scope: DiffScope,
+    path: string,
+    agentId?: string,
+  ): Promise<{ patch: string; truncated: boolean }>;
 }
 
 export interface Services {
@@ -277,8 +282,12 @@ export function createRouter(s: Services) {
     },
 
     git: {
-      changes: os.git.changes.handler(async ({ input }) => s.git.changes(input.workspaceId, input.scope)),
-      diff: os.git.diff.handler(async ({ input }) => s.git.diff(input.workspaceId, input.scope, input.path)),
+      changes: os.git.changes.handler(async ({ input }) =>
+        s.git.changes(input.workspaceId, input.scope, input.agentId),
+      ),
+      diff: os.git.diff.handler(async ({ input }) =>
+        s.git.diff(input.workspaceId, input.scope, input.path, input.agentId),
+      ),
     },
 
     files: {

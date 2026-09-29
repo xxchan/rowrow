@@ -28,6 +28,8 @@ export interface ChangesInput {
   readonly scope: DiffScope;
   /** The tree `SnapshotStore.capture` returned when the last turn started (turn scope). */
   readonly turnBaseline?: string | null;
+  /** The tree captured when that turn ended; without it the turn is compared with the worktree now. */
+  readonly turnEnd?: string | null;
   /**
    * Branch scope: a commit known to be on the default branch that may be newer than this
    * checkout's refs, i.e. the `base` a worktree was created from. `defaultBranch` fetches
@@ -238,6 +240,25 @@ async function turnComparison(input: ChangesInput): Promise<Comparison> {
   }
   if (!/^[0-9a-f]{40,64}$/.test(baseline)) throw new Error(`"${baseline}" is not a snapshot id`);
   const baseLabel = `start of the turn (snapshot ${short(baseline)})`;
+  const end = input.turnEnd ?? null;
+  if (end !== null && end !== "") {
+    // A finished turn: exactly what changed between its start and its end, whatever happened since.
+    if (!/^[0-9a-f]{40,64}$/.test(end)) throw new Error(`"${end}" is not a snapshot id`);
+    const env: Env = { ...(await input.store.env(input.dir)), GIT_OPTIONAL_LOCKS: "0" };
+    const top = (await gitOk(["rev-parse", "--show-toplevel"], { cwd: input.dir })).trim();
+    for (const tree of [baseline, end]) {
+      const stored = await git(["cat-file", "-e", `${tree}^{tree}`], { cwd: top, env });
+      if (stored.code !== 0) {
+        return {
+          kind: "none",
+          base: baseline,
+          baseLabel,
+          note: "A snapshot of this turn is no longer stored.",
+        };
+      }
+    }
+    return { kind: "trees", top, env, from: baseline, to: end, base: baseline, baseLabel };
+  }
   const current = await input.store.capture(input.dir);
   if (current.kind === "refused") {
     return {

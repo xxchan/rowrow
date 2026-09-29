@@ -1,7 +1,7 @@
 // Screenshot the real UI of a running rowrow server, signed in: what an agent looks at to
 // check its UI work without a person (PRINCIPLES.md, engineering 4).
 //
-//   pnpm shot [route] [--profile dev] [--mobile] [--dark] [--wait 800] [--out file.png]
+//   pnpm shot [route] [--profile dev] [--mobile] [--dark] [--click "Button name"] [--wait 800] [--out file.png]
 //
 // Signs a throwaway browser in with a one-time link from the server (through the CLI's
 // credential in <profile>/server.json), opens the route, waits for the app to connect,
@@ -19,6 +19,7 @@ const { values, positionals } = parseArgs({
     mobile: { type: "boolean" },
     dark: { type: "boolean" },
     wait: { type: "string" },
+    click: { type: "string", multiple: true },
     out: { type: "string" },
   },
 });
@@ -50,6 +51,11 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 await page.waitForTimeout(Number(values.wait ?? 800));
+// Open panels or menus first: each --click presses the button with that accessible name.
+for (const name of values.click ?? []) {
+  await page.getByRole("button", { name }).first().click();
+  await page.waitForTimeout(Number(values.wait ?? 800));
+}
 const name = route === "/" ? "home" : route.replaceAll(/[^a-z0-9]+/gi, "-").replaceAll(/^-|-$/g, "");
 const out = path.resolve(
   values.out ??

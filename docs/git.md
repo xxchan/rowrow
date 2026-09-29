@@ -1,5 +1,9 @@
 # Git: worktrees, hooks, snapshots, changes
 
+> Turn diffs: rowrow snapshots each agent's workspace when its turn starts and when it ends
+> (`src/server/workspaces/git-ops.ts`, docs/decisions.md D-015); `listChanges` compares
+> `turnBaseline` with `turnEnd` when given, else with the worktree now.
+
 What `src/server/git/` does and the rules it keeps. The overview is in
 [architecture.md](architecture.md#workspaces-and-git). Every git call goes through `exec.ts`
 (timeout that kills the process group, no pager or prompts, `LC_ALL=C`).

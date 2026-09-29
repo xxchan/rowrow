@@ -61,7 +61,11 @@ export function ChangesView({
     let cancelled = false;
     void (async () => {
       try {
-        const changes = await client.git.changes({ workspaceId, scope });
+        const changes = await client.git.changes({
+          workspaceId,
+          scope,
+          ...(agentId === undefined ? {} : { agentId }),
+        });
         if (!cancelled) setResult({ key, scope, changes, error: null });
       } catch (error) {
         if (!cancelled)
@@ -77,7 +81,7 @@ export function ChangesView({
     return () => {
       cancelled = true;
     };
-  }, [client, workspaceId, scope, key]);
+  }, [client, workspaceId, scope, key, agentId]);
 
   const allAnnotations = useAnnotations((s) => s.items);
   const annotations = annotationsFor(allAnnotations, workspaceId);
@@ -152,6 +156,7 @@ export function ChangesView({
               scope={scope}
               file={file}
               version={key}
+              {...(agentId === undefined ? {} : { agentId })}
               annotations={annotations.filter(
                 (a) => a.source.kind === "diff" && a.source.path === file.path && a.source.scope === scope,
               )}
@@ -225,12 +230,14 @@ function FileRow({
   file,
   version,
   annotations,
+  agentId,
 }: {
   workspaceId: string;
   scope: DiffScope;
   file: ChangedFile;
   version: string;
   annotations: readonly Annotation[];
+  agentId?: string;
 }) {
   const client = useClient();
   const [open, setOpen] = useState(false);
@@ -243,7 +250,12 @@ function FileRow({
     let cancelled = false;
     void (async () => {
       try {
-        const result = await client.git.diff({ workspaceId, scope, path: file.path });
+        const result = await client.git.diff({
+          workspaceId,
+          scope,
+          path: file.path,
+          ...(agentId === undefined ? {} : { agentId }),
+        });
         if (!cancelled) setDiff({ version, ...result });
       } catch (error) {
         if (!cancelled) setDiff({ version, error: error instanceof Error ? error.message : String(error) });
@@ -252,7 +264,7 @@ function FileRow({
     return () => {
       cancelled = true;
     };
-  }, [open, client, workspaceId, scope, file.path, version, diff?.version]);
+  }, [open, client, workspaceId, scope, file.path, version, diff?.version, agentId]);
 
   return (
     <VStack gap={1}>

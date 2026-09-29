@@ -302,6 +302,55 @@ describe("git", () => {
     expect(diff.patch).toContain("+hello");
   });
 
+  it("keeps each agent's last turn apart, even when they take turns in one checkout", async () => {
+    t = await startTestServer();
+    const repo = t.repo();
+    const ws = await t.client.workspaces.add({ path: repo });
+    const a = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      input: input("/write a.txt\nfrom a"),
+    });
+    await t.client.agents.wait({ agentId: a.agent.id, afterSeq: a.sent?.seq ?? -1, timeoutMs: 5000 });
+    const b = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      input: input("/write b.txt\nfrom b"),
+    });
+    await t.client.agents.wait({ agentId: b.agent.id, afterSeq: b.sent?.seq ?? -1, timeoutMs: 5000 });
+    // Each turn's end is snapshotted right after it ends; wait for both before touching the checkout.
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(t.home, "test", "rowrow.db"), { readOnly: true });
+    await eventually(() => {
+      const ended = db.prepare("select count(*) as n from agent_turns where end_tree is not null").get() as {
+        n: number;
+      };
+      return ended.n === 2 ? true : undefined;
+    });
+    db.close();
+    fs.writeFileSync(path.join(repo, "later.txt"), "after both turns\n"); // nobody's turn
+
+    const files = async (agentId?: string) =>
+      (
+        await t!.client.git.changes({
+          workspaceId: ws.id,
+          scope: "turn",
+          ...(agentId === undefined ? {} : { agentId }),
+        })
+      ).files.map((f) => f.path);
+    await eventually(async () => ((await files(a.agent.id)).length === 1 ? true : undefined));
+    expect(await files(a.agent.id)).toEqual(["a.txt"]);
+    expect(await files(b.agent.id)).toEqual(["b.txt"]);
+    expect(await files()).toEqual(["b.txt"]); // the workspace's latest turn
+    const diff = await t.client.git.diff({
+      workspaceId: ws.id,
+      scope: "turn",
+      path: "a.txt",
+      agentId: a.agent.id,
+    });
+    expect(diff.patch).toContain("+from a");
+  });
+
   it("creates a worktree grouped under its repository, and removes it", async () => {
     t = await startTestServer();
     const ws = await t.client.workspaces.add({ path: t.repo() });
