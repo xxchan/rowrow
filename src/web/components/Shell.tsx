@@ -41,6 +41,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const openOn = useNavSheet((s) => s.openOn);
   const narrow = useNarrow();
   useAttentionToasts(route);
+  useAppBadge();
   return (
     <div className="flex h-full flex-col">
       <ConnectionBanner />
@@ -294,6 +295,16 @@ function NavRow({
       {children}
     </RouterLink>
   );
+}
+
+/** The Home Screen icon counts the agents that need you (installed web apps that support badges). */
+function useAppBadge(): void {
+  const count = useApp((s) => (s.state === null ? 0 : needsYou(s.state).length));
+  useEffect(() => {
+    if (!("setAppBadge" in navigator)) return;
+    const done = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();
+    done.catch(() => undefined);
+  }, [count]);
 }
 
 /** A toast when an agent you're not looking at starts needing you. */

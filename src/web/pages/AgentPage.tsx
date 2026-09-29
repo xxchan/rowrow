@@ -18,12 +18,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ArrowDown,
   Archive,
   ArchiveRestore,
+  ChevronsRight,
+  Cpu,
   Ellipsis,
   FileDiff,
   FolderOpen,
@@ -34,7 +39,8 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useStickToBottom } from "use-stick-to-bottom";
-import type { AgentState, AppState } from "../../shared/schemas.ts";
+import type { AgentState, AppState, ModelInfo } from "../../shared/schemas.ts";
+import { needsYou } from "../components/CommandMenu.tsx";
 import { Composer } from "../components/Composer.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import {
@@ -83,6 +89,10 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const dot = statusDot(agent, now);
   const head = transcript.timeline.headSeq;
   const [renaming, setRenaming] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  // The next agent that needs you, one tap away (⌘J on a keyboard).
+  const waiting = needsYou(state).filter((a) => a.id !== agent.id);
+  const nextUp = waiting[0];
 
   // Mark seen: the latest entries are on screen, in a window you're looking at.
   useEffect(() => {
@@ -143,6 +153,23 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
         subtitle={`${dot.label} · ${facts.join(" · ")}`}
         actions={
           <>
+            {nextUp !== undefined && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    aria-label={`Next agent that needs you: ${title(nextUp)}`}
+                    onClick={() => navigate(`/a/${nextUp.id}`)}
+                  >
+                    <ChevronsRight />
+                    <span className="tabular-nums">{waiting.length}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{`Next: ${title(nextUp)} (⌘J)`}</TooltipContent>
+              </Tooltip>
+            )}
             {ws?.git !== null && ws !== undefined && (
               <Button
                 variant={showChanges ? "secondary" : "ghost"}
@@ -171,6 +198,11 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
                 <DropdownMenuItem onSelect={() => setRenaming(true)}>
                   <Pencil /> Rename
                 </DropdownMenuItem>
+                {!summary.archived && (
+                  <DropdownMenuItem onSelect={() => setSwitching(true)}>
+                    <Cpu /> Model and effort…
+                  </DropdownMenuItem>
+                )}
                 {summary.run !== null && client !== null && (
                   <DropdownMenuItem
                     onSelect={() => void act("Stop", () => client.agents.stop({ agentId: agent.id }))}
@@ -242,6 +274,20 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
             </div>
           </SheetContent>
         </Sheet>
+      )}
+      {switching && (
+        <ModelDialog
+          agent={agent}
+          runtimeName={runtime}
+          onClose={() => setSwitching(false)}
+          onApply={(chosenModel, chosenEffort) =>
+            client === null
+              ? undefined
+              : void act("Switch model", () =>
+                  client.agents.update({ agentId: agent.id, model: chosenModel, effort: chosenEffort }),
+                )
+          }
+        />
       )}
       <RenameDialog
         open={renaming}
@@ -394,6 +440,128 @@ function RenameDialog({
             <Button type="submit">Rename</Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Radix Select items can't have an empty value; this one means "the runtime's default". */
+const DEFAULT = "__default";
+
+/** Switch the agent's model or effort: its run restarts with them and the conversation carries on. */
+function ModelDialog({
+  agent,
+  runtimeName,
+  onClose,
+  onApply,
+}: {
+  agent: AgentState;
+  runtimeName: string;
+  onClose: () => void;
+  onApply: (model: string | null, effort: string | null) => void;
+}) {
+  const client = useClient();
+  const { summary } = agent;
+  const [models, setModels] = useState<{ list: ModelInfo[]; error: string | null } | null>(null);
+  const [model, setModel] = useState(summary.model ?? DEFAULT);
+  const [effort, setEffort] = useState(summary.effort ?? DEFAULT);
+
+  useEffect(() => {
+    if (client === null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await client.runtimes.models({ runtime: summary.runtime });
+        if (!cancelled) setModels({ list: result.models, error: result.error });
+      } catch (error) {
+        if (!cancelled)
+          setModels({ list: [], error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, summary.runtime]);
+
+  const efforts = models?.list.find((m) => m.id === model)?.effortLevels ?? [];
+  const current = summary.reportedModel ?? summary.model ?? "the default model";
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Model and effort</DialogTitle>
+          <DialogDescription>{`${runtimeName}, now on ${current}. The next message continues the conversation with what you pick.`}</DialogDescription>
+        </DialogHeader>
+        <div className="flex gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Label htmlFor="switch-model">Model</Label>
+            <Select
+              value={model}
+              onValueChange={(value) => {
+                setModel(value);
+                setEffort(DEFAULT);
+              }}
+            >
+              <SelectTrigger id="switch-model" className="w-full">
+                {models === null ? (
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <LoaderCircle className="animate-spin" /> Loading models
+                  </span>
+                ) : (
+                  <SelectValue />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={DEFAULT}>Default</SelectItem>
+                {summary.model !== null && !(models?.list ?? []).some((m) => m.id === summary.model) && (
+                  <SelectItem value={summary.model}>{summary.model}</SelectItem>
+                )}
+                {(models?.list ?? []).map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {efforts.length > 0 && (
+            <div className="flex w-36 flex-col gap-1.5">
+              <Label htmlFor="switch-effort">Effort</Label>
+              <Select value={effort} onValueChange={setEffort}>
+                <SelectTrigger id="switch-effort" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={DEFAULT}>Default</SelectItem>
+                  {efforts.map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        {models?.error !== null && models?.error !== undefined && (
+          <p className="text-xs text-muted-foreground">Models: {models.error}</p>
+        )}
+        {agent.attention === "working" && (
+          <p className="text-xs text-warning">It's in the middle of a turn: switching stops that turn.</p>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onApply(model === DEFAULT ? null : model, effort === DEFAULT ? null : effort);
+              onClose();
+            }}
+          >
+            Switch
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
