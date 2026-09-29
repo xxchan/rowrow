@@ -285,6 +285,16 @@ const git = {
     .output(z.object({ patch: z.string(), truncated: z.boolean() })),
 };
 
+const files = {
+  upload: oc
+    .route({
+      summary:
+        "Upload a file (a screenshot, a log) to the server. Returns its absolute path on the server, to mention in a message so the agent can read it. Kept for 7 days.",
+    })
+    .input(z.object({ file: z.file().max(25 * 1024 * 1024) }))
+    .output(z.object({ path: z.string(), name: z.string(), size: z.number(), type: z.string() })),
+};
+
 const devices = {
   whoami: oc.route({ summary: "The device (credential) making this request." }).output(Device),
   list: oc.route({ summary: "Signed-in devices." }).output(z.array(Device)),
@@ -363,6 +373,7 @@ export const contract = {
   agents,
   runtimes,
   git,
+  files,
   devices,
   notify,
   presence,

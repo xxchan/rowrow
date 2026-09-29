@@ -28,6 +28,7 @@ import type { StateStore } from "../state/store.ts";
 import { log, matches, newTraceId, onLog, queryLog, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import { channel } from "./channel.ts";
+import { saveUpload } from "./uploads.ts";
 
 export interface ApiContext {
   readonly device: DeviceRecord;
@@ -63,6 +64,8 @@ export interface Services {
   readonly push: Push;
   readonly presence: Presence;
   readonly git: GitOps;
+  /** Where uploaded files go. */
+  readonly uploadsDir: string;
   loginUrl(code: string): string;
   refreshRuntimes(): Promise<void>;
 }
@@ -276,6 +279,10 @@ export function createRouter(s: Services) {
     git: {
       changes: os.git.changes.handler(async ({ input }) => s.git.changes(input.workspaceId, input.scope)),
       diff: os.git.diff.handler(async ({ input }) => s.git.diff(input.workspaceId, input.scope, input.path)),
+    },
+
+    files: {
+      upload: os.files.upload.handler(async ({ input }) => saveUpload(s.uploadsDir, input.file)),
     },
 
     devices: {

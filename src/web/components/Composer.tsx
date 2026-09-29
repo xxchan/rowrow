@@ -4,7 +4,9 @@
 // again can't deliver it twice (PRINCIPLES.md, engineering 2). On touch screens Enter is a
 // newline, since IME and dictation users need it.
 import { Button } from "@astryxdesign/core/Button";
-import { ChatComposer, ChatComposerInput } from "@astryxdesign/core/Chat";
+import { ChatComposer, ChatComposerInput, type ChatComposerInputHandle } from "@astryxdesign/core/Chat";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Paperclip } from "lucide-react";
 import { Text } from "@astryxdesign/core/Text";
 import { useRef, useState } from "react";
 import { newInputId } from "../../shared/ids.ts";
@@ -19,6 +21,8 @@ export function Composer({ agent }: { agent: AgentState }) {
   const client = useClient();
   const draft = useDrafts((s) => s.byAgent[agent.id] ?? "");
   const pendingId = useRef<{ text: string; inputId: string } | null>(null);
+  const inputRef = useRef<ChatComposerInputHandle>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<{ type: "error" | "warning"; message: string } | null>(null);
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
@@ -66,6 +70,28 @@ export function Composer({ agent }: { agent: AgentState }) {
     }
   };
 
+  /** Upload files to the server and put their paths in the message (roamgate #70): every runtime reads files by path. */
+  const attach = async (files: readonly File[]): Promise<void> => {
+    if (client === null || files.length === 0) return;
+    setStatus({ type: "warning", message: `Uploading ${files.map((f) => f.name || "a file").join(", ")}…` });
+    try {
+      for (const file of files) {
+        const saved = await client.files.upload({ file });
+        const mention = `\`${saved.path}\` `;
+        if (inputRef.current === null)
+          setDraft(agent.id, `${useDrafts.getState().byAgent[agent.id] ?? ""}${mention}`);
+        else inputRef.current.insertText(mention);
+      }
+      setStatus(null);
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: `Upload failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      report("warn", "composer.upload_failed", error, { agentId: agent.id });
+    }
+  };
+
   const context = agent.summary.context?.percent;
   return (
     <ChatComposer
@@ -85,6 +111,8 @@ export function Composer({ agent }: { agent: AgentState }) {
       {...(status === null ? {} : { status })}
       input={
         <ChatComposerInput
+          handleRef={inputRef}
+          onFiles={(files) => void attach(files)}
           hasHistory
           maxRows={10}
           onKeyDown={(event) => {
@@ -97,6 +125,30 @@ export function Composer({ agent }: { agent: AgentState }) {
         working && draft.trim() !== "" ? (
           <Button label="Queue" size="sm" variant="ghost" onClick={() => void send(draft, "queue")} />
         ) : undefined
+      }
+      headerActions={
+        <>
+          <Button
+            label="Attach a file"
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            icon={<Icon icon={Paperclip} size="sm" />}
+            isDisabled={archived || client === null}
+            onClick={() => fileRef.current?.click()}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              const picked = [...(event.currentTarget.files ?? [])];
+              event.currentTarget.value = "";
+              void attach(picked);
+            }}
+          />
+        </>
       }
       headerContext={
         context === null || context === undefined ? undefined : (

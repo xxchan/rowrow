@@ -10,6 +10,7 @@ import { Runtimes } from "./agents/runtimes.ts";
 import { AgentService } from "./agents/service.ts";
 import { createRouter } from "./api/router.ts";
 import { startHttp } from "./api/server.ts";
+import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
 import { Notifier } from "./notify/notifier.ts";
@@ -142,10 +143,13 @@ export async function startServer(
     stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
     agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
   });
-  const pruneTimer = setInterval(
-    () => void snapshots.prune(7 * 24 * 3600_000).catch(() => undefined),
-    6 * 3600_000,
-  );
+  // Housekeeping: turn snapshots and uploads older than a week go.
+  const housekeeping = (): void => {
+    void snapshots.prune(7 * 24 * 3600_000).catch(() => undefined);
+    pruneUploads(paths.uploads, 7 * 24 * 3600_000);
+  };
+  housekeeping();
+  const pruneTimer = setInterval(housekeeping, 6 * 3600_000);
   pruneTimer.unref();
   const notifier = new Notifier(agents, workspaces, presence, push);
 
@@ -160,6 +164,7 @@ export async function startServer(
     push,
     presence,
     git,
+    uploadsDir: paths.uploads,
     loginUrl: (code) => `${publicUrl}/auth/redeem?code=${code}`,
     refreshRuntimes: async () => {
       await runtimes.refresh();

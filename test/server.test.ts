@@ -322,3 +322,23 @@ describe("git", () => {
     expect((await t.client.state.get()).state.workspaces[wt.id]?.archived).toBe(true);
   });
 });
+
+describe("files", () => {
+  it("stores an upload privately and returns a path an agent can read, over HTTP and WebSocket", async () => {
+    t = await startTestServer();
+    const viaHttp = await t.client.files.upload({
+      file: new File(["hello image"], "Screen Shot 1.png", { type: "image/png" }),
+    });
+    expect(viaHttp.path.startsWith(path.join(t.home, "test", "uploads"))).toBe(true);
+    expect(path.basename(viaHttp.path)).toMatch(/^[0-9a-f]{8}-Screen-Shot-1\.png$/);
+    expect(fs.readFileSync(viaHttp.path, "utf8")).toBe("hello image");
+    expect(fs.statSync(viaHttp.path).mode & 0o777).toBe(0o600);
+
+    const { client, close } = await t.websocket();
+    const viaWs = await client.files.upload({
+      file: new File([new Uint8Array([1, 2, 3])], "log.txt", { type: "text/plain" }),
+    });
+    expect(fs.readFileSync(viaWs.path)).toEqual(Buffer.from([1, 2, 3]));
+    close();
+  });
+});
