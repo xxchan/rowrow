@@ -187,6 +187,9 @@ them and an `answer` call. That is the first oar change on the roadmap.
 
 ## D-012 Node 24 runs the server's TypeScript directly (2026-09-29)
 
+> Revisited in D-018, for the npm package: it runs `lib/`, JavaScript stripped from this
+> source with every line and column kept. A checkout still runs `src/` directly.
+
 **Decision.** The server and CLI are written in erasable TypeScript (no enums,
 namespaces or parameter properties; relative imports carry `.ts`) and run with `node`
 directly. Only the web app is bundled (Vite).
@@ -260,6 +263,9 @@ call.
 
 ## D-016 The OS supervisor keeps the server running, not a daemon mode (2026-09-29)
 
+> Since D-018, a service installed from the npm package runs the package's
+> `lib/cli/main.js`; one installed from a checkout still runs `src/cli/main.ts`.
+
 **Context.** Agents outlive clients only while the server lives, and remote control means
 nobody is at the terminal that started it. `pnpm start` in a terminal dies with the terminal,
 at logout, and on a crash.
@@ -307,6 +313,49 @@ at least 16px on phones (iOS zooms into smaller ones). Touch targets are at leas
 
 **Revisit when** the owned components drift into inconsistency (then extract our own small
 design tokens and variants), or Tailwind gets in the way of something specific.
+
+## D-018 The npm package: types stripped into lib/, published from CI by trusted publishing (2026-09-29)
+
+**Context.** Using rowrow meant cloning it and installing pnpm. Node runs our TypeScript
+directly (D-012), but not under `node_modules`, so a package has to contain JavaScript. And
+a publish token kept in CI is exactly what supply-chain attacks go looking for.
+
+**Decision.**
+
+- **The package.** `npm install -g rowrow` (Node 24, which oar requires) installs `lib/` (the
+  server and the CLI), `dist/web` (the built web app, without source maps), the README and
+  the license. `pnpm build` makes both, and `prepack` runs it. `dependencies` holds only what
+  the server and the CLI import; everything the web app bundles is a devDependency.
+- **The build.** `scripts/build-node.ts` writes each module the CLI imports (following
+  imports from `src/cli/main.ts`, which leaves out tests and their helpers) into `lib/` at
+  the same depth as in `src/`. Node's `stripTypeScriptTypes` (mode `strip`) turns types into
+  spaces, and each relative `.ts` specifier becomes `.js`. The build fails if an import
+  doesn't land on a module of the package. Paths found relative to a module (`package.json`,
+  `dist/web`) hold from `src/` and from `lib/`, and `rowrow service` runs the `main` next to
+  it, `.ts` or `.js`.
+- **Releases.** Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`. A first job
+  checks that the tag matches `version`, runs `pnpm check`, packs the tarball, then installs
+  it with npm and runs it (`scripts/test-package.ts`, which CI runs too). A second job, in
+  the GitHub environment `npm`, publishes that tarball with npm trusted publishing and
+  creates the GitHub release. A prerelease version goes to the `next` dist-tag.
+
+**Why.** No bundler: stripping is one Node API, with no dependency or configuration, and it
+keeps D-012's promise in the package, since nothing moves: a stack trace points at the line
+you wrote, with no source maps to ship or apply. Dependencies stay external, so npm installs
+and deduplicates them as usual. Trusted publishing exchanges the job's short-lived OIDC
+token for the publish, so no npm token exists to leak, and npm attaches provenance that ties
+each version to this repository, workflow and commit. The job that runs our code and our
+dependencies' code holds no credentials; the one that can publish runs only npm and gh.
+
+**Limits.** `stripTypeScriptTypes` is still experimental in Node 24 (the build runs on the
+Node pinned in `devEngines`). Only literal specifiers are rewritten and followed, so a
+computed `import()` would break the package: don't write one. npm trusts a publisher only
+for a package that already exists, so the first version under the name was published by
+hand.
+
+**Revisit when** Node strips types under `node_modules` (then ship `src/` as it is), a
+runtime dependency has to be bundled or patched, or releases should wait for a person (npm's
+staged publishing: CI runs `npm stage publish`, and a maintainer approves it with 2FA).
 
 ## D-019 Working-tree actions are narrow, and conditional on what the client saw (2026-09-29)
 

@@ -43,8 +43,33 @@ first-class client.
 
 ## Quick start
 
-Needs Node.js 24, pnpm, git, and at least one agent CLI you're already signed in to
+Needs Node.js 24 or later, git, and at least one agent CLI you're already signed in to
 (`claude`, `codex`, `grok`, `kimi` or `pi`).
+
+```bash
+npm install -g rowrow
+rowrow serve                   # serves rowrow on http://127.0.0.1:7373
+```
+
+`rowrow serve` prints a one-time sign-in link; open it. Later, `rowrow open` signs a
+browser in and opens it. rowrow has no passwords: browsers sign in with one-time links, and
+every signed-in device can be revoked in Settings. Keyboard: ⌘K goes anywhere, ⌘J goes to
+the next agent that needs you.
+
+To keep it running without a terminal (it starts when you log in and restarts after a
+crash), run it as a service instead, with the same flags as `serve`:
+
+```bash
+rowrow service install         # launchd on macOS, systemd on Linux
+rowrow service status          # also: restart (after npm install -g rowrow), uninstall
+```
+
+The service runs the `node` it was installed with, so install it again after switching
+Node versions.
+
+### From source
+
+To work on rowrow (read [AGENTS.md](AGENTS.md)), you also need pnpm:
 
 ```bash
 git clone https://github.com/xxchan/rowrow && cd rowrow
@@ -52,21 +77,10 @@ pnpm install
 pnpm start                     # builds the web app and serves it on http://127.0.0.1:7373
 ```
 
-`rowrow serve` prints a one-time sign-in link; open it. Later, `pnpm rowrow open` signs a
-browser in and opens it. rowrow has no passwords: browsers sign in with one-time links, and
-every signed-in device can be revoked in Settings.
-
-To keep it running without a terminal (it starts when you log in and restarts after a
-crash), run it as a service, with the same flags as `serve`:
-
-```bash
-pnpm build && pnpm rowrow service install       # launchd on macOS, systemd on Linux
-pnpm rowrow service status                      # also: restart (after git pull && pnpm build), uninstall
-```
-
-Try it without spending tokens: `pnpm dev` runs a development server with a scripted demo
-agent, and `node scripts/demo.ts --profile dev` fills it with a few agents in every state.
-Keyboard: ⌘K goes anywhere, ⌘J goes to the next agent that needs you.
+In a checkout, `pnpm rowrow …` is the CLI: `pnpm rowrow open`, for example, or
+`pnpm build && pnpm rowrow service install` to run the checkout as the service. Try it
+without spending tokens: `pnpm dev` runs a development server with a scripted demo agent,
+and `node scripts/demo.ts --profile dev` fills it with a few agents in every state.
 
 ## On your phone
 
@@ -76,7 +90,7 @@ credential even then. The simplest safe way to reach it from your phone is
 
 ```bash
 tailscale serve --bg 7373
-pnpm rowrow service install --public-url https://<machine>.<tailnet>.ts.net   # or: serve
+rowrow service install --public-url https://<machine>.<tailnet>.ts.net   # or: rowrow serve
 ```
 
 Then open **Settings → Pair a device** and scan the code with your phone. Over HTTPS the
@@ -102,8 +116,7 @@ rowrow logs --since 30m --level warn
 rowrow help
 ```
 
-`<agent>` is an id, an id prefix, or part of its title. `pnpm rowrow …` runs the CLI from
-this checkout.
+`<agent>` is an id, an id prefix, or part of its title.
 
 ## How it works
 

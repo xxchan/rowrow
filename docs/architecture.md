@@ -233,6 +233,7 @@ message says what to do next.
 | Unit | folds, git helpers, auth, store | `pnpm test` |
 | Integration | the whole server in-process on a temp profile with a scripted runtime, driven through the real oRPC client over HTTP and WebSocket | `pnpm test` |
 | End to end | the built web app in Chromium against a real server with the scripted runtime; screenshots in `test-results/` | `pnpm test:e2e` |
+| Package | the npm tarball's contents, then the tarball installed with npm in a throwaway prefix and run: serve, status, the web app, a scripted agent | `pnpm test:package` |
 
 ## Repository layout
 
@@ -243,4 +244,5 @@ message says what to do next.
 | `src/cli/` | The `rowrow` CLI. |
 | `src/web/` | The web app (React, Tailwind, shadcn/ui). Talks to the server only through the contract. |
 | `test/` | Integration and end-to-end tests, fixtures, the scripted runtime. |
-| `scripts/` | Development tools: dev runner, screenshots. |
+| `scripts/` | Development tools: dev runner, screenshots, the npm package's build (`build-node.ts`) and its test (`test-package.ts`). |
+| `lib/`, `dist/web/` | Build output, not in git: the server and CLI as JavaScript, and the web app; the npm package ships both (D-018). |
