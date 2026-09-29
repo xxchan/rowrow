@@ -140,3 +140,38 @@ test("⌘K jumps to an agent by name; ⌘J goes to the next one that needs you",
   await page.keyboard.press("ControlOrMeta+j");
   await expect(page).toHaveURL(new RegExp(`/a/${loud.id}$`));
 });
+
+test("the service worker shows what the server pushes", async ({ page, context, rowrow }, info) => {
+  test.skip(info.project.name === "phone", "one run is enough: it's the same Chromium");
+  await context.grantPermissions(["notifications"], { origin: rowrow.url });
+  await rowrow.open(page, "/");
+  const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+  expect(scope).toBe(`${rowrow.url}/`);
+
+  // Deliver a push the way the browser's push service would, with the server's payload shape.
+  const cdp = await context.newCDPSession(page);
+  const registrationId = new Promise<string>((resolve) => {
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const ours = registrations.find((r) => r.scopeURL === scope && !r.isDeleted);
+      if (ours !== undefined) resolve(ours.registrationId);
+    });
+  });
+  await cdp.send("ServiceWorker.enable");
+  const message = { title: "Fix the flaky test", body: "Done · acme", url: "/a/ag_x", tag: "ag_x" };
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin: rowrow.url,
+    registrationId: await registrationId,
+    data: JSON.stringify(message),
+  });
+  // Starting a stopped worker can take a while on a loaded machine.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async () => {
+          const registration = await navigator.serviceWorker.ready;
+          return (await registration.getNotifications()).map((n) => [n.title, n.body, n.tag]);
+        }),
+      { timeout: 15_000 },
+    )
+    .toEqual([[message.title, message.body, message.tag]]);
+});

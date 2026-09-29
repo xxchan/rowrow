@@ -9,6 +9,9 @@ export default defineConfig({
   fullyParallel: true,
   reporter: process.env["CI"] === undefined ? "list" : [["list"], ["html", { open: "never" }]],
   use: {
+    // Full Chromium in headless mode, not the headless shell: closer to real Chrome, and the
+    // shell has no notifications.
+    channel: "chromium",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
