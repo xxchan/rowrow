@@ -91,7 +91,8 @@ these; JSONL files do the first two. `node:sqlite` needs no native build. An age
 inspect everything with `sqlite3`.
 
 **Revisit when** write volume or database size becomes a measured problem; oar's voyage
-format stays available as an export (`rowrow agent export`).
+format stays available as an export (not built yet; today `rowrow agent entries --full`
+dumps an agent's whole log as JSON lines).
 
 ## D-006 The transcript fold runs in the client; summaries fold on the server (2026-09-29)
 
@@ -210,6 +211,8 @@ data, and an agent debugging the user's instance must know exactly where to look
 
 ## D-014 Web app: React 19, Vite, Astryx with pre-built CSS, StyleX for our own styles (2026-09-29)
 
+> Superseded by D-017: the web app no longer uses Astryx or StyleX.
+
 **Context.** The user chose [Astryx](https://astryx.atmeta.com) (Meta's design system,
 `@astryxdesign/*`, 0.6.x beta) for the UI. It can be used three ways: pre-built CSS with
 no compiler, pre-built CSS plus the StyleX compiler for app styles, or a full source
@@ -278,3 +281,29 @@ versions, install again. On Linux a user service stops at logout unless lingerin
 
 **Revisit when** rowrow ships as an installable package (then the service runs its binary,
 not a checkout), or when it gets a desktop app that owns the server.
+
+## D-017 Web UI: Tailwind and components we own (shadcn/ui on Radix), not a design system (2026-09-29)
+
+**Context.** D-014 adopted Astryx. The user doesn't like how it looks, and asked what
+roamgate uses. roamgate uses no component library at all: hand-written components with
+plain CSS, plus a few focused libraries (Radix Popover, cmdk, lucide icons, CodeMirror,
+shiki, `@pierre/diffs`). Its look (dense, dark, calm developer tool) comes from owning
+its styles, not from a library.
+
+**Decision.** Tailwind CSS v4 for styling, and shadcn/ui components copied into the repo
+(`src/web/components/ui`) on Radix primitives, restyled to a dense, dark-first look in the
+spirit of roamgate, with a light theme too. Focused libraries where a component needs real
+depth: cmdk (palette), sonner (toasts), react-resizable-panels (split view), lucide (icons),
+shiki (code), and a proper diff renderer. Astryx and StyleX go.
+
+**Why.** Owning the components means the look is ours to tune, which is the whole
+complaint; a design system's look comes as a package. shadcn/ui gives accessible
+dialogs, menus, sheets and popovers without hand-rolling focus management, and Tailwind
+with shadcn is the stack coding agents know best, so agents write good UI code here. Tailwind's
+output is only the classes we use.
+
+**Rules.** Keep accessible names stable (the e2e suite finds things by role and name). Inputs are
+at least 16px on phones (iOS zooms into smaller ones). Touch targets are at least 40px on phones.
+
+**Revisit when** the owned components drift into inconsistency (then extract our own small
+design tokens and variants), or Tailwind gets in the way of something specific.
