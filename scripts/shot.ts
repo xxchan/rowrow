@@ -51,9 +51,13 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 await page.waitForTimeout(Number(values.wait ?? 800));
-// Open panels or menus first: each --click presses the button with that accessible name.
+// Open panels or menus first: each --click presses the button or tab with that accessible name.
 for (const name of values.click ?? []) {
-  await page.getByRole("button", { name }).first().click();
+  await page
+    .getByRole("button", { name, exact: true })
+    .or(page.getByRole("tab", { name, exact: true }))
+    .first()
+    .click();
   await page.waitForTimeout(Number(values.wait ?? 800));
 }
 const name = route === "/" ? "home" : route.replaceAll(/[^a-z0-9]+/gi, "-").replaceAll(/^-|-$/g, "");

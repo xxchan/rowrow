@@ -2,13 +2,16 @@
 // checkout, through git's own view of it: `git ls-files` for names and `git grep` for
 // contents, both tracked and untracked files, both honoring .gitignore the same way, with
 // binary files skipped. Results are bounded and say when they were cut. Read-only, and it
-// never takes the index lock. `readWorkspaceFile` is the preview a result opens.
+// never takes the index lock. `listWorkspaceFiles` is the same view as a whole, for the
+// file tree; `readWorkspaceFile` is the preview a result or a tree row opens.
 import fs from "node:fs";
 import path from "node:path";
-import type { FileText, SearchKind, SearchResult } from "../../shared/schemas.ts";
+import type { FileList, FileText, SearchKind, SearchResult } from "../../shared/schemas.ts";
 import { git } from "./exec.ts";
 
 export const SEARCH_LIMIT = 200;
+/** The file tree lists at most this many files. */
+export const LIST_LIMIT = 50_000;
 export const MAX_QUERY = 200;
 /** A preview stops at this many bytes (on a line boundary). */
 export const READ_MAX_BYTES = 1024 * 1024;
@@ -132,6 +135,31 @@ async function searchLines(
     hits,
     truncated: more || result.capped || result.timedOut,
     note: result.timedOut ? `The content search stopped after ${GREP_TIMEOUT_MS / 1000} s.` : null,
+  };
+}
+
+/**
+ * Every file of the checkout as the tree shows it: tracked and untracked, .gitignore honored,
+ * without tracked files deleted from the worktree (a preview couldn't open them). Paths are
+ * relative to the checkout's top and sorted; at most LIST_LIMIT of them.
+ */
+export async function listWorkspaceFiles(input: { readonly dir: string }): Promise<FileList> {
+  const top = await topOf(input.dir);
+  const run = (args: string[]) => git(args, { cwd: top, env: QUIET, maxBytes: NAMES_MAX_BYTES });
+  const [listed, deleted] = await Promise.all([
+    run(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"]),
+    run(["ls-files", "--deleted", "-z"]),
+  ]);
+  if (listed.code !== 0 && !listed.capped) throw new Error(`git ls-files failed: ${listed.stderr}`);
+  if (deleted.code !== 0 && !deleted.capped)
+    throw new Error(`git ls-files --deleted failed: ${deleted.stderr}`);
+  const records = listed.stdout.split("\0");
+  if (listed.capped) records.pop(); // the last one may be cut
+  const gone = new Set(deleted.stdout.split("\0"));
+  const paths = [...new Set(records.filter((file) => file !== "" && !gone.has(file)))].sort();
+  return {
+    paths: paths.slice(0, LIST_LIMIT),
+    truncated: listed.capped || paths.length > LIST_LIMIT,
   };
 }
 

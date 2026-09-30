@@ -557,6 +557,11 @@ public struct SearchResult: Codable, Sendable {
   public let note: String?
 }
 
+public struct FileList: Codable, Sendable {
+  public let paths: [String]
+  public let truncated: Bool
+}
+
 public struct FileText: Codable, Sendable {
   public let path: String
   public let text: String

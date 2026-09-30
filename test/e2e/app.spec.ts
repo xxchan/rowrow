@@ -239,11 +239,18 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
     await page.keyboard.press("Escape");
   }
 
-  // Find a line, open it.
+  // Open a file from the tree, then back to the tree.
   await inspector.getByRole("tab", { name: "Files" }).click();
+  await inspector.getByRole("treeitem", { name: /notes\.txt/ }).click();
+  await expect(inspector.getByText("the answer is 42")).toBeVisible();
+  await inspector.getByRole("button", { name: "Back to results" }).click();
+  await expect(inspector.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+
+  // Find a line, open it.
   await inspector.getByRole("searchbox", { name: "Search files" }).fill("answer");
   await inspector.getByRole("button", { name: /the answer is 42/ }).click();
-  await expect(inspector.getByText("the answer is 42")).toBeVisible();
+  // The results stay behind the preview, hidden.
+  await expect(inspector.getByText("the answer is 42").filter({ visible: true })).toBeVisible();
 
   // The history has the repository's first commit, and its file.
   await inspector.getByRole("tab", { name: "History" }).click();

@@ -162,6 +162,11 @@ extension APIClient {
     try await call("git.pullRequest", JSONValue.object(["workspaceId": .string(workspaceId), "refresh": .bool(refresh)]))
   }
 
+  /// Every file of the checkout, for a tree: tracked and untracked, .gitignore honored.
+  public func files(workspaceId: String) async throws -> FileList {
+    try await call("files.list", ["workspaceId": workspaceId])
+  }
+
   public func search(workspaceId: String, query: String) async throws -> SearchResult {
     try await call("files.search", ["workspaceId": workspaceId, "query": query, "kind": "all"])
   }

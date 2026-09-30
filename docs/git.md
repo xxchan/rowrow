@@ -247,8 +247,8 @@ The current branch's commits and each commit's changes (roamgate #229), behind `
 
 ## Search (`search.ts`)
 
-File names and contents across a checkout (roamgate #227), behind `files.search`, and the
-preview a result opens, `files.read` (D-021). Read-only; never takes the index lock
+File names and contents across a checkout (roamgate #227), behind `files.search`, the whole
+list for the Files tree, `files.list`, and the preview a result opens, `files.read` (D-021). Read-only; never takes the index lock
 (`GIT_OPTIONAL_LOCKS=0`).
 
 - **Names**: `git ls-files --cached --others --exclude-standard --deduplicate -z`, so tracked
@@ -266,6 +266,10 @@ preview a result opens, `files.read` (D-021). Read-only; never takes the index l
   real path must stay inside the checkout and outside `.git` (a symlink leading out is
   refused). Regular files only; a NUL in the first 8000 bytes is binary and refused; the
   text stops at 1 MiB, on a line boundary (`truncated`).
+- **Tree**: `files.list` is the names query without a query: every tracked and untracked
+  file, .gitignore honored, files deleted from the worktree left out, sorted, at most
+  50,000 (`truncated`). The Files tab builds its tree from it and colors it with the
+  working changes; it reloads when the workspace's git state changes.
 
 ## Pull requests (`pull-request.ts`)
 

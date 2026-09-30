@@ -20,7 +20,7 @@ import { ActionRefused, applyBulkAction, applyFileAction, StaleError } from "../
 import { commitPatch, HistoryError, listCommits, readCommit } from "../git/history.ts";
 import { resolveHooks, runHook, type HookEvent, type HookRun } from "../git/hooks.ts";
 import { pullRequestStatus } from "../git/pull-request.ts";
-import { readWorkspaceFile, SearchError, searchWorkspace } from "../git/search.ts";
+import { listWorkspaceFiles, readWorkspaceFile, SearchError, searchWorkspace } from "../git/search.ts";
 import type { SnapshotStore } from "../git/snapshots.ts";
 import { createWorktree, DirtyWorktreeError, listWorktrees, removeWorktree } from "../git/worktrees.ts";
 import type { Db } from "../store/db.ts";
@@ -371,6 +371,15 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       const ws = gitWorkspace(workspaceId);
       try {
         return await searchWorkspace({ dir: ws.path, query, kind });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async listFiles(workspaceId) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await listWorkspaceFiles({ dir: ws.path });
       } catch (error) {
         throw asUserError(error);
       }

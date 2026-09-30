@@ -19,6 +19,7 @@ import {
   DiffScope,
   EntryPage,
   FileAction,
+  FileList,
   FileText,
   hasContent,
   HostInfo,
@@ -415,6 +416,13 @@ const files = {
       }),
     )
     .output(SearchResult),
+  list: oc
+    .route({
+      summary:
+        "Every file of a workspace's checkout, for browsing it as a tree: paths relative to the checkout's top, sorted, tracked and untracked, .gitignore honored, without tracked files deleted from the worktree. At most 50,000; truncated says when there were more. Open one with files.read.",
+    })
+    .input(z.object({ workspaceId }))
+    .output(FileList),
   read: oc
     .route({
       summary:

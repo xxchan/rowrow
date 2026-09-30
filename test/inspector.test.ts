@@ -560,6 +560,23 @@ describe("search", () => {
     expect(lines.lines[1]).toEqual({ path: "many/file-000.txt", line: 2, text: "hit again" });
   });
 
+  it("lists the checkout for the tree: untracked files in, ignored and deleted ones out, sorted", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, {
+      ".gitignore": "ignored/\n",
+      "src/cart.ts": "cart\n",
+      "gone.txt": "soon deleted\n",
+      "README.md": "# hi\n",
+    });
+    write(repo, "notes/draft.md", "untracked\n");
+    write(repo, "ignored/secret.txt", "hidden\n");
+    fs.rmSync(path.join(repo, "gone.txt"));
+    expect(await t.client.files.list({ workspaceId: id })).toEqual({
+      paths: [".gitignore", "README.md", "notes/draft.md", "src/cart.ts"],
+      truncated: false,
+    });
+  });
+
   it("previews a text file, and refuses binaries and anything outside the checkout", async () => {
     t = await startTestServer();
     const { repo, id } = await workspace(t, { "src/cart.ts": "line 1\nline 2\n" });

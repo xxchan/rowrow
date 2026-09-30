@@ -79,7 +79,7 @@ file when something lands.
 
 ## Later (P2)
 
-Inspector: a browsable file tree, GitLab MRs, image and PDF previews.
+Inspector: GitLab MRs, image and PDF previews.
 
 Diff readability (highlighting, search, side by side, image diffs); workspace management in
 the UI (rename, archive, pin, forget, discover worktrees, review hooks before running them,

@@ -14,6 +14,7 @@ import type {
   CommitPage,
   DiffScope,
   FileAction,
+  FileList,
   FileText,
   HostInfo,
   LogEntry,
@@ -84,6 +85,7 @@ export interface GitOps {
   commitDiff(workspaceId: string, sha: string, path: string): Promise<{ patch: string; truncated: boolean }>;
   pullRequest(workspaceId: string, refresh: boolean): Promise<PullRequestStatus>;
   search(workspaceId: string, query: string, kind: SearchKind): Promise<SearchResult>;
+  listFiles(workspaceId: string): Promise<FileList>;
   readFile(workspaceId: string, path: string): Promise<FileText>;
 }
 
@@ -388,6 +390,7 @@ export function createRouter(s: Services) {
       search: os.files.search.handler(async ({ input }) =>
         s.git.search(input.workspaceId, input.query, input.kind),
       ),
+      list: os.files.list.handler(async ({ input }) => s.git.listFiles(input.workspaceId)),
       read: os.files.read.handler(async ({ input }) => s.git.readFile(input.workspaceId, input.path)),
     },
 

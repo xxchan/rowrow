@@ -428,6 +428,14 @@ export const SearchResult = z.object({
 });
 export type SearchResult = z.infer<typeof SearchResult>;
 
+export const FileList = z.object({
+  paths: z
+    .array(z.string())
+    .describe("Files relative to the checkout's top, sorted: tracked and untracked, .gitignore honored."),
+  truncated: z.boolean().describe("The checkout has more files than listed (the list stops at 50,000)."),
+});
+export type FileList = z.infer<typeof FileList>;
+
 export const FileText = z.object({
   path: z.string(),
   text: z.string(),

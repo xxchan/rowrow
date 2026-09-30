@@ -192,3 +192,27 @@
     overscroll-behavior: none;
   }
 }
+
+/* The Files tab's tree (@pierre/trees, D-034) draws in a shadow root; these variables reach
+   inside it, so the tree wears the app's tokens instead of its own palette. */
+.file-tree {
+  --trees-bg-override: transparent;
+  --trees-fg-override: var(--foreground);
+  --trees-fg-muted-override: var(--muted-foreground);
+  --trees-bg-muted-override: color-mix(in oklab, var(--accent) 60%, transparent);
+  --trees-selected-bg-override: var(--accent);
+  --trees-selected-fg-override: var(--accent-foreground);
+  --trees-accent-override: var(--primary);
+  --trees-border-color-override: var(--border);
+  --trees-indent-guide-bg-override: var(--border);
+  --trees-focus-ring-color-override: var(--ring);
+  --trees-selected-focused-border-color-override: var(--ring);
+  --trees-scrollbar-thumb-override: var(--scrollbar);
+  --trees-font-family-override: var(--font-sans);
+  --trees-git-added-color-override: var(--success);
+  --trees-git-untracked-color-override: var(--success);
+  --trees-git-modified-color-override: var(--warning);
+  --trees-git-deleted-color-override: var(--destructive);
+  --trees-git-renamed-color-override: var(--info);
+  --trees-git-ignored-color-override: var(--muted-foreground);
+}

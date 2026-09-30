@@ -83,7 +83,7 @@
 | roamgate feature (source) | User need | rowrow status | rowrow evidence / design sketch | Priority |
 |---|---|---|---|---|
 | Inspector with Files / Changes / History: docked, resizable, drill-down on phones, state kept per checkout (`WorkspaceInspectorHost.tsx`; #30, #186) | Look at the project without leaving the agent | in progress | Changes already docks beside the transcript (resizable) or opens in a phone bottom sheet (`AgentPage.tsx`). Files is the in-flight inspector | P0 |
-| File tree: hidden-file toggle, glob filter on loaded names, git badges, ignored files dimmed (`FileExplorerDialog.tsx`; #162, #66) | Find and open files | in progress | Sketch: one `files.list {workspaceId, dir}` call returning git status and ignored flags, with realpath confinement to the workspace | P0 |
+| File tree: hidden-file toggle, glob filter on loaded names, git badges, ignored files dimmed (`FileExplorerDialog.tsx`; #162, #66) | Find and open files | done | Files shows the checkout as a tree (`@pierre/trees`, D-034) from `files.list`, colored by git status; a file opens the preview. Ignored files aren't listed, and search is the filter | P0 |
 | Project-wide name and content search (#227 open) | Find a file or string anywhere | in progress | A bounded, ignore-aware `git grep`; results open at the matching line | P1 |
 | Text preview with highlighting, line numbers, search, refresh, close (`CodePreview.tsx`; #163, #291) | Read a file on the phone | in progress | Highlighted code view with line numbers and copy (shiki) | P0 |
 | Markdown Preview/Source; relative links and local images resolve (#64, #136) | Read the plans and docs agents write | in progress | The transcript's Markdown renderer; resolve links inside the workspace | P0 |
