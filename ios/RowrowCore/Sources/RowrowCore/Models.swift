@@ -227,7 +227,35 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   public let usage: TokenTotals?
   public let context: ContextUsage?
   public let inputs: Int
+  /// Held for later turns and sent one per turn, in order (D-035); nil from a server before 0.3.4.
+  public let queued: [QueuedInput]?
+  /// Why rowrow stopped sending `queued`: it waits for you.
+  public let queuePaused: QueuePauseReason?
+  /// Steered into the running turn, not read by the agent yet.
+  public let steering: [QueuedInput]?
+  /// Steered, but the turn ended before the agent read them.
+  public let unread: [QueuedInput]?
   public let headSeq: Int
+}
+
+/// A message rowrow holds until the running turn ends, or one steered in and not read yet.
+public struct QueuedInput: Codable, Sendable, Equatable, Identifiable {
+  public let inputId: String
+  public let text: String
+  public let attachments: [Attachment]
+  public let at: Millis
+  public var id: String { inputId }
+}
+
+public enum QueuePauseReason: String, OpenEnum {
+  /// You stopped the turn.
+  case stopped
+  case failed
+  /// The agent's process exited.
+  case exited
+  /// rowrow restarted.
+  case restarted
+  public static let fallback = QueuePauseReason.stopped
 }
 
 public struct AgentState: Decodable, Sendable, Equatable, Identifiable {
@@ -289,13 +317,36 @@ public struct AppState: Decodable, Sendable, Equatable {
 
 // ─── Results of calls ────────────────────────────────────────────────────────
 
+/// Where input goes while a turn runs (D-035); idle, every mode starts a turn.
 public enum InputMode: String, Codable, Sendable {
-  /// Prompt when idle; steer (or queue) while a turn runs.
+  /// Same as queue.
   case auto
-  /// Hold for the next turn.
+  /// rowrow holds it and sends it when the turn ends; until then it can be taken back.
   case queue
+  /// Into the running turn; it can't be taken back. A runtime that can't steer holds it instead.
+  case steer
   /// Stop the running turn, then prompt.
   case interrupt
+}
+
+/// Whether a runtime takes input mid-turn (src/shared/summary.ts `steerSupport`): `redoes`
+/// takes it by starting the current step again.
+public enum SteerSupport: Sendable {
+  case yes, no, redoes
+
+  public init(runtime: String) {
+    switch runtime {
+    case "cursor", "kimi", "antigravity": self = .no
+    case "grok": self = .redoes
+    default: self = .yes
+    }
+  }
+}
+
+/// A held message, taken back (agents.withdraw).
+public struct Withdrawn: Codable, Sendable, Equatable {
+  public let text: String
+  public let attachments: [Attachment]
 }
 
 public struct SendResult: Codable, Sendable, Equatable {

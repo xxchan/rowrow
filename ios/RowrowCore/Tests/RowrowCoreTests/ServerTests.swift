@@ -209,6 +209,14 @@ struct AgainstARealServer {
     }
     #expect(echoed)
 
+    // While it works, a message waits for the turn to end, and can be taken back until then (D-035).
+    #expect(try await api.send(agentId: agent.id, text: "/sleep 30000").landed == .prompted)
+    let held = try await api.send(agentId: agent.id, text: "/echo later", mode: .queue)
+    #expect(held.landed == .queued)
+    #expect(try await api.withdraw(agentId: agent.id, inputId: held.inputId).text == "/echo later")
+    await #expect(throws: RowrowError.self) { try await api.withdraw(agentId: agent.id, inputId: held.inputId) }
+    #expect(try await api.abort(agentId: agent.id).accepted)
+
     // An upload comes back as a path to mention.
     let upload = try await api.upload(Data("a log line\n".utf8), filename: "log.txt", type: "text/plain")
     #expect(upload.path.hasSuffix("log.txt"))
