@@ -30,7 +30,7 @@ export type Target = (typeof TARGETS)[number];
 /** Files npm installs that nothing runs: source maps, type declarations, docs (licenses stay). */
 export function prunable(name: string): boolean {
   return (
-    /\.(js|mjs|cjs)\.map$/.test(name) ||
+    /\.(js|mjs|cjs|ts|mts|cts)\.map$/.test(name) ||
     /\.d\.(ts|mts|cts)$/.test(name) ||
     name.endsWith(".tsbuildinfo") ||
     (/\.md$/i.test(name) && !/^(licen[cs]e|notice|copying)/i.test(name))
