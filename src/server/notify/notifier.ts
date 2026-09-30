@@ -2,14 +2,15 @@
 // notifications"). An agent entering `blocked` or `done` is notified after a short delay,
 // and only if it is still in that state and nobody is looking at it (no flapping, no noise
 // about what's on your screen). Browsers show their own in-app toasts from AppState, and the
-// iOS app its own banners; this sends Web Push and APNs to devices that have no focused
-// window. When agents stop needing you (you saw them, or answered), the iOS app's badge
-// follows, and its notifications for them go away.
+// iOS app its own banners; this sends Web Push, APNs and live notices (notify.watch, the Mac
+// app) to devices that have no focused window. When agents stop needing you (you saw them, or
+// answered), the apps' badges follow, and their notifications for them go away.
 import type { AgentSummary, Attention } from "../../shared/summary.ts";
 import type { AgentService } from "../agents/service.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import type { Apns } from "./apns.ts";
+import type { LiveNotices } from "./live.ts";
 import type { Presence } from "./presence.ts";
 import type { Push } from "./push.ts";
 
@@ -27,13 +28,22 @@ export class Notifier {
   private readonly presence: Presence;
   private readonly push: Push;
   private readonly apns: Apns;
+  private readonly live: LiveNotices;
 
-  constructor(agents: AgentService, workspaces: Workspaces, presence: Presence, push: Push, apns: Apns) {
+  constructor(
+    agents: AgentService,
+    workspaces: Workspaces,
+    presence: Presence,
+    push: Push,
+    apns: Apns,
+    live: LiveNotices,
+  ) {
     this.agents = agents;
     this.workspaces = workspaces;
     this.presence = presence;
     this.push = push;
     this.apns = apns;
+    this.live = live;
     agents.onAttention((change) => {
       if (change.to === "blocked" || change.to === "done") this.schedule(change.agentId, change.to);
       else {
@@ -66,11 +76,9 @@ export class Notifier {
     this.closed = true;
   }
 
-  /** How many agents need you: the iOS app's badge. */
-  private needingYou(): number {
-    return this.agents
-      .list()
-      .filter((a) => !a.summary.archived && (a.attention === "blocked" || a.attention === "done")).length;
+  /** How many agents need you: the apps' badge. */
+  needingYou(): number {
+    return needingYou(this.agents);
   }
 
   private async fire(agentId: string, expected: Attention): Promise<void> {
@@ -92,6 +100,21 @@ export class Notifier {
     const workspace = this.workspaces.get(agent.summary.workspaceId)?.label ?? null;
     const words = wordsFor(agent.summary, expected);
     const active = (deviceId: string): boolean => this.presence.deviceActive(deviceId);
+    const badge = this.needingYou();
+    this.live.alert(
+      {
+        kind: "alert",
+        agentId,
+        attention: expected === "blocked" ? "blocked" : "done",
+        title: words.title,
+        subtitle: workspace,
+        body: words.detail,
+        url: `/a/${agentId}`,
+        seq: agent.summary.headSeq,
+        badge,
+      },
+      active,
+    );
     await Promise.all([
       this.push.send(describe(agentId, agent.summary, expected, workspace), active),
       this.apns.alert(
@@ -102,7 +125,7 @@ export class Notifier {
           generic: expected === "blocked" ? "An agent needs you." : "An agent finished.",
           thread: agentId,
           category: "AGENT",
-          badge: this.needingYou(),
+          badge,
           relevance: expected === "blocked" ? 1 : 0.6,
           // seq: what Mark as Seen marks, straight from the notification.
           data: { agentId, attention: expected, seq: agent.summary.headSeq },
@@ -113,7 +136,7 @@ export class Notifier {
   }
 
   private clearLater(agentId: string): void {
-    if (!this.apns.configured || this.closed) return;
+    if ((!this.apns.configured && !this.live.connected) || this.closed) return;
     this.seenAgents.add(agentId);
     if (this.seenTimer !== null) return;
     this.seenTimer = setTimeout(() => {
@@ -121,12 +144,22 @@ export class Notifier {
       const ids = [...this.seenAgents];
       this.seenAgents.clear();
       if (this.closed) return;
+      const badge = this.needingYou();
+      this.live.broadcast({ kind: "seen", agentIds: ids, badge });
+      if (!this.apns.configured) return;
       this.apns
-        .seen(ids, this.needingYou())
+        .seen(ids, badge)
         .catch((error: unknown) => log.warn("notify.seen_failed", { err: serializeError(error) }));
     }, SEEN_DELAY_MS);
     this.seenTimer.unref();
   }
+}
+
+/** Agents that need you (blocked, or done and not seen), archived ones aside. */
+export function needingYou(agents: AgentService): number {
+  return agents
+    .list()
+    .filter((a) => !a.summary.archived && (a.attention === "blocked" || a.attention === "done")).length;
 }
 
 /** What happened, in a title and a line: "X finished" and the tail of what it said. */

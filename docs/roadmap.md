@@ -34,6 +34,12 @@ file when something lands.
   Mark as Seen through APNs, sealed so Apple reads nothing, and the server's own folds in
   JavaScriptCore.
 
+- **rowrow for Mac** (D-030 to D-033, [desktop.md](desktop.md)): an Electron window onto each
+  server's own web app, and the manager of the servers it runs, on this Mac (launchd) or over
+  SSH (a bundle put on the host, systemd, a tunnel), through the same `rowrow service`
+  commands as the CLI. Updates itself from GitHub Releases; servers follow once no agent is
+  mid-turn. Notifications with Reply and Mark as Seen (`notify.watch`).
+
 ## Parked
 
 - **Permission prompts from the phone** (D-022): agents run with prompts off, by design.
@@ -51,6 +57,15 @@ file when something lands.
 5. **Notification preferences and per-agent mute.**
 6. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
+
+## The Mac app, next
+
+1. The first signed release: a Developer ID certificate in the repository's secrets, then
+   check an update from one release to the next on a real Mac (docs/desktop.md → Releases).
+2. SSH hosts that ask for a password or a 2FA code (an askpass through the app).
+3. Reaching this Mac's server from the phone in a click: `tailscale serve` and the public
+   URL, set up from the app.
+4. A notification for what finished while the app was closed (today: the badge counts it).
 
 ## The iOS app, next
 

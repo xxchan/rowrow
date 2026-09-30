@@ -8,14 +8,15 @@ are in [decisions.md](decisions.md).
 
 rowrow runs many coding agents (Claude Code, Codex, Grok, Kimi, Pi) in parallel on your
 machine and lets you steer them from any browser, including your phone, or from the iOS
-app (docs/ios.md). It borrows
+app (docs/ios.md) and the Mac app (docs/desktop.md). It borrows
 [herdr](https://herdr.dev)'s model of a long-lived server that owns the agents,
 workspaces, and attention-first status. It drops the terminal: agents are driven through
 their programmatic interfaces via [oar](https://github.com/botiverse/oar), so status is
 exact, transcripts are structured, and the whole thing works over a phone's network.
 
 ```
- browsers (desktop, phone PWA)     iOS app                 rowrow CLI, agents, scripts
+ browsers (desktop, phone PWA),    iOS app                 rowrow CLI, agents, scripts
+ the Mac app's windows               │                        │
         │  WebSocket (oRPC)          │  HTTP + SSE (OpenAPI)    │  HTTP (oRPC / OpenAPI)
         └────────────────────────────┼──────────────────────────┘
                                      ▼
@@ -31,6 +32,12 @@ exact, transcripts are structured, and the whole thing works over a phone's netw
                                 ▼
                   oar → claude · codex · grok · kimi · pi (child processes)
 ```
+
+The Mac app is a client like the others (each window shows a server's own web app, and it
+holds `notify.watch` for notifications), and also the manager of the servers it runs: it
+installs a server bundle on this Mac or an SSH host (`ROWROW_HOME/versions/<version>`) and
+drives that bundle's own `rowrow service` commands, so launchd or systemd supervises the
+server as for a CLI install (D-030 to D-033, docs/desktop.md).
 
 There are two tiers: the server and its clients. Remote control means reaching the
 server over a network you trust (a LAN, Tailscale, a tunnel), with device credentials on
@@ -147,8 +154,9 @@ Status vocabulary, in priority order (a workspace shows its highest):
 - **Notifications** fire on entering `blocked` and on a completion, after a short delay
   and a re-check (no flapping), and only if no focused client is looking at that agent.
   Channels: in-app toasts (the iOS app: its own banners), then Web Push and APNs to devices
-  that subscribed and have no focused window. APNs pushes carry Reply and Mark as Seen
-  actions and the badge; seeing an agent anywhere clears its notifications on every phone.
+  that subscribed and have no focused window, and `notify.watch` streams (the Mac app) the
+  same way. APNs pushes and the Mac app's notifications carry Reply and Mark as Seen and the
+  badge; seeing an agent anywhere clears its notifications on every phone and Mac.
 
 ## Replicating state to clients
 
@@ -261,6 +269,8 @@ message says what to do next.
 | End to end | the built web app in Chromium against a real server with the scripted runtime; screenshots in `test-results/` | `pnpm test:e2e` |
 | Package | the npm tarball's contents, then the tarball installed with npm in a throwaway prefix and run: serve, status, the web app, a scripted agent | `pnpm test:package` |
 | iOS core | the Swift package: JSON patches, sealed pushes, and a real server from the checkout driven through the Swift client (pairing, state, the kit, transcripts, diffs, uploads) | `pnpm ios:test` |
+| Mac app | its pure logic (planning a host, SSH scripts run by a real `sh`, the server list) and its connection against a real server, in `pnpm test`; the app itself in Electron, driven by Playwright (set up this Mac, sign in by link, notifications) | `pnpm test` and `pnpm test:desktop` |
+| Server bundle | a bundle in a throwaway `ROWROW_HOME/versions`, run by its own `bin/rowrow` with no Node on the PATH | `pnpm test:package --bundle <dir>` |
 
 ## Repository layout
 
@@ -272,6 +282,9 @@ message says what to do next.
 | `src/web/` | The web app (React, Tailwind, shadcn/ui). Talks to the server only through the contract. |
 | `src/kit/` | The kit: `src/shared`'s folds as one script for JavaScriptCore (D-027). |
 | `ios/` | The iOS app (SwiftUI), its notification extension, and `RowrowCore` (docs/ios.md). |
+| `src/desktop/` | The Mac app (Electron): its main process, its preload, and its own pages in `ui/` (docs/desktop.md). |
+| `desktop/` | What the Mac app's build needs: icons, entitlements, and the signing and packing scripts. |
 | `test/` | Integration and end-to-end tests, fixtures, the scripted runtime. |
-| `scripts/` | Development tools: dev runner, screenshots, the npm package's build (`build-node.ts`) and its test (`test-package.ts`). |
+| `scripts/` | Development tools: dev runner, screenshots, the npm package's build (`build-node.ts`) and its test (`test-package.ts`), server bundles (`build-bundle.ts`), the Mac app's build and packaging. |
 | `lib/`, `dist/web/`, `dist/kit/` | Build output, not in git: the server and CLI as JavaScript, the web app, and the kit; the npm package ships them (D-018). |
+| `dist/bundles/`, `dist/desktop/`, `dist/desktop-release/` | Build output, not in git: server bundles, the Mac app's code, and rowrow.app. |

@@ -6,7 +6,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { UpdateInfo } from "../shared/schemas.ts";
+import { compareVersions, isVersion, isPrerelease } from "../shared/versions.ts";
+import { rowrowHome } from "./config.ts";
+import { installKind, type InstallKind } from "./install.ts";
 import { log, serializeError } from "./telemetry/log.ts";
+
+export { compareVersions };
 
 const PACKAGE = "rowrow";
 const DEFAULT_REGISTRY = "https://registry.npmjs.org";
@@ -27,45 +32,13 @@ export function npmRegistry(env: NodeJS.ProcessEnv = process.env, home = os.home
   return DEFAULT_REGISTRY;
 }
 
-type Version = { readonly core: readonly number[]; readonly pre: readonly (number | string)[] };
-
-function parse(version: string): Version | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(version.trim());
-  if (match === null) return null;
-  return {
-    core: [Number(match[1]), Number(match[2]), Number(match[3])],
-    pre: match[4] === undefined ? [] : match[4].split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : p)),
-  };
-}
-
-/** Semver precedence: negative when a < b. Versions that don't parse compare equal. */
-export function compareVersions(a: string, b: string): number {
-  const x = parse(a);
-  const y = parse(b);
-  if (x === null || y === null) return 0;
-  for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return (x.core[i] ?? 0) - (y.core[i] ?? 0);
-  if (x.pre.length === 0 || y.pre.length === 0) return y.pre.length - x.pre.length;
-  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
-    const p = x.pre[i];
-    const q = y.pre[i];
-    if (p === undefined) return -1;
-    if (q === undefined) return 1;
-    if (p === q) continue;
-    if (typeof p === "number" && typeof q === "number") return p - q;
-    if (typeof p === "number") return -1;
-    if (typeof q === "number") return 1;
-    return p < q ? -1 : 1;
-  }
-  return 0;
-}
-
 /**
  * The newest version worth offering: `latest`, or, when you run a prerelease, `next` too if
  * it is newer. null when you have it already.
  */
 export function newerVersion(current: string, distTags: Readonly<Record<string, string>>): string | null {
-  const candidates = [distTags["latest"], parse(current)?.pre.length ? distTags["next"] : undefined].filter(
-    (v): v is string => v !== undefined && parse(v) !== null,
+  const candidates = [distTags["latest"], isPrerelease(current) ? distTags["next"] : undefined].filter(
+    (v): v is string => v !== undefined && isVersion(v),
   );
   const best = candidates.sort(compareVersions).at(-1);
   return best !== undefined && compareVersions(best, current) > 0 ? best : null;
@@ -73,7 +46,7 @@ export function newerVersion(current: string, distTags: Readonly<Record<string, 
 
 export interface Install {
   /** How this copy was installed, which decides the command that updates it. */
-  readonly kind: "npm" | "pnpm" | "npx";
+  readonly kind: Exclude<InstallKind, "checkout">;
   /** Started by launchd or systemd through `rowrow service`. */
   readonly service: boolean;
   readonly profile: string;
@@ -85,8 +58,8 @@ export function detectInstall(
   profile: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Install {
-  const root = packageRoot.split(path.sep).join("/");
-  const kind = root.includes("/_npx/") ? "npx" : root.includes("/pnpm/") ? "pnpm" : "npm";
+  const found = installKind(packageRoot, rowrowHome(env));
+  const kind = found === "checkout" ? "npm" : found;
   const service = env["ROWROW_SERVICE"] === "1" || env["XPC_SERVICE_NAME"] === `dev.rowrow.${profile}`;
   return { kind, service, profile };
 }
@@ -94,6 +67,10 @@ export function detectInstall(
 /** What to run to get `version`, and what to do after. */
 export function updateCommand(install: Install, version: string): { command: string; after: string | null } {
   const flag = install.profile === "default" ? "" : ` --profile ${install.profile}`;
+  if (install.kind === "bundle") {
+    // The Mac app upgrades its bundles itself; this is only said when someone asks npm anyway.
+    return { command: `npm install -g rowrow@${version} && rowrow service install${flag}`, after: null };
+  }
   if (install.kind === "npx") {
     return {
       command: `npx rowrow@${version} serve${flag}`,

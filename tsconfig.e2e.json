@@ -5,5 +5,5 @@
     "lib": ["es2024", "dom", "dom.iterable"],
     "types": ["node"]
   },
-  "include": ["test/e2e", "playwright.config.ts"]
+  "include": ["test/e2e", "test/e2e-desktop", "playwright.config.ts", "playwright.desktop.config.ts"]
 }

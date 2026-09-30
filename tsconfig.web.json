@@ -10,5 +10,5 @@
       "@/*": ["./src/web/*"]
     }
   },
-  "include": ["src/web", "src/shared"]
+  "include": ["src/web", "src/shared", "src/desktop/ui", "src/desktop/api.ts"]
 }

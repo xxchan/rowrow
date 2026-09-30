@@ -183,6 +183,9 @@ separate process to own the agents' pipes; not worth it yet.
 **Revisit when** restarts interrupting turns becomes a real complaint (for example
 during upgrades); then split out a small, rarely restarted run host.
 
+> Since D-032, a server the Mac app upgrades waits until no agent is mid-turn
+> (`rowrow service install --if-idle`).
+
 ## D-011 Agents run without approval prompts for now (2026-09-29)
 
 **Context.** oar starts runtimes with approval prompts disabled ("YOLO"): an embedded
@@ -300,6 +303,9 @@ versions, install again. On Linux a user service stops at logout unless lingerin
 
 **Revisit when** rowrow ships as an installable package (then the service runs its binary,
 not a checkout), or when it gets a desktop app that owns the server.
+
+> Revisited in D-032: the Mac app installs the same service through this command, from a server
+> bundle in ROWROW_HOME/versions; the OS still supervises it.
 
 ## D-017 Web UI: Tailwind and components we own (shadcn/ui on Radix), not a design system (2026-09-29)
 
@@ -569,6 +575,8 @@ change is recognized on macOS (launchd's `XPC_SERVICE_NAME`), but under systemd 
 **Revisit when** rowrow can update itself, or people ask for no outbound request at all by
 default.
 
+> Since D-032, a server bundle (the Mac app's) doesn't ask npm: the app updates it.
+
 ## D-026 A native iOS app, over the contract's HTTP routes, paired like any device (2026-09-29)
 
 **Context.** The phone gets a PWA today: the desktop's screens at 375 px, notifications only
@@ -701,3 +709,145 @@ upload job holds the secrets, so it installs nothing from npm.
 
 **Revisit when** Xcode can sign archives without a local certificate, or the app goes to
 the App Store (then its versions, screenshots and review notes join the release).
+
+## D-030 A Mac app: Electron, a window onto each server's own web app (2026-09-30)
+
+**Context.** On a desk, rowrow is a browser tab: no Dock icon, notifications only through Web
+Push (which needs HTTPS and a subscription per browser), nothing in the menu bar, and nothing
+that sets up or looks after the server itself. People who run agents on their Mac also want
+it to run the server for them; people whose agents run on a dev box want the Mac to be a good
+client of it. A desktop app can show a UI shipped inside it (VS Code's workbench) or the UI
+each server serves (a browser's way).
+
+**Decision.** An Electron app for macOS (`src/desktop`, docs/desktop.md). Each server gets a
+window of its own that loads that server's web app from the server, in its own session, with
+the app's device credential there as the web app's session cookie. The app's own pages
+(welcome, servers, adding one, offline) are local (`rowrow-app://ui`, React with src/web's
+components) and are the only pages given the app's API. The app pairs with a server like the
+iOS app (a one-time code for a bearer token, device kind `app`). Notifications come from a new
+`notify.watch` stream: the Notifier decides what and when, as for Web Push and APNs, and the app
+shows each alert as a macOS notification with Reply and Mark as Seen, and closes it when the
+agent is seen anywhere. The main process and the preload are bundled (Vite, like the kit), so
+the app carries no node_modules.
+
+**Why.** A UI served by the server always matches it, whatever version the app is: the same
+reason the iOS app runs the server's own fold (D-027). The phone and the Mac then show the same
+thing, and every screen stays one codebase (PRINCIPLES.md, product 6). Electron renders it with
+Chromium, exactly as tested in Chrome; its Node drives the CLI and ssh; electron-updater updates
+from GitHub Releases. A native app would mean porting every screen; Tauri would render in
+WebKit with no Node for the host management. A stream fits an app that stays connected: no
+push service, no key, nothing leaves the network path the app already uses.
+
+**Cost.** About 200 MB to download; Chromium's memory per open window.
+
+**Revisit when** the web app needs something only a native window can do, or the size becomes
+the complaint.
+
+## D-031 The Mac app updates itself from GitHub Releases; signed in a job that installs nothing (2026-09-30)
+
+**Context.** An app people install once has to update itself. On macOS that means Squirrel.Mac
+(what electron-updater drives), which installs only after the app quits and only an update
+signed like the running app. Menu-bar apps are known to never get their updates: a window that
+hides instead of closing, a page's `beforeunload`, a helper still running from the bundle, or
+an app run from a disk image each keep Squirrel from finishing.
+
+**Decision.** electron-updater with the GitHub provider (`xxchan/rowrow`): the latest release's
+`latest-mac.yml`, the zip and its blockmap (after the first update, only changed blocks are
+downloaded). Apple silicon only. The app checks 15 s after it starts, every 4 hours and after
+the Mac wakes, downloads in the background, and installs on Restart to Update, whenever it quits,
+or by itself when no window is visible and the Mac has been idle for 10 minutes (coming back
+hidden). The lifecycle rules (src/desktop/updater.ts): windows really close; quitting is a flag
+set on `before-quit` and on Squirrel's `before-quit-for-update`, and pages can't cancel it
+(`will-prevent-unload`); nothing the app starts runs from its bundle once it quits (D-032); an
+update waits for a host operation in progress; the app offers to move itself to /Applications.
+
+A tag's release workflow builds the app unsigned in one job, signs (`desktop/sign.sh`, Apple's
+tools only) with Botiverse, Inc.'s Developer ID (the certificate Botiverse's other macOS apps
+use, under the same secret names), notarizes and staples in a job holding it and the App Store
+Connect key that installs nothing from npm, makes the blockmaps and `latest-mac.yml` from
+the signed files in a third, and attaches everything to the one GitHub release that `publish`
+creates, so no release is ever visible without its `latest-mac.yml`. Electron's fuses are set
+so the signed app can't run other code (no `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS` or
+`--inspect`; the app only from its checked asar).
+
+**Why.** GitHub Releases is where rowrow's releases already are, so this adds no service
+(PRINCIPLES.md, product 7). The job split keeps D-018's and D-029's rule: the job that runs our
+dependencies' code holds no credentials. Apple silicon only: macOS 26 is the last release for
+Intel Macs, and one architecture halves the build and the download.
+
+**Limits.** Without a Developer ID (secret `MACOS_CERT_P12_BASE64`) the app is built but not released:
+an unsigned app can't update itself. The bundle id and the signing team can never change
+without stranding installed apps. The first update after an install downloads the whole zip.
+
+**Revisit when** a release should wait for a person (staged publishing), or Intel Macs matter.
+
+## D-032 Server bundles in ROWROW_HOME/versions; the app runs a host's server through its CLI (2026-09-30)
+
+**Context.** The Mac app must run a server on this Mac and on SSH hosts, keep it running (D-016:
+the OS supervises) and keep it up to date, without stopping agents mid-turn (D-010) and without
+fighting the CLI, which installs the same service with `rowrow service install`. A server run
+from inside the app bundle would be replaced under its feet by the app's own update: it would
+serve the new version's files from a running old process, and Squirrel could not tell.
+
+**Decision.**
+
+- **A server bundle** (`pnpm build:bundle`): the npm package's files, its production
+  dependencies installed for one platform, Node (the `devEngines` version, checksummed), and
+  `bin/rowrow`. Built for darwin-arm64, linux-x64 and linux-arm64, attached to each release
+  with `SHA256SUMS`. The app ships the darwin one.
+- **Installed side by side** in `ROWROW_HOME/versions/<version>` (an APFS clone on this Mac, an
+  upload over SSH, D-033). A service runs a bundle by its versioned path, never the app's copy
+  and never a "current" link, so a running server only ever reads its own files.
+  `ROWROW_HOME/bin/rowrow` links to the CLI of the bundle the default profile's service runs.
+  `bin` and `versions` stop being possible profile names.
+- **One service per profile, whoever installs it.** The app writes no plists or units: on each
+  host it runs the CLI of its own bundle there, the commands a person would type, with `--json`
+  (`src/shared/host.ts` is that output's schema). `service status` says whose rowrow the
+  service runs (bundle, npm, pnpm, checkout); the app keeps a bundle service at its own version,
+  connects to anyone else's and says it's yours (Let this app run it hands it over, keeping its
+  flags), and leaves a server in a terminal alone.
+- **Upgrades wait for idle.** `service install --if-idle` refuses (exit code 75) while an agent
+  is mid-turn; the app retries when agents finish, or on Restart now. An install that would
+  change nothing is a no-op. A newer server than the app's is never replaced. The previous
+  bundle is kept to go back to.
+- **Agents' `rowrow`** is their server's own CLI (`<profile>/bin/rowrow`, first on their PATH),
+  whatever else is installed. A bundle doesn't ask npm for updates (D-025); the app updates it.
+
+**Why.** Supervising stays the OS's job (D-016), and the CLI stays the one implementation of it,
+so the app and a person at a terminal can't disagree about labels, paths or flags, on this Mac
+or over SSH. Versioned directories are what VS Code does on remotes (`~/.vscode-server/bin`),
+and what makes the app's update and the server's upgrade two separate moments: the app can
+update at once; the server waits for the agents.
+
+**Cost.** Each bundle is about 270 MB on disk (Node and the dependencies; a clone on APFS costs
+nothing until it differs). Two versions are kept.
+
+**Revisit when** servers should survive restarts (D-010's run host), or bundles should be
+delta-updated.
+
+## D-033 Hosts over SSH: put the server there, run it as a service, tunnel to it (2026-09-30)
+
+**Context.** Many people run agents on a dev box, not their Mac. VS Code's Remote-SSH shows the
+way: install a server on the host over SSH, then talk to it through a forwarded port.
+rowrow's server must also outlive the connection, because agents do.
+
+**Decision.** Add an SSH host with a name from `~/.ssh/config` or `user@host`. The app uses the
+system's `ssh` (your config, keys, agent, ProxyJump) with `BatchMode` (it never prompts), sends
+scripts to the host's `sh -s` on stdin (your login shell parses nothing), uploads the bundle
+for the host's platform over SSH (downloaded by this Mac from the release and checked against
+its `SHA256SUMS`, so the host needs neither internet access nor Node), and runs
+`rowrow service install` there (systemd `--user`, or launchd on a Mac). A host with no user
+service manager gets the server in the background (`nohup`), and the app says it won't survive
+a reboot. It forwards the same local port each time (`ssh -N -L`, its own connection, not a
+shared ControlMaster), signs itself in with `rowrow pair` on the host, and reconnects with
+backoff and when the Mac wakes.
+
+**Why.** It needs nothing but SSH access you already have, sends nothing through anyone else
+(PRINCIPLES.md, product 7), and the server keeps running for your phone and your other devices
+whether or not this Mac is connected.
+
+**Limits.** Key authentication only (no password or 2FA prompts); glibc Linux (x64, arm64) and
+Apple silicon Macs; the forwarded port reaches the server only from this Mac.
+
+**Revisit when** people need password or 2FA prompts (an askpass through the app), or hosts
+without SSH.

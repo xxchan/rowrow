@@ -20,12 +20,30 @@ export interface ProfilePaths {
   readonly vapidFile: string;
   /** The APNs key for pushing to the iOS app, when you gave one (mode 0600, D-028). */
   readonly apnsFile: string;
+  /** A `rowrow` launcher for this profile's server's own CLI, first on its agents' PATH. */
+  readonly bin: string;
 }
 
+/**
+ * Server bundles installed side by side, one directory per version (D-032): the Mac app and
+ * its SSH hosts run a service from one of them, never from the app itself.
+ */
+export function versionsDir(home: string): string {
+  return path.join(home, "versions");
+}
+
+/** `rowrow` for your PATH: a link to the CLI of the bundle the default profile's service runs. */
+export function binDir(home: string): string {
+  return path.join(home, "bin");
+}
+
+/** Names in ROWROW_HOME that aren't profiles. */
+const RESERVED = new Set(["bin", "versions"]);
+
 export function profilePaths(home: string, profile: string): ProfilePaths {
-  if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(profile)) {
+  if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(profile) || RESERVED.has(profile)) {
     throw new Error(
-      `invalid profile name ${JSON.stringify(profile)}: use lowercase letters, digits and dashes`,
+      `invalid profile name ${JSON.stringify(profile)}: use lowercase letters, digits and dashes${RESERVED.has(profile) ? ` (${[...RESERVED].join(" and ")} are taken)` : ""}`,
     );
   }
   const dir = path.join(home, profile);
@@ -39,6 +57,7 @@ export function profilePaths(home: string, profile: string): ProfilePaths {
     serverFile: path.join(dir, "server.json"),
     vapidFile: path.join(dir, "vapid.json"),
     apnsFile: path.join(dir, "apns.json"),
+    bin: path.join(dir, "bin"),
   };
 }
 

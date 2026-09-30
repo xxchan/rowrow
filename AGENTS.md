@@ -17,12 +17,20 @@ pnpm test:package   # packs the npm package, installs it with npm in a temp pref
 pnpm rowrow …       # the CLI (node src/cli/main.ts …)
 pnpm shot <route>   # a screenshot of the real UI, signed in: --mobile, --dark, --profile dev (default)
 pnpm ios:test       # the iOS app's core (swift test), against a real server from this checkout
+pnpm desktop        # the Mac app from this checkout: throwaway home, its server as a child process
+pnpm test:desktop   # builds the Mac app's code, then drives it with Playwright (test/e2e-desktop)
+pnpm package:desktop  # rowrow.app with this Mac's server bundle, signed ad hoc (--pack: zip, dmg, latest-mac.yml)
+pnpm build:bundle   # a server bundle (Node + the package + its dependencies) for --target darwin-arm64,linux-x64,linux-arm64
 ```
 
 The iOS app (`ios/`, [docs/ios.md](docs/ios.md)) builds with Xcode:
 `xcodebuild -project ios/Rowrow.xcodeproj -scheme Rowrow -destination 'platform=iOS Simulator,name=iPhone 17' build`.
 To try it in the simulator against `pnpm dev`, open the sign-in link as
 `xcrun simctl openurl booted "rowrow://pair?link=<the link, URL-encoded>"`.
+
+The Mac app (`src/desktop`, [docs/desktop.md](docs/desktop.md)) is Electron: `pnpm desktop` runs
+it without touching your launchd or `~/.rowrow`. Its log is `~/Library/Logs/rowrow/desktop.jsonl`
+(`.dev/desktop/app/logs/` for `pnpm desktop`).
 
 ## Verify your change like a user would
 
@@ -89,6 +97,12 @@ Don't change the user's data or agents while debugging unless they asked.
 - **The kit** (`src/kit`, D-027) is what the iOS app runs: `src/shared`'s folds and nothing
   else, no DOM, timers or console. A change to transcript items (`src/shared/transcript-model.ts`)
   bumps `TRANSCRIPT_MODEL_VERSION` and updates `ios/RowrowCore/Sources/RowrowCore/Transcript.swift`.
+- **The Mac app** shows each server's own web app and manages hosts only through their
+  `rowrow` CLI with `--json` (`src/shared/host.ts` is that output's schema, D-032): a new host
+  capability is a CLI command first. Its main process never imports `src/server` or `src/cli`;
+  pure logic lives in modules without `electron` imports so vitest covers it (`plan.ts`,
+  `ssh.ts`, `servers.ts`). Nothing it starts may run from inside the app bundle after it quits
+  (an update would replace it underneath: updater.ts says what else keeps updates installing).
 - **The iOS app** uses the contract's HTTP routes like the CLI (D-026): a new capability is a
   procedure first, then a typed call in `RowrowCore/Procedures.swift`. SwiftUI with system
   components, Swift 6 concurrency, no third-party packages; everything but views lives in
@@ -119,3 +133,6 @@ CI publishes to npm (D-018); nobody runs `npm publish` by hand.
    (`0.3.0-rc.1`) goes to npm's `next` tag.
 4. The same tag sends the iOS app to TestFlight (`.github/workflows/ios.yml`, D-029) once
    the repository has an Apple team configured ([docs/ios.md](docs/ios.md) → TestFlight).
+5. The same release carries the server bundles for SSH hosts and, once the repository has a
+   Developer ID certificate (`MACOS_CERT_P12_BASE64`: Botiverse's), rowrow for Mac, signed, notarized, with the
+   `latest-mac.yml` its updater reads ([docs/desktop.md](docs/desktop.md) → Releases, D-031).

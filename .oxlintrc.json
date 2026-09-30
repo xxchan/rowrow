@@ -136,6 +136,56 @@
       }
     },
     {
+      "files": ["src/desktop/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/server/**", "**/cli/**"],
+                "message": "the Mac app drives hosts through their rowrow CLI (--json, src/shared/host.ts) and servers through the contract, never their code"
+              },
+              {
+                "group": ["./ui/**"],
+                "message": "the app's pages run in a window: talk to them through the preload's API (api.ts)"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/desktop/ui/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "the app's pages use window.rowrow (the preload), not Electron"
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["node:*"],
+                "message": "the app's pages run in a sandboxed window: no Node built-ins"
+              },
+              {
+                "group": ["**/server/**", "**/cli/**"],
+                "message": "the app's pages talk to the main process only through window.rowrow"
+              },
+              {
+                "group": ["../*.ts", "!../api.ts"],
+                "message": "the app's pages see the main process only through window.rowrow (types from ../api.ts)"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["src/cli/**", "scripts/**", "test/**"],
       "rules": {
         "no-console": "off",

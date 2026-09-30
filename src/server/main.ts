@@ -13,8 +13,10 @@ import { startHttp } from "./api/server.ts";
 import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
+import { prependPath, writeCliLauncher } from "./cli-launcher.ts";
 import { Apns } from "./notify/apns.ts";
-import { Notifier } from "./notify/notifier.ts";
+import { LiveNotices } from "./notify/live.ts";
+import { needingYou, Notifier } from "./notify/notifier.ts";
 import { Presence } from "./notify/presence.ts";
 import { Push } from "./notify/push.ts";
 import { augmentPathFromLoginShell } from "./shell-env.ts";
@@ -89,6 +91,7 @@ export async function startServer(
   const builtins = devices.rotateBuiltins();
   const push = new Push(db, paths.vapidFile);
   const apns = new Apns(db, paths.apnsFile, options.apnsOrigin);
+  const live = new LiveNotices();
   const presence = new Presence();
   let url = "";
   let publicUrl = "";
@@ -119,17 +122,19 @@ export async function startServer(
   });
   const settings = new SettingsService(db, state);
   settings.load();
-  // A checkout (tests, pnpm dev) runs .ts and updates through git: it asks only when told where.
+  // A checkout (tests, pnpm dev) runs .ts and updates through git, and a bundle is upgraded by
+  // the Mac app that put it there (D-032): they ask only when told where.
+  const install = detectInstall(root, options.profile);
   const updateRegistry =
     options.updateRegistry === undefined
-      ? import.meta.filename.endsWith(".ts")
+      ? import.meta.filename.endsWith(".ts") || install.kind === "bundle"
         ? null
         : npmRegistry()
       : options.updateRegistry;
   if (updateRegistry !== null) {
     const checker = new UpdateChecker({
       current: version,
-      install: detectInstall(root, options.profile),
+      install,
       registry: updateRegistry,
       enabled: () => settings.get().checkForUpdates,
       changed: (update) =>
@@ -153,6 +158,12 @@ export async function startServer(
   const workspaces = new Workspaces(db, state);
   workspaces.load();
   const agentLog = new AgentLog(db);
+  // The agents' `rowrow` is this server's own CLI, whatever else is on the PATH.
+  const agentBin = writeCliLauncher(
+    paths.bin,
+    process.execPath,
+    path.join(root, import.meta.filename.endsWith(".ts") ? "src/cli/main.ts" : "lib/cli/main.js"),
+  );
   const snapshots = new SnapshotStore(paths.snapshots);
   // Created after the agents, which it needs; the agents reach it only once turns start.
   let git: ReturnType<typeof createGitOps> | null = null;
@@ -164,6 +175,8 @@ export async function startServer(
     workspaces,
     idleTimeoutMs: options.idleTimeoutMs,
     env: (agentId) => ({
+      // Read at each run's start: the login shell's PATH may have been added since boot.
+      PATH: prependPath(agentBin, process.env["PATH"]),
       ROWROW: "1",
       ROWROW_URL: localUrl(),
       ROWROW_TOKEN: builtins.agentToken,
@@ -192,7 +205,7 @@ export async function startServer(
   housekeeping();
   const pruneTimer = setInterval(housekeeping, 6 * 3600_000);
   pruneTimer.unref();
-  const notifier = new Notifier(agents, workspaces, presence, push, apns);
+  const notifier = new Notifier(agents, workspaces, presence, push, apns, live);
   apns.onChange = () =>
     state.update("host", (draft) => {
       draft.host = host();
@@ -209,6 +222,8 @@ export async function startServer(
     devices,
     push,
     apns,
+    live,
+    badge: () => needingYou(agents),
     presence,
     git,
     uploadsDir: paths.uploads,

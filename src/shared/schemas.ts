@@ -203,7 +203,7 @@ export type StateMessage =
 export const Device = z.object({
   id: z.string(),
   name: z.string(),
-  kind: z.enum(["browser", "app", "cli"]).describe("app: the iOS app."),
+  kind: z.enum(["browser", "app", "cli"]).describe("app: the iOS app, or the app for Mac."),
   createdAt: z.number(),
   lastSeenAt: z.number().nullable(),
   current: z.boolean().describe("The device making this request."),
@@ -216,6 +216,33 @@ export const LoginLink = z.object({
   expiresAt: z.number(),
 });
 export type LoginLink = z.infer<typeof LoginLink>;
+
+/** What notify.watch streams to an app that stays connected (the Mac app, D-030). */
+export const Notice = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("alert"),
+    agentId: z.string(),
+    attention: z.enum(["blocked", "done"]),
+    title: z.string().describe('"<agent> finished", "<agent> needs you", "<agent> failed".'),
+    subtitle: z.string().nullable().describe("The workspace's label."),
+    body: z.string().describe("The tail of what the agent said, or why it failed."),
+    url: z.string().describe("The agent's page: /a/<id>."),
+    seq: z.number().describe("The agent's log position; agents.markSeen with it marks this seen."),
+    badge: z.number().describe("How many agents need you now."),
+  }),
+  z.object({
+    kind: z.literal("seen"),
+    agentIds: z.array(z.string()).describe("Agents that stopped needing you: clear their notifications."),
+    badge: z.number(),
+  }),
+  z.object({
+    kind: z.literal("badge"),
+    badge: z
+      .number()
+      .describe("How many agents need you: first on every stream, then when it changes without an alert."),
+  }),
+]);
+export type Notice = z.infer<typeof Notice>;
 
 // ─── Git ─────────────────────────────────────────────────────────────────────
 

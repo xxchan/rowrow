@@ -17,6 +17,7 @@ import type {
   FileText,
   HostInfo,
   LogEntry,
+  Notice,
   PullRequestStatus,
   SearchKind,
   SearchResult,
@@ -32,6 +33,7 @@ import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
 import type { Apns } from "../notify/apns.ts";
+import type { LiveNotices } from "../notify/live.ts";
 import type { Presence } from "../notify/presence.ts";
 import type { Push } from "../notify/push.ts";
 import type { SettingsService } from "../settings.ts";
@@ -95,6 +97,10 @@ export interface Services {
   readonly devices: Devices;
   readonly push: Push;
   readonly apns: Apns;
+  /** notify.watch streams (the Mac app). */
+  readonly live: LiveNotices;
+  /** How many agents need you. */
+  badge(): number;
   readonly presence: Presence;
   readonly git: GitOps;
   readonly settings: SettingsService;
@@ -115,7 +121,7 @@ function httpConnection(deviceId: string, name: string): string {
 
 export function createRouter(s: Services) {
   const pushDevices = (): Set<string> =>
-    new Set([...s.push.subscribedDevices(), ...s.apns.registeredDevices()]);
+    new Set([...s.push.subscribedDevices(), ...s.apns.registeredDevices(), ...s.live.devices()]);
   const os = implement(contract)
     .$context<ApiContext>()
     .use(async ({ context, next, path }) => {
@@ -429,7 +435,30 @@ export function createRouter(s: Services) {
         s.apns.unregister(context.device.id);
         return { ok: true as const };
       }),
+      watch: os.notify.watch.handler(({ context, signal }) => {
+        let unsubscribe = (): void => undefined;
+        const ch = channel<Notice>(() => unsubscribe(), signal);
+        ch.push({ kind: "badge", badge: s.badge() });
+        unsubscribe = s.live.watch(context.device.id, (notice) => ch.push(notice));
+        return ch.iterator;
+      }),
       test: os.notify.test.handler(async ({ context }) => {
+        // An alert about no agent: agentId "" (the Mac app opens the url and marks nothing seen).
+        const live = s.live.alert(
+          {
+            kind: "alert",
+            agentId: "",
+            attention: "done",
+            title: "rowrow",
+            subtitle: null,
+            body: "Notifications work on this device.",
+            url: "/",
+            seq: -1,
+            badge: s.badge(),
+          },
+          () => false,
+          context.device.id,
+        );
         const [web, app] = await Promise.all([
           s.push.send(
             { title: "rowrow", body: "Notifications work on this device.", url: "/", tag: "test" },
@@ -447,7 +476,7 @@ export function createRouter(s: Services) {
             context.device.id,
           ),
         ]);
-        return { sent: web + app };
+        return { sent: web + app + live };
       }),
       configureApns: os.notify.configureApns.handler(({ input }) => {
         s.apns.configure(input);
