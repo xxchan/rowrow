@@ -3,7 +3,7 @@
 // against your seen marker, and publishes both to AppState: at once when something you
 // would notice changed (status, attention, a request, a run), otherwise at most once a
 // second (the preview and activity time while text streams).
-import type { Actor, Entry, RunEndReason } from "../../shared/entries.ts";
+import type { Actor, Attachment, Entry, RunEndReason } from "../../shared/entries.ts";
 import { newId } from "../../shared/ids.ts";
 import type { AgentState, SendResult } from "../../shared/schemas.ts";
 import {
@@ -19,7 +19,7 @@ import type { Db } from "../store/db.ts";
 import { notFound, UserError } from "../errors.ts";
 import { log, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
-import { AgentActor, type SendInput } from "./actor.ts";
+import { AgentActor, waiting, type SendInput } from "./actor.ts";
 import type { AgentLog } from "./log.ts";
 import type { Runtimes } from "./runtimes.ts";
 
@@ -76,6 +76,11 @@ export class AgentService {
     for (const row of rows) {
       const summary = summaryOf(this.deps.log.iterate(row.id));
       this.register(row.id, summary, row.seen_seq);
+      // Inputs held when the last server went away wait for you, not for a turn nobody asked for.
+      if (waiting(summary))
+        withContext({ agent: row.id }, () =>
+          this.deps.log.append(row.id, { kind: "queue.paused", reason: "restarted" }),
+        );
       if (summary.run !== null) {
         withContext({ agent: row.id }, () => {
           log.warn("agent.run.crashed", { run: summary.run?.runId });
@@ -196,6 +201,31 @@ export class AgentService {
       });
     }
     return agent.actor.send(input);
+  }
+
+  /** Take a held input back (D-035). */
+  withdraw(
+    agentId: string,
+    inputId: string,
+    by: Actor,
+  ): Promise<{ text: string; attachments: readonly Attachment[] }> {
+    return this.require(agentId).actor.withdraw(inputId, by);
+  }
+
+  /** Send a held input now: steered into the running turn, or as the next turn. */
+  sendNow(agentId: string, inputId: string): Promise<SendResult> {
+    const agent = this.require(agentId);
+    if (agent.summary.archived)
+      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    return agent.actor.sendNow(inputId);
+  }
+
+  /** Send held inputs again after a pause. */
+  resume(agentId: string, by: Actor): Promise<void> {
+    const agent = this.require(agentId);
+    if (agent.summary.archived)
+      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    return agent.actor.resume(by);
   }
 
   abort(agentId: string): Promise<{ accepted: boolean; reason?: string }> {
@@ -384,7 +414,11 @@ function noticeable(a: AgentSummary, b: AgentSummary): boolean {
     a.model !== b.model ||
     a.effort !== b.effort ||
     a.archived !== b.archived ||
-    a.inputs !== b.inputs
+    a.inputs !== b.inputs ||
+    a.queued !== b.queued ||
+    a.queuePaused !== b.queuePaused ||
+    a.steering !== b.steering ||
+    a.unread !== b.unread
   );
 }
 

@@ -38,9 +38,11 @@ const GROUPS: readonly {
   {
     heading: "Composer",
     items: [
-      [["↵"], "Send"],
+      [["↵"], "Send; while it works, queue for after this turn"],
+      [["⌘", "↵"], "Steer into the running turn"],
+      [["⌘", "⇧", "↵"], "Stop the turn and send"],
       [["⇧", "↵"], "New line"],
-      [["↑"], "Your last message, into an empty composer"],
+      [["↑"], "Take back your last queued message, or your last message (empty composer)"],
       [["Esc"], "Stop the turn (empty composer)"],
       [["/"], "The agent's commands and skills"],
     ],

@@ -3,7 +3,7 @@
 // per agent up to date as entries are appended, and any tool can rebuild it from a log.
 import type { ContextUsage, RawEvent, TokenTotals, TurnOutcome } from "@botiverse/oar";
 import { initialStatus, reduceStatus, type AgentStatus } from "@botiverse/oar/observe";
-import type { Entry, EntryOf } from "./entries.ts";
+import type { Actor, Attachment, Entry, EntryOf, QueuePauseReason } from "./entries.ts";
 
 export interface PendingRequestSummary {
   readonly requestId: string;
@@ -11,6 +11,33 @@ export interface PendingRequestSummary {
   readonly type: string;
   /** The log entry that carried the request. */
   readonly seq: number;
+}
+
+/**
+ * Whether the runtime reports reading a steered input (a `user_message` carrying its id).
+ * Where it doesn't, oar accepting the steer is all anyone will learn, so that counts as read.
+ */
+export function echoesInput(runtime: string): boolean {
+  return runtime === "claude" || runtime === "codex";
+}
+
+/**
+ * Whether input can go into a running turn, for what the composer offers before sending.
+ * The server asks the session (oar's `capabilities.steer`) and says so when it can't;
+ * "redoes": grok takes it by starting the current step again.
+ */
+export function steerSupport(runtime: string): "yes" | "no" | "redoes" {
+  if (runtime === "cursor" || runtime === "kimi" || runtime === "antigravity") return "no";
+  return runtime === "grok" ? "redoes" : "yes";
+}
+
+/** An input rowrow holds until the running turn ends (D-035). */
+export interface QueuedInput {
+  readonly inputId: string;
+  readonly text: string;
+  readonly attachments: readonly Attachment[];
+  readonly by: Actor;
+  readonly at: number;
 }
 
 export interface AgentSummary {
@@ -50,12 +77,22 @@ export interface AgentSummary {
   readonly usage: TokenTotals | null;
   readonly context: ContextUsage | null;
   readonly inputs: number;
+  /** Inputs held for after the running turn, oldest first: sent one per turn, or taken back. */
+  readonly queued: readonly QueuedInput[];
+  /** Why rowrow stopped sending `queued`; null while it sends the next one when a turn ends. */
+  readonly queuePaused: QueuePauseReason | null;
+  /** Steered into the running turn, and the runtime hasn't said it read them yet (see echoesInput). */
+  readonly steering: readonly QueuedInput[];
+  /** Steered, but the turn or the run ended before the runtime read them: they may never have arrived. */
+  readonly unread: readonly QueuedInput[];
   /** seq of the last folded entry; -1 before any. */
   readonly headSeq: number;
   /** Fold internals, derivable like the rest: the latest root event was text (so the next text joins the preview). */
   readonly textOpen: boolean;
   /** Fold internals: the live run has been asked to stop, so its exit is not a surprise. */
   readonly stopping: boolean;
+  /** Fold internals: the latest input, until its result says whether rowrow holds it. */
+  readonly unanswered: QueuedInput | null;
 }
 
 const PREVIEW_CHARS = 280;
@@ -83,9 +120,14 @@ export function initialSummary(): AgentSummary {
     usage: null,
     context: null,
     inputs: 0,
+    queued: [],
+    queuePaused: null,
+    steering: [],
+    unread: [],
     headSeq: -1,
     textOpen: false,
     stopping: false,
+    unanswered: null,
   };
 }
 
@@ -122,11 +164,52 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       };
     }
     case "input":
-      return { ...s, inputs: s.inputs + 1 };
-    case "input.result":
-      return entry.landed === "failed"
-        ? { ...s, lastError: entry.reason ?? "the input could not be delivered" }
-        : s;
+      return {
+        ...s,
+        inputs: s.inputs + 1,
+        unanswered: {
+          inputId: entry.inputId,
+          text: entry.text,
+          attachments: entry.attachments ?? [],
+          by: entry.by,
+          at: entry.at,
+        },
+      };
+    case "input.result": {
+      const input = s.unanswered?.inputId === entry.inputId ? s.unanswered : null;
+      const held = entry.held === true ? input : null;
+      const steering = entry.landed === "steered" && echoesInput(s.runtime) ? input : null;
+      return {
+        ...s,
+        unanswered: null,
+        ...(held === null ? {} : { queued: [...s.queued, held] }),
+        ...(steering === null ? {} : { steering: [...s.steering, steering] }),
+        ...(entry.landed === "failed"
+          ? { lastError: entry.reason ?? "the input could not be delivered" }
+          : {}),
+      };
+    }
+    case "input.sent":
+      return {
+        // Steered in when it went out as a steer; anything else it isn't (a rejected steer
+        // falls back to a prompt).
+        ...(entry.landed === "steered"
+          ? unqueue(s, entry.inputId)
+          : read(unqueue(s, entry.inputId), entry.inputId)),
+        ...(entry.landed === "failed"
+          ? { lastError: entry.reason ?? "the input could not be delivered" }
+          : {}),
+      };
+    case "input.withdrawn": {
+      const next = unqueue(s, entry.inputId);
+      return next.unread.some((u) => u.inputId === entry.inputId)
+        ? { ...next, unread: next.unread.filter((u) => u.inputId !== entry.inputId) }
+        : next;
+    }
+    case "queue.paused":
+      return s.queued.length === 0 ? s : { ...s, queuePaused: entry.reason };
+    case "queue.resumed":
+      return { ...s, queuePaused: null };
     case "run.started":
       return {
         ...s,
@@ -144,11 +227,46 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return s.run?.runId === entry.runId ? endRun(s, entry) : s;
     case "host.error":
       return { ...s, lastError: entry.message };
-    case "oar":
-      return s.run?.runId === entry.runId
-        ? foldRecord(s, s.run.sessionId, entry.record, entry.seq, entry.at)
-        : s;
+    case "oar": {
+      // A held input leaves the queue as it goes out, not a moment later with input.sent.
+      const { record } = entry;
+      const sending =
+        record.kind === "request" && record.direction === "toRuntime" && "inputId" in record.body
+          ? record.body.inputId
+          : undefined;
+      const steered =
+        record.kind === "request" && record.body.kind === "steer" && echoesInput(s.runtime)
+          ? s.queued.find((q) => q.inputId === sending)
+          : undefined;
+      const unqueued = sending === undefined ? s : unqueue(s, sending);
+      const next =
+        steered === undefined ? unqueued : { ...unqueued, steering: [...unqueued.steering, steered] };
+      return next.run?.runId === entry.runId
+        ? foldRecord(next, next.run.sessionId, record, entry.seq, entry.at)
+        : next;
+    }
   }
+}
+
+function unqueue(s: AgentSummary, inputId: string): AgentSummary {
+  if (!s.queued.some((q) => q.inputId === inputId)) return s;
+  const queued = s.queued.filter((q) => q.inputId !== inputId);
+  // Nothing left to hold back: a pause means nothing.
+  return { ...s, queued, ...(queued.length === 0 ? { queuePaused: null } : {}) };
+}
+
+/** The runtime read a steered input. */
+function read(s: AgentSummary, inputId: string): AgentSummary {
+  const steering = s.steering.filter((q) => q.inputId !== inputId);
+  const unread = s.unread.filter((q) => q.inputId !== inputId);
+  return steering.length === s.steering.length && unread.length === s.unread.length
+    ? s
+    : { ...s, steering, unread };
+}
+
+/** The turn ended: whatever was steered into it and not read by now never will be. */
+function unreadSteering(s: AgentSummary): AgentSummary {
+  return s.steering.length === 0 ? s : { ...s, steering: [], unread: [...s.unread, ...s.steering] };
 }
 
 function endRun(s: AgentSummary, entry: EntryOf<"run.ended">): AgentSummary {
@@ -159,7 +277,7 @@ function endRun(s: AgentSummary, entry: EntryOf<"run.ended">): AgentSummary {
   const failed = surprise && (cutTurn || (entry.code ?? 0) !== 0);
   const reason = describeEnd(entry.reason, entry.code);
   return {
-    ...s,
+    ...unreadSteering(s),
     run: null,
     pending: [],
     textOpen: false,
@@ -212,13 +330,22 @@ function foldRecord(
           continue;
         }
         switch (event.kind) {
-          case "turn_ended":
+          case "turn_ended": {
+            // A completed turn with more held behind it isn't done: rowrow sends the next one.
+            const continues =
+              event.outcome.kind === "completed" && next.queued.length > 0 && next.queuePaused === null;
             next = {
-              ...next,
+              // Stopped before it read what you steered in. (A turn that ends on its own
+              // hands it to the next one on runtimes that echo, so the echo still comes.)
+              ...(event.outcome.kind === "aborted" ? unreadSteering(next) : next),
               lastTurn: { seq, at, outcome: event.outcome },
-              ...(event.outcome.kind === "aborted" ? {} : { lastCompletionSeq: seq }),
+              ...(event.outcome.kind === "aborted" || continues ? {} : { lastCompletionSeq: seq }),
               ...(event.outcome.kind === "failed" ? { lastError: event.outcome.reason } : {}),
             };
+            break;
+          }
+          case "user_message":
+            if (event.inputId !== undefined) next = read(next, event.inputId);
             break;
           case "model":
             next = { ...next, reportedModel: event.model };
@@ -237,7 +364,6 @@ function foldRecord(
           case "compaction_started":
           case "compaction_ended":
           case "retry":
-          case "user_message":
             break;
         }
         // Usage and model reports interleave with text on some runtimes; they don't end a text run.

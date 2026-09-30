@@ -10,6 +10,7 @@ import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
 import type { StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
+import { describe as describeAlert } from "../src/server/notify/notifier.ts";
 import { eventually, input, startTestServer, type TestServer } from "./helpers.ts";
 
 let t: TestServer | undefined;
@@ -78,30 +79,24 @@ describe("agents", () => {
     expect(page.entries.filter((e) => e.kind === "input")).toHaveLength(1);
   });
 
-  it("steers a running turn and reports where the input landed", async () => {
+  it("steers into a running turn only when asked", async () => {
     t = await startTestServer();
     const { agent, sent } = await agentIn(t, "/sleep 400");
     const steer = await t.client.agents.send({
       agentId: agent.id,
       inputId: newInputId(),
       text: "also this",
-      mode: "auto",
+      mode: "steer",
     });
     expect(steer.landed).toBe("steered");
-    const queued = await t.client.agents.send({
+    const waited = await t.client.agents.wait({
       agentId: agent.id,
-      inputId: newInputId(),
-      text: "/echo next",
-      mode: "queue",
+      afterSeq: sent?.seq ?? -1,
+      timeoutMs: 5000,
     });
-    expect(queued.landed).toBe("queued");
-    await eventually(async () => {
-      const { entries } = await t!.client.agents.entries({ agentId: agent.id, after: sent?.seq ?? -1 });
-      const text = renderText(timelineOf(entries));
-      return text.includes("next") && text.split("✓ turn completed").length === 3 ? true : undefined;
-    });
+    expect(waited.agent.summary.queued).toEqual([]);
+    expect((await t.client.agents.view({ agentId: agent.id })).text).toContain("also this");
   });
-
   it("aborts a running turn; an aborted turn is not a completion to look at", async () => {
     t = await startTestServer();
     const { agent } = await agentIn(t, "/sleep 5000");
@@ -186,6 +181,133 @@ describe("agents", () => {
     expect(loaded?.summary.run).toBeNull();
     expect(loaded?.attention).toBe("done");
     expect(loaded?.summary.lastError).toBe("rowrow stopped while this agent was running");
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("the queue (D-035)", () => {
+  const send = (agentId: string, text: string, mode: "auto" | "queue" | "steer" | "interrupt" = "queue") =>
+    t!.client.agents.send({ agentId, inputId: newInputId(), text, mode });
+  const summaryOf = async (agentId: string) => (await t!.client.state.get()).state.agents[agentId]?.summary;
+  const turns = async (agentId: string) =>
+    (await t!.client.agents.entries({ agentId, after: -1 })).entries.filter(
+      (e) =>
+        e.kind === "oar" &&
+        e.record.kind === "frame" &&
+        e.record.body.events.some((event) => event.kind === "turn_ended"),
+    ).length;
+
+  it("holds what you send during a turn and sends it, one per turn, when the turn ends", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 300");
+    const first = await send(agent.id, "/echo one", "auto");
+    const second = await send(agent.id, "/echo two");
+    expect([first.landed, second.landed]).toEqual(["queued", "queued"]);
+    expect((await summaryOf(agent.id))?.queued.map((q) => q.text)).toEqual(["/echo one", "/echo two"]);
+    const done = await eventually(async () => {
+      const summary = await summaryOf(agent.id);
+      return summary?.queued.length === 0 && summary.status.kind === "idle" && summary.preview === "two"
+        ? summary
+        : undefined;
+    });
+    expect(done.lastCompletionSeq).toBe(done.lastTurn?.seq);
+    expect(await turns(agent.id)).toBe(3);
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    const text = renderText(timelineOf(entries));
+    expect(text.indexOf("> [local CLI] /echo one")).toBeGreaterThan(text.indexOf("Slept 300 ms."));
+  });
+
+  it("gives a held message back, and refuses once it was sent", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 300");
+    const kept = await send(agent.id, "/echo kept");
+    const edited = await send(agent.id, "/echo edited");
+    const taken = await t.client.agents.withdraw({ agentId: agent.id, inputId: edited.inputId });
+    expect(taken.text).toBe("/echo edited");
+    expect((await summaryOf(agent.id))?.queued.map((q) => q.inputId)).toEqual([kept.inputId]);
+    await eventually(async () => ((await summaryOf(agent.id))?.preview === "kept" ? true : undefined));
+    await expect(t.client.agents.withdraw({ agentId: agent.id, inputId: kept.inputId })).rejects.toThrow(
+      /Already sent/,
+    );
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(renderText(timelineOf(entries))).not.toContain("edited");
+    expect(await turns(agent.id)).toBe(2);
+  });
+
+  it("pauses when you stop the turn; sending directly keeps it paused; resume sends the next", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 5000");
+    await send(agent.id, "/echo later");
+    await t.client.agents.abort({ agentId: agent.id });
+    await eventually(async () => ((await summaryOf(agent.id))?.queuePaused === "stopped" ? true : undefined));
+
+    const direct = await send(agent.id, "/echo now", "auto");
+    expect(direct.landed).toBe("prompted");
+    await eventually(async () => ((await summaryOf(agent.id))?.preview === "now" ? true : undefined));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await summaryOf(agent.id))?.queuePaused).toBe("stopped");
+    expect((await summaryOf(agent.id))?.queued).toHaveLength(1);
+
+    await t.client.agents.resume({ agentId: agent.id });
+    const resumed = await eventually(async () => {
+      const summary = await summaryOf(agent.id);
+      return summary?.preview === "later" ? summary : undefined;
+    });
+    expect(resumed.queued).toEqual([]);
+    expect(resumed.queuePaused).toBeNull();
+  });
+
+  it("pauses after a failed turn, and the notification says so", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 300");
+    await send(agent.id, "/fail the build is red");
+    await send(agent.id, "/echo after");
+    const paused = await eventually(async () => {
+      const summary = await summaryOf(agent.id);
+      return summary?.queuePaused === "failed" ? summary : undefined;
+    });
+    expect(paused.queued.map((q) => q.text)).toEqual(["/echo after"]);
+    expect(paused.lastTurn?.outcome.kind).toBe("failed");
+    expect(describeAlert(agent.id, paused, "done", null).body).toBe(
+      "the build is red · 1 queued message is paused",
+    );
+  });
+
+  it("an interrupt starts its own turn and the queue carries on after it", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 5000");
+    await send(agent.id, "/echo queued");
+    const interrupt = await send(agent.id, "/echo interrupting", "interrupt");
+    expect(interrupt.landed).toBe("prompted");
+    const done = await eventually(async () => {
+      const summary = await summaryOf(agent.id);
+      return summary?.preview === "queued" ? summary : undefined;
+    });
+    expect(done.queuePaused).toBeNull();
+  });
+
+  it("steers a held message in now when asked", async () => {
+    t = await startTestServer();
+    const { agent, sent } = await agentIn(t, "/sleep 400");
+    const held = await send(agent.id, "go faster");
+    const now = await t.client.agents.sendNow({ agentId: agent.id, inputId: held.inputId });
+    expect(now.landed).toBe("steered");
+    expect((await summaryOf(agent.id))?.queued).toEqual([]);
+    await t.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 5000 });
+    expect((await t.client.agents.view({ agentId: agent.id })).text).toContain("go faster");
+    expect(await turns(agent.id)).toBe(1);
+  });
+
+  it("pauses what was held when the server restarted", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t, "/sleep 10000");
+    await send(agent.id, "/echo later");
+    const home = t.home;
+    await t.server.close();
+    t = await startTestServer({ home });
+    const loaded = await summaryOf(agent.id);
+    expect(loaded?.queuePaused).toBe("restarted");
+    expect(loaded?.queued.map((q) => q.text)).toEqual(["/echo later"]);
     fs.rmSync(home, { recursive: true, force: true });
   });
 });

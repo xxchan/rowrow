@@ -3,6 +3,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.ts";
 
 test("a signed-out browser is asked to sign in, not shown an error", async ({ page, rowrow }) => {
@@ -580,6 +581,93 @@ test("a video waits as its first frame and plays from the message", async ({ pag
     .poll(async () => player.evaluate((video: HTMLVideoElement) => video.readyState))
     .toBeGreaterThan(1);
 });
+
+test("while an agent works, a message queues above the composer: edit it, delete it, stop and send", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "queues",
+    input: { inputId: randomUUID(), text: "/sleep 60000" },
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const input = page.getByRole("textbox", { name: "Message input" });
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+
+  for (const text of ["/echo first", "/echo second"]) {
+    await input.fill(text);
+    await page.getByRole("button", { name: "Queue", exact: true }).click();
+  }
+  const tray = page.getByRole("region", { name: "Up next" });
+  await expect(tray).toContainText("2 queued");
+  await expect(input).toHaveValue("");
+
+  // Edit takes it back into the composer; Delete drops it, and Undo puts it after your draft.
+  await trayAction(page, tray.getByRole("listitem").filter({ hasText: "/echo second" }), "Edit", phone);
+  await expect(input).toHaveValue("/echo second");
+  await expect(tray).toContainText("1 queued");
+  await trayAction(page, tray.getByRole("listitem").filter({ hasText: "/echo first" }), "Delete", phone);
+  await expect(tray).toBeHidden();
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(input).toHaveValue("/echo second\n\n/echo first");
+
+  await input.fill("/echo right away");
+  await page.getByRole("button", { name: "More ways to send" }).click();
+  await page.getByRole("menuitem", { name: /Stop and send/ }).click();
+  await expect(page.getByText("right away", { exact: true })).toBeVisible();
+});
+
+test("⌘↵ steers into the turn, ↑ takes a queued message back, and a stopped turn pauses the queue", async ({
+  page,
+  rowrow,
+}, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "steers",
+    input: { inputId: randomUUID(), text: "/sleep 60000" },
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const input = page.getByRole("textbox", { name: "Message input" });
+  const tray = page.getByRole("region", { name: "Up next" });
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+
+  await input.fill("/echo later");
+  await input.press("Enter");
+  await expect(tray).toContainText("1 queued");
+  // The sidebar says so too.
+  await expect(page.getByText("1 queued", { exact: true })).toBeVisible();
+  await input.press("ArrowUp");
+  await expect(input).toHaveValue("/echo later");
+  await expect(tray).toBeHidden();
+  await input.press("Enter");
+  await expect(tray).toContainText("1 queued");
+
+  await input.fill("steer this way");
+  await input.press("ControlOrMeta+Enter");
+  await expect(
+    page.getByRole("article", { name: "Your message" }).filter({ hasText: "steer this way" }),
+  ).toContainText("Steered in");
+
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(tray).toContainText("Queue paused · you stopped the turn");
+  await tray.getByRole("button", { name: "Resume" }).click();
+  await expect(page.getByText("later", { exact: true })).toBeVisible();
+  await expect(tray).toBeHidden();
+});
+
+/** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
+async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
+  if (!phone) return row.getByRole("button", { name }).click();
+  await row.getByRole("button", { name: "Message actions" }).click();
+  await page.getByRole("menuitem", { name }).click();
+}
 
 const ONE_PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

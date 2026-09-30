@@ -113,6 +113,8 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
   const ws = state.workspaces[agent.summary.workspaceId];
   const runtime = state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime;
   const branch = ws?.git?.branch;
+  // Held messages are waiting on this agent; a paused queue waits on you.
+  const queued = agent.summary.queued.length;
   const detail =
     agent.attention === "done" && agent.summary.lastError !== null
       ? agent.summary.lastError
@@ -143,6 +145,11 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
             </div>
             <div className="truncate text-xs text-muted-foreground">
               <span className={dot.tone === "error" ? "text-destructive" : undefined}>{dot.label}</span>
+              {queued > 0 && (
+                <span className={agent.summary.queuePaused !== null ? "text-warning" : undefined}>
+                  {` · ${queued} queued${agent.summary.queuePaused !== null ? ", paused" : ""}`}
+                </span>
+              )}
               {` · ${ws?.label ?? "?"}`}
               {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
               {` · ${runtime}`}

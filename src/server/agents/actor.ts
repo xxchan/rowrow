@@ -1,12 +1,21 @@
 // One actor per agent (docs/architecture.md, "Agents at runtime"): every operation on the
 // agent goes through its serial queue, and it is the only writer of the agent's log. It
 // owns the live run: an oar Session whose records it appends verbatim, started lazily on
-// input (resuming the runtime's own conversation) and stopped after an idle timeout.
+// input (resuming the runtime's own conversation) and stopped after an idle timeout. It
+// holds input sent while a turn runs and sends it, one per turn, when the turn ends (D-035).
 import { awaitIdle, type ControlOutcome, type Session } from "@botiverse/oar";
-import type { Actor, Attachment, EntryBody, InputMode, RunEndReason } from "../../shared/entries.ts";
+import type {
+  Actor,
+  Attachment,
+  EntryBody,
+  InputMode,
+  QueuePauseReason,
+  RunEndReason,
+} from "../../shared/entries.ts";
 import { newId } from "../../shared/ids.ts";
 import type { SendResult } from "../../shared/schemas.ts";
-import type { AgentSummary } from "../../shared/summary.ts";
+import type { AgentSummary, QueuedInput } from "../../shared/summary.ts";
+import { UserError } from "../errors.ts";
 import { log, serializeError, withContext } from "../telemetry/log.ts";
 import { runtimeImages, runtimeText } from "./input.ts";
 import type { AgentLog } from "./log.ts";
@@ -42,11 +51,25 @@ export interface SendInput {
   readonly trace?: string;
 }
 
+/** How rowrow passed an input to the runtime, as oar answered. */
+interface Delivery {
+  readonly landed: SendResult["landed"];
+  readonly runId?: string;
+  readonly code?: string;
+  readonly reason?: string;
+  /** rowrow holds it until the turn ends (D-035). */
+  readonly held?: true;
+}
+
+const ALREADY_SENT = "Already sent: the turn ended and it went to the agent before you edited it.";
+
 export class AgentActor {
   private queue: Promise<unknown> = Promise.resolve();
   private run: LiveRun | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private closed = false;
+  /** A settle task is queued. */
+  private settling = false;
 
   readonly id: string;
   private readonly deps: ActorDeps;
@@ -68,6 +91,7 @@ export class AgentActor {
   private enqueue<T>(name: string, task: () => Promise<T>): Promise<T> {
     const result = this.queue.then(async () => withContext({ agent: this.id }, task));
     this.queue = result.catch((error: unknown) => {
+      if (error instanceof UserError) return; // the caller's to show
       log.error("agent.task_failed", { agent: this.id, task: name, err: serializeError(error) });
     });
     return result;
@@ -117,6 +141,7 @@ export class AgentActor {
         ...(result.runId === undefined ? {} : { runId: result.runId }),
         ...(result.code === undefined ? {} : { code: result.code }),
         ...(result.reason === undefined ? {} : { reason: result.reason }),
+        ...(result.held === undefined ? {} : { held: result.held }),
       });
       log.info("agent.input", {
         inputId: input.inputId,
@@ -134,9 +159,38 @@ export class AgentActor {
     });
   }
 
-  private async deliver(
-    input: SendInput,
-  ): Promise<{ landed: SendResult["landed"]; runId?: string; code?: string; reason?: string }> {
+  private async deliver(input: SendInput): Promise<Delivery> {
+    const summary = this.deps.summary(this.id);
+    const busy = this.busy();
+    // Behind a running turn, or behind inputs still waiting for theirs: one per turn, in order.
+    if ((input.mode === "queue" || input.mode === "auto") && (busy || waiting(summary)))
+      return { landed: "queued", held: true };
+    if (input.mode === "steer" && busy && this.run?.session.capabilities.steer === false)
+      return {
+        landed: "queued",
+        held: true,
+        code: "steer_unsupported",
+        reason: `${summary.runtime} can't take input in the middle of a turn; it goes after this one`,
+      };
+    const how = !busy ? "prompt" : input.mode === "interrupt" ? "interrupt" : "steer";
+    return this.dispatch(input.inputId, input.text, input.attachments ?? [], how);
+  }
+
+  /** Whether the live run is in a turn. */
+  private busy(): boolean {
+    return this.run !== null && this.run.session.status().value.kind === "running";
+  }
+
+  /**
+   * Give an input to the runtime: as a new turn, steered into the running one (a new turn
+   * if that turn ended meanwhile), or as a new turn after aborting the running one.
+   */
+  private async dispatch(
+    inputId: string,
+    body: string,
+    attachments: readonly Attachment[],
+    how: "prompt" | "steer" | "interrupt",
+  ): Promise<Delivery> {
     let run: LiveRun;
     try {
       run = await this.ensureRun();
@@ -148,32 +202,123 @@ export class AgentActor {
       };
     }
     const { session, runId } = run;
-    const attachments = input.attachments ?? [];
-    const text = runtimeText(input.text, attachments);
+    const text = runtimeText(body, attachments);
     // A runtime without image input still gets every image's path in the text.
     const images = session.capabilities.images ? runtimeImages(attachments) : [];
-    const options = { inputId: input.inputId, ...(images.length === 0 ? {} : { images }) };
-    const running = session.status().value.kind === "running";
-    if (!running) {
-      await this.deps.beforeTurn?.(this.id);
-      return { runId, ...landing("prompted", await session.prompt(text, options)) };
-    }
-    switch (input.mode) {
-      case "queue":
-        return { runId, ...landing("queued", await session.queue(text, options)) };
-      case "interrupt": {
+    const options = { inputId, ...(images.length === 0 ? {} : { images }) };
+    if (session.status().value.kind === "running") {
+      if (how === "steer") {
+        const outcome = await session.steer(text, options);
+        if (outcome.kind === "accepted") return { runId, landed: "steered" };
+        // Most often the turn ended as it came: then it starts the next one.
+        await awaitIdleFor(session, 2_000);
+        if (session.status().value.kind === "running")
+          return { runId, landed: "rejected", code: outcome.code, reason: outcome.reason };
+      } else if (how === "interrupt") {
         await session.abort();
         await awaitIdleFor(session, 30_000);
-        await this.deps.beforeTurn?.(this.id);
-        return { runId, ...landing("prompted", await session.prompt(text, options)) };
-      }
-      case "auto": {
-        const result = await session.steerOrQueue(text, options);
-        return result.landed === "rejected"
-          ? { runId, landed: "rejected", code: result.code, reason: result.reason }
-          : { runId, landed: result.landed };
       }
     }
+    await this.deps.beforeTurn?.(this.id);
+    return { runId, ...landing("prompted", await session.prompt(text, options)) };
+  }
+
+  // ─── Held inputs (D-035) ──────────────────────────────────────────────────
+
+  /** Take a held input back, to edit or drop it. Fails once it went to the agent. */
+  withdraw(inputId: string, by: Actor): Promise<{ text: string; attachments: readonly Attachment[] }> {
+    return this.enqueue("withdraw", async () => {
+      const summary = this.deps.summary(this.id);
+      const item =
+        summary.queued.find((q) => q.inputId === inputId) ??
+        summary.unread.find((q) => q.inputId === inputId);
+      if (item === undefined) throw new UserError(ALREADY_SENT, "CONFLICT");
+      this.append({ kind: "input.withdrawn", inputId, by });
+      log.info("agent.input.withdrawn", { inputId });
+      return { text: item.text, attachments: item.attachments };
+    });
+  }
+
+  /** Send a held input now, out of turn: steered into the running turn, or as the next one. */
+  sendNow(inputId: string): Promise<SendResult> {
+    return this.enqueue("send_now", async () => {
+      const summary = this.deps.summary(this.id);
+      const item = summary.queued.find((q) => q.inputId === inputId);
+      if (item === undefined) throw new UserError(ALREADY_SENT, "CONFLICT");
+      const busy = this.busy();
+      if (busy && this.run?.session.capabilities.steer === false)
+        throw new UserError(
+          `${summary.runtime} can't take input in the middle of a turn: stop the turn, or let it go after this one`,
+          "PRECONDITION_FAILED",
+        );
+      const result = await this.sendHeld(item, busy ? "steer" : "prompt");
+      return {
+        inputId,
+        landed: result.landed,
+        ...(result.code === undefined ? {} : { code: result.code }),
+        ...(result.reason === undefined ? {} : { reason: result.reason }),
+        seq: this.deps.log.findInput(this.id, inputId).input?.seq ?? -1,
+      };
+    });
+  }
+
+  /** Send held inputs again after a pause, starting with the next one now. */
+  resume(by: Actor): Promise<void> {
+    return this.enqueue("resume", async () => {
+      if (this.deps.summary(this.id).queuePaused !== null) this.append({ kind: "queue.resumed", by });
+      // Not through settle: it would pause again on the turn that paused it.
+      const next = this.deps.summary(this.id).queued[0];
+      if (next !== undefined && !this.busy()) await this.sendHead(next);
+    });
+  }
+
+  private async sendHeld(item: QueuedInput, how: "prompt" | "steer"): Promise<Delivery> {
+    const result = await this.dispatch(item.inputId, item.text, item.attachments, how);
+    const landed = result.landed === "queued" ? "rejected" : result.landed; // dispatch never queues
+    this.append({
+      kind: "input.sent",
+      inputId: item.inputId,
+      landed,
+      ...(result.runId === undefined ? {} : { runId: result.runId }),
+      ...(result.code === undefined ? {} : { code: result.code }),
+      ...(result.reason === undefined ? {} : { reason: result.reason }),
+    });
+    log.info("agent.input.sent", { inputId: item.inputId, landed, code: result.code });
+    return { ...result, landed };
+  }
+
+  /** The next held input starts a turn; if it can't, the rest wait for you. */
+  private async sendHead(item: QueuedInput): Promise<void> {
+    const result = await this.sendHeld(item, "prompt");
+    if (result.landed !== "prompted") this.pause("failed");
+  }
+
+  private pause(reason: QueuePauseReason): void {
+    const summary = this.deps.summary(this.id);
+    if (summary.queued.length === 0 || summary.queuePaused !== null) return;
+    this.append({ kind: "queue.paused", reason });
+    log.info("agent.queue.paused", { reason, queued: summary.queued.length });
+  }
+
+  private settleSoon(): void {
+    if (this.settling) return;
+    this.settling = true;
+    void this.enqueue("settle", async () => {
+      this.settling = false;
+      await this.settle();
+    });
+  }
+
+  /** The agent went idle with inputs held: send the next, unless the turn didn't end well. */
+  private async settle(): Promise<void> {
+    if (this.closed || this.run?.stopping === true || this.busy()) return;
+    const summary = this.deps.summary(this.id);
+    if (!waiting(summary) || summary.status.kind !== "idle") return;
+    const outcome = summary.status.lastTurnOutcome;
+    if (outcome?.kind === "aborted") this.pause("stopped");
+    else if (outcome?.kind === "failed")
+      this.pause(outcome.failure === "runtime_exited" ? "exited" : "failed");
+    else if (summary.queued[0] !== undefined) await this.sendHead(summary.queued[0]);
   }
 
   // ─── Runs ─────────────────────────────────────────────────────────────────
@@ -284,6 +429,9 @@ export class AgentActor {
     run.unsubscribe();
     this.run = null;
     this.clearIdle();
+    // Held inputs don't start a new run by themselves when you ended this one.
+    if (reason === "exited") this.pause("exited");
+    else if (reason === "stopped" || reason === "archived" || reason === "restart") this.pause("stopped");
     this.append({ kind: "run.ended", runId: run.runId, reason, ...(reason === "exited" ? { code } : {}) });
     log.info("agent.run.ended", { run: run.runId, reason, code });
   }
@@ -300,16 +448,24 @@ export class AgentActor {
 
   /** Called by the service after each appended entry: arm the idle timer when the run goes idle. */
   noteActivity(summary: AgentSummary): void {
-    if (this.closed || this.run === null) return;
+    if (this.closed) return;
     if (summary.status.kind === "running" || summary.pending.length > 0) {
       this.clearIdle();
       return;
     }
+    if (waiting(summary)) {
+      // Idle with inputs held: the next one goes now, so no idle timeout.
+      this.clearIdle();
+      this.settleSoon();
+      return;
+    }
+    if (this.run === null) return;
     this.clearIdle();
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       const current = this.deps.summary(this.id);
-      if (current.status.kind === "idle" && current.pending.length === 0) void this.stop("idle");
+      if (current.status.kind === "idle" && current.pending.length === 0 && !waiting(current))
+        void this.stop("idle");
     }, this.deps.idleTimeoutMs);
     this.idleTimer.unref();
   }
@@ -325,6 +481,11 @@ export class AgentActor {
     this.closed = true;
     this.clearIdle();
   }
+}
+
+/** Inputs are held and rowrow will send the next when the agent is idle. */
+export function waiting(summary: AgentSummary): boolean {
+  return summary.queued.length > 0 && summary.queuePaused === null;
 }
 
 function landing(

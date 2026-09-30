@@ -17,7 +17,15 @@ import {
 } from "@botiverse/oar/observe";
 import type { Attachment, EntryOf } from "./entries.ts";
 import { actorLabel } from "./render-text.ts";
-import type { InputBlock, RunBlock, Timeline } from "./timeline.ts";
+import {
+  held,
+  landedIn,
+  outcomeOf,
+  steerUnread,
+  type InputBlock,
+  type RunBlock,
+  type Timeline,
+} from "./timeline.ts";
 
 /** Bumped when an item changes shape; a client checks it before trusting the kit. */
 export const TRANSCRIPT_MODEL_VERSION = 1;
@@ -204,7 +212,8 @@ function itemsOf(timeline: Timeline, runtime: string): Pending[] {
     switch (block.kind) {
       case "input":
         // Shown on its own only until a run takes it over; the run's view shows it from then on.
-        if (!block.delivered)
+        // One rowrow holds (D-035) waits above the composer instead, until it is sent.
+        if (!block.delivered && !held(block))
           out.push({
             id: `pending:${block.input.inputId}`,
             deps: [block],
@@ -255,6 +264,7 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
       case "input": {
         const inputId = message.input.inputId;
         const origin = inputId === undefined ? undefined : timeline.inputs.get(inputId);
+        if (steerUnread(origin, message.input.observations.length, runtime)) return;
         out.push({ id, deps: [message, origin], make: () => deliveredInput(id, message, origin) });
         break;
       }
@@ -364,8 +374,8 @@ function cut(text: string, max: number): string {
 }
 
 function pendingInput(block: InputBlock): InputItem {
-  const failed =
-    block.result !== undefined && (block.result.landed === "failed" || block.result.landed === "rejected");
+  const outcome = outcomeOf(block);
+  const failed = outcome !== undefined && (outcome.landed === "failed" || outcome.landed === "rejected");
   return {
     kind: "input",
     id: `pending:${block.input.inputId}`,
@@ -375,7 +385,7 @@ function pendingInput(block: InputBlock): InputItem {
     at: block.input.at,
     state: failed ? "failed" : "sending",
     landed: null,
-    reason: failed ? (block.result?.reason ?? block.result?.landed ?? null) : null,
+    reason: failed ? (outcome?.reason ?? outcome?.landed ?? null) : null,
   };
 }
 
@@ -385,7 +395,6 @@ function deliveredInput(
   origin: InputBlock | undefined,
 ): InputItem {
   const { input } = message;
-  const landed = origin?.result?.landed;
   return {
     kind: "input",
     id,
@@ -395,8 +404,11 @@ function deliveredInput(
     by: origin === undefined ? null : actorLabel(origin.input.by),
     at: origin?.input.at ?? null,
     state: input.state === "rejected" ? "failed" : input.state === "pending" ? "sending" : "sent",
-    landed: landed === "steered" || landed === "queued" ? landed : null,
-    reason: input.state === "rejected" ? (origin?.result?.reason ?? null) : null,
+    landed: landedIn(origin),
+    reason:
+      input.state === "rejected"
+        ? ((origin === undefined ? undefined : outcomeOf(origin))?.reason ?? null)
+        : null,
   };
 }
 

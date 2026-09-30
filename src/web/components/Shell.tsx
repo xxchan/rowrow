@@ -167,6 +167,17 @@ function Nav({ route }: { route: Route }) {
             {title(agent)}
             {ws !== undefined && <span className="text-muted-foreground"> · {ws}</span>}
           </span>
+          {agent.summary.queued.length > 0 && (
+            <span
+              className={cn(
+                "shrink-0 text-[11px] text-muted-foreground tabular-nums",
+                agent.summary.queuePaused !== null && "text-warning",
+              )}
+              title={agent.summary.queuePaused !== null ? "Queue paused" : undefined}
+            >
+              {agent.summary.queued.length} queued
+            </span>
+          )}
           <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
         </NavRow>
       </AgentContextMenu>

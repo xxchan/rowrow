@@ -81,7 +81,7 @@ export interface AgentState {
 }
 export const AgentState = z.custom<AgentState>();
 
-export const InputMode = z.enum(["auto", "queue", "interrupt"]);
+export const InputMode = z.enum(["auto", "queue", "steer", "interrupt"]);
 
 export const Attachment = z.object({
   path: z.string().describe("Absolute path on the server, as files.upload returned it."),

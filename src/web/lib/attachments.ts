@@ -3,7 +3,7 @@
 // new-agent forms by form. In memory only, like drafts.
 import type { Attachment } from "../../shared/entries.ts";
 import type { Client } from "./connection.ts";
-import { attachmentsOf, setAttachments, type PendingAttachment } from "./store.ts";
+import { attachmentsOf, setAttachments, setDraft, useDrafts, type PendingAttachment } from "./store.ts";
 import { report } from "./telemetry.ts";
 
 /** Start uploading `files` as attachments of `key`'s next message; each shows as a tile at once. */
@@ -44,6 +44,25 @@ export function detachFile(key: string, id: string): void {
 export function clearFiles(key: string): void {
   for (const file of attachmentsOf(key)) if (file.preview !== null) URL.revokeObjectURL(file.preview);
   setAttachments(key, () => []);
+}
+
+/**
+ * Put a message back into the composer (taken back from the queue, or a delete undone): into
+ * an empty one, or after what you're writing, never over it. Its files are uploaded already.
+ */
+export function putBack(key: string, text: string, attachments: readonly Attachment[]): void {
+  const current = useDrafts.getState().byAgent[key] ?? "";
+  setDraft(key, current.trim() === "" ? text : text === "" ? current : `${current.trimEnd()}\n\n${text}`);
+  if (attachments.length === 0) return;
+  const files = attachments.map((uploaded): PendingAttachment => ({
+    id: crypto.randomUUID(),
+    name: uploaded.name,
+    type: uploaded.type,
+    preview: null,
+    state: "ready",
+    uploaded,
+  }));
+  setAttachments(key, (list) => [...list, ...files]);
 }
 
 /** What the message can carry now, or why it can't go yet. */

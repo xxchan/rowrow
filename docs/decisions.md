@@ -879,3 +879,39 @@ lazy chunk), and pinning `@shikijs/transformers` to 3.x keeps one Shiki core
 
 **Revisit when** either library breaks its variables or slots, the web app's weight matters
 (phones on slow links), or people want split diffs or diffs of whole files.
+
+## D-035 rowrow holds queued input; steer is a separate, explicit act (2026-09-30)
+
+**Context.** A message sent while an agent worked went to oar, which steered it into the
+turn or queued it inside the runtime. Either way it vanished into the transcript: nothing
+showed that it was waiting, and nothing could take it back. People mean two different
+things when they write mid-turn: "this is next" (queue) and "change course now" (steer).
+Only the first can be undone, because a steer is read by the model at its next step.
+
+**Decision.** rowrow holds queued input itself. Sent while a turn runs, `queue` (and
+`auto`, what Enter sends) is recorded as held (`input.result` landed `queued`, `held`) and
+the actor sends it as the next turn's prompt when the turn ends, one per turn, in order
+(`input.sent`). Held input can be withdrawn (`agents.withdraw`, to edit or drop it) or sent
+now (`agents.sendNow`). `steer` goes into the running turn and can't be taken back; a
+runtime that can't steer (kimi, cursor, antigravity; `steerSupport` in `summary.ts`) holds
+it instead and the result says why. When the turn is stopped or fails, the run exits or
+rowrow restarts, the queue pauses (`queue.paused`) until someone resumes it: nobody asked
+for the next turn to start on its own after they stopped one.
+
+The web app shows held, steering and unread input in a tray above the composer ("Up next")
+with Edit, Send now / Steer now and Delete (undoable); ↑ in an empty composer takes the last
+one back. While the agent works, Enter queues, ⌘↵ steers, ⇧⌘↵ stops the turn and sends, and
+the send button becomes Queue with a menu of the other two. The agent list says "N queued",
+in the warning color when paused.
+
+**Why.** A message you can still see and take back is the safe default; the irreversible
+act needs a deliberate key. Holding input in rowrow rather than oar makes it a fact in the
+log that every client folds the same way, survives a restart, and works for runtimes whose
+own queue we can't see or edit.
+
+**Cost.** One turn per held message, even when a runtime could have taken several at once.
+The actor has more states (held, paused) to keep straight across runs, and the iOS app
+needs its own tray.
+
+**Revisit when** people want several queued messages sent as one turn, or a runtime's own
+queue becomes visible and editable through oar.

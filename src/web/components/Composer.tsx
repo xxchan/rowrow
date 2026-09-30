@@ -1,13 +1,22 @@
-// Writing to an agent. Enter sends; while the agent works, a message steers the running
-// turn (or waits for the next one, when the runtime can't steer), "Queue" holds it for the
-// next turn, and Stop interrupts. A send that may not have arrived keeps its id, so trying
-// again can't deliver it twice (PRINCIPLES.md, engineering 2). On touch screens Return is a
-// newline (IME and dictation users need it) and the button sends. Pasted, dropped or picked
-// files upload at once and wait above the text as tiles; they go with the next message.
+// Writing to an agent (D-035). Idle, Enter sends. While the agent works, Enter queues the
+// message for after this turn (it waits in the tray above, where you can still take it back),
+// ⌘/Ctrl+Enter steers it into the running turn (it can't be taken back), and ⇧⌘/Ctrl+Enter
+// stops the turn and sends it; the Queue button's menu does the same. Stop interrupts. A send
+// that may not have arrived keeps its id, so trying again can't deliver it twice
+// (PRINCIPLES.md, engineering 2). On touch screens Return is a newline (IME and dictation users
+// need it) and the button sends. Pasted, dropped or picked files upload at once and wait above
+// the text as tiles; they go with the next message.
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ArrowUp, LoaderCircle, Paperclip, Slash, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, LoaderCircle, Paperclip, Slash, Square } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -17,10 +26,11 @@ import {
   type DragEvent,
   type KeyboardEvent,
 } from "react";
-import type { InputMode } from "../../shared/entries.ts";
+import type { Attachment, InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult, SkillInfo } from "../../shared/schemas.ts";
-import { attachFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
+import { steerSupport } from "../../shared/summary.ts";
+import { attachFiles, detachFile, filesOf, putBack, readyFiles } from "../lib/attachments.ts";
 import {
   attachmentsOf,
   setAttachments,
@@ -32,6 +42,7 @@ import {
 } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ComposerAttachments } from "./Attachments.tsx";
+import { QueueTray, withdraw } from "./QueueTray.tsx";
 import { ReviewDrawer } from "./ReviewDrawer.tsx";
 import { SessionInfo } from "./SessionInfo.tsx";
 
@@ -97,6 +108,17 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   const disabled = archived || client === null;
   const empty = draft.trim() === "" && attached.length === 0;
   const uploading = attached.some((file) => file.state === "uploading");
+  const steer = steerSupport(agent.summary.runtime);
+  const runtimeName = useApp((s) => s.state?.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime);
+  // While it works, say what Enter does now (it no longer starts a turn).
+  const hint =
+    !working || empty
+      ? null
+      : steer === "no"
+        ? `${runtimeName} can't take messages mid-turn: queue it, or stop and send`
+        : touch
+          ? null
+          : `↵ queues for after this turn · ⌘↵ steers into it now`;
 
   // Grow with the text, up to a limit; then scroll inside.
   useLayoutEffect(() => {
@@ -161,9 +183,17 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
     }
     // Sent: the transcript shows the files from the server now.
     for (const file of files) if (file.preview !== null) URL.revokeObjectURL(file.preview);
-    if (result.landed === "queued") {
-      setStatus({ type: "warning", message: "Queued: it will be sent when the current turn ends." });
+    // A queued message shows in the tray; say why only when it was meant as a steer.
+    if (result.code === "steer_unsupported") {
+      setStatus({ type: "warning", message: result.reason ?? "Queued for after this turn." });
     }
+  };
+
+  /** Put a queued message back into the composer to edit (Edit in the tray, ↑). */
+  const takeBack = (text: string, attachments: readonly Attachment[]): void => {
+    putBack(agent.id, text, attachments);
+    caret.current = useDrafts.getState().byAgent[agent.id]?.length ?? null;
+    inputRef.current?.focus();
   };
 
   const abort = async (): Promise<void> => {
@@ -208,14 +238,22 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
       setDismissed(draft);
       return;
     }
-    if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
+    const mod = event.metaKey || event.ctrlKey;
+    if (event.key === "Enter" && !event.altKey && (mod || !event.shiftKey)) {
       // On a touch screen Return is a newline, unless you mean it (⌘/Ctrl+Return).
-      if (touch && !event.metaKey && !event.ctrlKey) return;
+      if (touch && !mod) return;
       event.preventDefault();
-      void send(draft, "auto");
+      // Idle, every mode starts a turn; while it works: ↵ queues, ⌘↵ steers, ⇧⌘↵ stops and sends.
+      void send(draft, !mod ? "auto" : event.shiftKey ? "interrupt" : "steer");
     } else if (event.key === "ArrowUp" && draft === "") {
+      const queued = agent.summary.queued.at(-1);
       const last = sentHistory.get(agent.id)?.at(-1);
-      if (last !== undefined) {
+      if (queued !== undefined && client !== null) {
+        event.preventDefault();
+        void withdraw(client, agent.id, queued.inputId).then(
+          (taken) => taken !== null && takeBack(taken.text, taken.attachments),
+        );
+      } else if (last !== undefined) {
         event.preventDefault();
         caret.current = last.length;
         setDraft(agent.id, last);
@@ -276,6 +314,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
           )}
         </div>
       )}
+      <QueueTray agent={agent} onPutBack={takeBack} />
       <div
         className={cn(
           "overflow-hidden rounded-xl border bg-card shadow-sm transition-colors focus-within:border-ring/60",
@@ -324,7 +363,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
             archived
               ? "Archived. Unarchive it to continue."
               : working
-                ? "Steer the running turn…"
+                ? "Queue a message for after this turn…"
                 : "Message the agent…"
           }
           onChange={(event) => setDraft(agent.id, event.currentTarget.value)}
@@ -383,12 +422,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
           </Tooltip>
           <SessionInfo agent={agent} onSwitchModel={onSwitchModel} />
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            {working && !empty && (
-              <Button variant="ghost" size="sm" className="h-8" onClick={() => void send(draft, "queue")}>
-                Queue
-              </Button>
-            )}
-            {working && empty ? (
+            {working && (
               <Button
                 size="icon"
                 variant="secondary"
@@ -398,7 +432,57 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
               >
                 <Square className="size-3.5 fill-current" />
               </Button>
-            ) : (
+            )}
+            {working && !empty ? (
+              <div className="flex h-8 items-stretch overflow-hidden rounded-full bg-primary text-primary-foreground">
+                <button
+                  type="button"
+                  disabled={uploading}
+                  onClick={() => void send(draft, "queue")}
+                  className="px-3 text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Queue
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="More ways to send"
+                      disabled={uploading}
+                      className="border-l border-primary-foreground/25 pr-2 pl-1.5 hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      <ChevronDown className="size-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <SendItem
+                      label="Queue"
+                      note="after this turn · you can still edit it"
+                      keys="↵"
+                      onSelect={() => void send(draft, "queue")}
+                    />
+                    {steer !== "no" && (
+                      <SendItem
+                        label="Steer now"
+                        note={
+                          steer === "redoes"
+                            ? `into this turn · ${runtimeName} redoes the current step`
+                            : "into this turn · can't be taken back"
+                        }
+                        keys={"⌘↵"}
+                        onSelect={() => void send(draft, "steer")}
+                      />
+                    )}
+                    <SendItem
+                      label="Stop and send"
+                      note="ends this turn first"
+                      keys={"⇧⌘↵"}
+                      onSelect={() => void send(draft, "interrupt")}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ) : working ? null : (
               <Button
                 size="icon"
                 className="size-8 rounded-full"
@@ -412,7 +496,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
           </div>
         </div>
       </div>
-      {status !== null && (
+      {status !== null ? (
         <p
           role={status.type === "error" ? "alert" : "status"}
           className={cn(
@@ -423,7 +507,32 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
           {status.type === "busy" && <LoaderCircle className="size-3 animate-spin" />}
           {status.message}
         </p>
+      ) : (
+        hint !== null && <p className="truncate px-1 pt-1.5 text-xs text-muted-foreground">{hint}</p>
       )}
     </div>
+  );
+}
+
+/** One way to send in the Queue button's menu: what it does, and its keys. */
+function SendItem({
+  label,
+  note,
+  keys,
+  onSelect,
+}: {
+  label: string;
+  note: string;
+  keys: string;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem onSelect={onSelect} className="items-start">
+      <div className="min-w-0 flex-1">
+        <div>{label}</div>
+        <div className="text-xs text-muted-foreground">{note}</div>
+      </div>
+      <DropdownMenuShortcut className="hidden pt-0.5 md:block">{keys}</DropdownMenuShortcut>
+    </DropdownMenuItem>
   );
 }

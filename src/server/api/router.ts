@@ -262,6 +262,15 @@ export function createRouter(s: Services) {
           ...(context.trace === undefined ? {} : { trace: context.trace }),
         }),
       ),
+      withdraw: os.agents.withdraw.handler(async ({ input, context }) => {
+        const taken = await s.agents.withdraw(input.agentId, input.inputId, context.actor);
+        return { text: taken.text, attachments: [...taken.attachments] };
+      }),
+      sendNow: os.agents.sendNow.handler(async ({ input }) => s.agents.sendNow(input.agentId, input.inputId)),
+      resume: os.agents.resume.handler(async ({ input, context }) => {
+        await s.agents.resume(input.agentId, context.actor);
+        return { ok: true as const };
+      }),
       abort: os.agents.abort.handler(async ({ input }) => s.agents.abort(input.agentId)),
       stop: os.agents.stop.handler(async ({ input }) => {
         await s.agents.stop(input.agentId);

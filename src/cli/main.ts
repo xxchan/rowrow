@@ -41,7 +41,8 @@ Service (keeps the server running: starts at login, restarts after a crash)
 Agents
   rowrow agents [--all]            list agents, the ones that need you first
   rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
-  rowrow agent send <agent> <text…> [--attach FILE]… [--queue | --interrupt] [--wait]
+  rowrow agent send <agent> <text…> [--attach FILE]… [--steer | --interrupt] [--wait]
+                                   while it works: queued for after the turn; --steer: into it now
   rowrow agent wait <agent> [--until done,blocked,idle] [--timeout 10m]
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
@@ -109,6 +110,7 @@ async function main(argv: string[]): Promise<void> {
       label: { type: "string" },
       wait: { type: "boolean" },
       queue: { type: "boolean" },
+      steer: { type: "boolean" },
       interrupt: { type: "boolean" },
       until: { type: "string" },
       timeout: { type: "string" },
@@ -461,7 +463,13 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
   const agentId = agent.id;
   switch (sub) {
     case "send": {
-      const mode = h.bool("queue") ? "queue" : h.bool("interrupt") ? "interrupt" : "auto";
+      const mode = h.bool("steer")
+        ? "steer"
+        : h.bool("queue")
+          ? "queue"
+          : h.bool("interrupt")
+            ? "interrupt"
+            : "auto";
       const attachments = await upload(client, h.strings("attach"));
       const result = await client.agents.send({
         agentId,

@@ -128,9 +128,18 @@ reason about: two clients sending at once become an ordered prompt, then a steer
 
 - **Input.** `agents.send {inputId, text, mode}`. The actor records an `input` entry,
   starts a run if none is live (resuming the runtime's conversation), then prompts when
-  idle or steers-or-queues when busy (oar decides where it can land). The outcome is an
-  `input.result` entry. `inputId` is the idempotency key: a retried send returns the
-  first outcome.
+  idle. The outcome is an `input.result` entry. `inputId` is the idempotency key: a
+  retried send returns the first outcome.
+- **Busy input (D-035).** While a turn runs, `mode` says where input goes. `queue` (and
+  `auto`) is held by rowrow (`input.result` landed `queued`, `held`) and sent as the next
+  turn's prompt when the turn ends, one per turn, in order (`input.sent`). Until then it can
+  be taken back (`agents.withdraw` → `input.withdrawn`) or sent now (`agents.sendNow`: a
+  steer while it works, the next turn when idle). `steer` goes into the running turn and
+  can't be taken back; a runtime that can't steer holds it instead, with a `reason`.
+  `interrupt` aborts the turn, then prompts. When a turn is stopped or fails, or the run
+  exits or rowrow restarts, held inputs wait (`queue.paused`) until someone resumes them
+  (`agents.resume`, `queue.resumed`). The summary folds all of this into `queued`,
+  `queuePaused`, `steering` (steered, not read yet) and `unread` (the turn ended first).
 - **Runs.** A run starts lazily on the first input. It stays live after a turn for a
   while (the idle timeout), then is disposed to free memory. `run.ended` says why. At
   boot, a run with no end is closed as `crashed`.

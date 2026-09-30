@@ -12,7 +12,17 @@ import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
-import type { InputBlock, NoticeBlock, RunBlock, Timeline, TimelineBlock } from "../../shared/timeline.ts";
+import {
+  held,
+  landedIn,
+  outcomeOf,
+  steerUnread,
+  type InputBlock,
+  type NoticeBlock,
+  type RunBlock,
+  type Timeline,
+  type TimelineBlock,
+} from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
 import { endText, noticeText } from "../../shared/transcript-model.ts";
 
@@ -50,7 +60,8 @@ const Block = memo(function Block({
     case "run":
       return <Run run={block} timeline={timeline} runtime={runtime} />;
     case "input":
-      return block.delivered ? null : <PendingInput block={block} />;
+      // A held one waits above the composer (QueueTray) until it is sent.
+      return block.delivered || held(block) ? null : <PendingInput block={block} />;
     case "notice":
       return <Notice block={block} />;
   }
@@ -102,6 +113,8 @@ const Message = memo(function Message({
     case "input": {
       const { input } = message;
       const origin = input.inputId === undefined ? undefined : timeline.inputs.get(input.inputId);
+      // Steered and not read yet: it waits above the composer (QueueTray).
+      if (steerUnread(origin, input.observations.length, runtime)) return null;
       // What you sent (your text and files), rather than the text the runtime read.
       return (
         <UserMessage
@@ -109,7 +122,7 @@ const Message = memo(function Message({
           attachments={origin?.input.attachments}
           by={origin?.input.by}
           at={origin?.input.at}
-          landed={origin?.result?.landed}
+          landed={landedIn(origin)}
           state={input.state === "rejected" ? "error" : input.state === "pending" ? "sending" : "sent"}
         />
       );
@@ -133,7 +146,9 @@ const Message = memo(function Message({
               {`Failed: ${message.outcome.reason}`}
             </p>
           )}
-          {message.outcome?.kind === "aborted" && <p className="text-sm text-muted-foreground">Stopped.</p>}
+          {message.outcome?.kind === "aborted" && (
+            <p className="text-sm text-muted-foreground">You stopped the turn.</p>
+          )}
         </article>
       );
   }
@@ -151,17 +166,13 @@ function UserMessage({
   attachments: readonly Attachment[] | undefined;
   by: Actor | undefined;
   at: number | undefined;
-  landed: string | undefined;
+  landed: "steered" | "queued" | null;
   state: "sending" | "sent" | "error";
 }) {
   const facts = [
     by === undefined ? null : actorLabel(by),
     at === undefined ? null : new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
-    landed === "steered"
-      ? "steered into the running turn"
-      : landed === "queued"
-        ? "queued for the next turn"
-        : null,
+    landed === "steered" ? "Steered in" : landed === "queued" ? "queued for the next turn" : null,
   ].filter((part) => part !== null);
   return (
     <article data-author="you" aria-label="Your message" className="flex flex-col items-end gap-1 pl-10">
@@ -188,8 +199,8 @@ function UserMessage({
 }
 
 function PendingInput({ block }: { block: InputBlock }) {
-  const failed =
-    block.result !== undefined && (block.result.landed === "failed" || block.result.landed === "rejected");
+  const outcome = outcomeOf(block);
+  const failed = outcome !== undefined && (outcome.landed === "failed" || outcome.landed === "rejected");
   return (
     <>
       <UserMessage
@@ -197,12 +208,10 @@ function PendingInput({ block }: { block: InputBlock }) {
         attachments={block.input.attachments}
         by={block.input.by}
         at={block.input.at}
-        landed={undefined}
+        landed={null}
         state={failed ? "error" : "sending"}
       />
-      {failed && (
-        <SystemLine>{`Not delivered: ${block.result?.reason ?? block.result?.landed ?? ""}`}</SystemLine>
-      )}
+      {failed && <SystemLine>{`Not delivered: ${outcome?.reason ?? outcome?.landed ?? ""}`}</SystemLine>}
     </>
   );
 }

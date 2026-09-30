@@ -193,7 +193,7 @@ const agents = {
   send: oc
     .route({
       summary:
-        "Send input to an agent. Starts (resumes) its run when none is live. mode auto: prompt when idle, steer or queue when busy; queue: hold for the next turn; interrupt: abort the running turn, then prompt. Idempotent on inputId: a retry returns the first result.",
+        "Send input to an agent. Starts (resumes) its run when none is live; idle, every mode starts a turn. Busy: auto and queue hold it (landed queued) and send it, one per turn, when the turn ends, and until then agents.withdraw takes it back; steer puts it into the running turn (a runtime that can't steer holds it, with a code saying so); interrupt aborts the running turn, then prompts. Idempotent on inputId: a retry returns the first result.",
     })
     .input(
       z
@@ -207,6 +207,27 @@ const agents = {
         .refine(hasContent, "send some text or an attachment"),
     )
     .output(SendResult),
+  withdraw: oc
+    .route({
+      summary:
+        "Take back an input the agent holds for a later turn (or a steer the runtime never read), to edit or drop it. CONFLICT once it went to the agent.",
+    })
+    .input(z.object({ agentId, inputId: z.string() }))
+    .output(z.object({ text: z.string(), attachments: z.array(Attachment) })),
+  sendNow: oc
+    .route({
+      summary:
+        "Send a held input now instead of after the queue: steered into the running turn, or as the next turn when idle. Doesn't resume a paused queue.",
+    })
+    .input(z.object({ agentId, inputId: z.string() }))
+    .output(SendResult),
+  resume: oc
+    .route({
+      summary:
+        "Send held inputs again after the queue paused (the turn was stopped or failed, or the run ended): the next one now when idle.",
+    })
+    .input(z.object({ agentId }))
+    .output(ok),
   abort: oc
     .route({
       summary:

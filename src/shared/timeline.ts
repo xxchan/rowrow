@@ -9,6 +9,7 @@
 // start), because oar's view adopts a turn it joins midway.
 import { initialSessionView, reduceSessionView, type SessionView } from "@botiverse/oar/observe";
 import type { Entry, EntryOf } from "./entries.ts";
+import { echoesInput } from "./summary.ts";
 
 export interface RunBlock {
   readonly kind: "run";
@@ -26,6 +27,8 @@ export interface InputBlock {
   readonly kind: "input";
   readonly input: EntryOf<"input">;
   readonly result?: EntryOf<"input.result">;
+  /** A held input (D-035) went to the runtime: how that went. */
+  readonly sent?: EntryOf<"input.sent">;
   /** An oar request carried this input into a run; the run's view shows it from then on. */
   readonly delivered: boolean;
 }
@@ -71,6 +74,25 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
     case "input.result": {
       const block = t.inputs.get(entry.inputId);
       return block === undefined ? t : replaceInput(t, block, { ...block, result: entry });
+    }
+    case "input.sent": {
+      // It was held while the last turn ran; it belongs after that turn, where it was sent.
+      const block = t.inputs.get(entry.inputId);
+      if (block === undefined) return t;
+      const moved: InputBlock = { ...block, sent: entry };
+      return {
+        ...t,
+        blocks: [...t.blocks.filter((b) => b !== block), moved],
+        inputs: withInput(t.inputs, moved),
+      };
+    }
+    case "input.withdrawn": {
+      const block = t.inputs.get(entry.inputId);
+      // A steer the runtime never read, dismissed: the run's view still has it (unshown).
+      if (block === undefined || block.delivered) return t;
+      const inputs = new Map(t.inputs);
+      inputs.delete(entry.inputId);
+      return { ...t, blocks: t.blocks.filter((b) => b !== block), inputs };
     }
     case "run.started": {
       const block: RunBlock = {
@@ -126,6 +148,8 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
         ? t
         : { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
     case "agent.created":
+    case "queue.paused":
+    case "queue.resumed":
       return t;
   }
 }
@@ -155,6 +179,32 @@ function replaceInput(t: Timeline, old: InputBlock, block: InputBlock): Timeline
     blocks: index === -1 ? t.blocks : replaceAt(t.blocks, index, block),
     inputs: withInput(t.inputs, block),
   };
+}
+
+/** How an input ended up, as far as the log says: held and sent, or answered straight away. */
+export function outcomeOf(block: InputBlock): EntryOf<"input.result" | "input.sent"> | undefined {
+  return block.sent ?? block.result;
+}
+
+/** rowrow holds it (D-035): it waits above the composer, not in the conversation, until it is sent. */
+export function held(block: InputBlock): boolean {
+  return block.result?.held === true && block.sent === undefined;
+}
+
+/** How an input went into a turn when not as its own prompt. A held one went out as its own
+ * prompt, unless someone steered it in. */
+export function landedIn(block: InputBlock | undefined): "steered" | "queued" | null {
+  const landed = block?.result?.held === true ? block.sent?.landed : block?.result?.landed;
+  return landed === "steered" || landed === "queued" ? landed : null;
+}
+
+/**
+ * Steered into a turn, and the runtime hasn't said it read it (`observations`, on the runtimes
+ * that echo). It waits above the composer until then: the conversation shows only what the
+ * agent got.
+ */
+export function steerUnread(block: InputBlock | undefined, observations: number, runtime: string): boolean {
+  return landedIn(block) === "steered" && echoesInput(runtime) && observations === 0;
 }
 
 /** The live run's view, if the latest run block has not ended. */

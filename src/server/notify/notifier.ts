@@ -175,7 +175,11 @@ function wordsFor(summary: AgentSummary, attention: Attention): { title: string;
       : failed
         ? (summary.lastError ?? "")
         : (summary.preview ?? "");
-  return { title, detail: detail.trim().replaceAll(/\s+/g, " ").slice(0, 180) };
+  const line = detail.trim().replaceAll(/\s+/g, " ").slice(0, 180);
+  // A failed turn pauses what you queued after it (D-035): say so, or it looks sent.
+  const held = summary.queuePaused === null ? 0 : summary.queued.length;
+  const paused = held === 0 ? "" : `${held} queued ${held === 1 ? "message is" : "messages are"} paused`;
+  return { title, detail: [line, paused].filter((part) => part !== "").join(" · ") };
 }
 
 export function describe(

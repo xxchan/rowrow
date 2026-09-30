@@ -10,12 +10,17 @@ export type Actor =
   | { readonly kind: "system" };
 
 /**
- * How input should be delivered.
- * - `auto`: prompt when idle; when a turn is running, steer it (or queue, when the runtime can't steer).
- * - `queue`: prompt when idle; when busy, hold it for the next turn.
+ * How input should be delivered (D-035). Idle, every mode starts a turn.
+ * - `queue`: when busy, rowrow holds it and sends it when the turn ends; until then it can
+ *   be taken back. `auto` is the same.
+ * - `steer`: when busy, into the running turn; it can't be taken back. A runtime that can't
+ *   steer holds it instead, and the result says why.
  * - `interrupt`: abort the running turn, then prompt.
  */
-export type InputMode = "auto" | "queue" | "interrupt";
+export type InputMode = "auto" | "queue" | "steer" | "interrupt";
+
+/** Why rowrow stopped sending held inputs: nobody asked for the next turn, so it waits for you. */
+export type QueuePauseReason = "stopped" | "failed" | "exited" | "restarted";
 
 /** Where an input landed, read from oar's answer, never assumed. */
 export type InputLanding = "prompted" | "steered" | "queued" | "rejected" | "failed";
@@ -73,10 +78,30 @@ export type EntryBody =
       readonly kind: "input.result";
       readonly inputId: string;
       readonly landed: InputLanding;
+      /** rowrow holds it (landed "queued", in no run yet) until the turn ends: then
+       * `input.sent`, or `input.withdrawn` if someone took it back first (D-035). Logs from
+       * before that have "queued" without it: oar queued those. */
+      readonly held?: true;
       readonly runId?: string;
       readonly code?: string;
       readonly reason?: string;
     }
+  /** A held input went to the runtime: as the next turn's prompt, or steered into the running
+   * one when someone asked for it now. */
+  | {
+      readonly kind: "input.sent";
+      readonly inputId: string;
+      readonly landed: "prompted" | "steered" | "rejected" | "failed";
+      readonly runId?: string;
+      readonly code?: string;
+      readonly reason?: string;
+    }
+  /** Someone took a held input back before it was sent (to edit it, or to drop it). */
+  | { readonly kind: "input.withdrawn"; readonly inputId: string; readonly by: Actor }
+  /** Held inputs wait for you: the turn was stopped, failed, or the run is gone. Cleared by
+   * `queue.resumed`, or when nothing is held any more. */
+  | { readonly kind: "queue.paused"; readonly reason: QueuePauseReason }
+  | { readonly kind: "queue.resumed"; readonly by: Actor }
   | {
       readonly kind: "run.started";
       readonly runId: string;
