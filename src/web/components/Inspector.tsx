@@ -2,9 +2,12 @@
 // review comments on it), the files (search and preview), and the history (commits and the
 // branch's pull request). Tabs stay mounted, so switching keeps a search or a commit open.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { lazy, Suspense } from "react";
 import { ChangesView } from "./ChangesView.tsx";
-import { FilesTab } from "./FilesTab.tsx";
 import { HistoryTab } from "./HistoryTab.tsx";
+
+// The file tree (@pierre/trees) loads after the app, not with it.
+const FilesTab = lazy(async () => ({ default: (await import("./FilesTab.tsx")).FilesTab }));
 
 export type InspectorTab = "changes" | "files" | "history";
 
@@ -53,7 +56,9 @@ export function Inspector({
         />
       </TabsContent>
       <TabsContent value="files" forceMount className={PANE}>
-        <FilesTab workspaceId={workspaceId} {...(agentId === undefined ? {} : { agentId })} />
+        <Suspense>
+          <FilesTab workspaceId={workspaceId} {...(agentId === undefined ? {} : { agentId })} />
+        </Suspense>
       </TabsContent>
       <TabsContent value="history" forceMount className={PANE}>
         <HistoryTab workspaceId={workspaceId} />

@@ -873,8 +873,9 @@ devDependencies: Vite bundles them into the web app, and the server never loads 
 **Why.** They match what people see on GitHub and in their editor, handle long files and
 wide lines, and leave the colors ours.
 
-**Cost.** The web app grows (its main chunk is about 1.8 MB; each Shiki language is its own
-lazy chunk), and pinning `@shikijs/transformers` to 3.x keeps one Shiki core
+**Cost.** The web app grows (the diff renderer and the tree are about 300 and 250 KB, loaded
+with the first diff and with the inspector's Files tab; each Shiki language is its own lazy
+chunk), and pinning `@shikijs/transformers` to 3.x keeps one Shiki core
 ([upstream.md](upstream.md)). `@pierre/trees` is a beta.
 
 **Revisit when** either library breaks its variables or slots, the web app's weight matters

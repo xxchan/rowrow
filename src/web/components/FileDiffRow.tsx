@@ -8,12 +8,16 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { ChevronRight, Copy, LoaderCircle } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import type { ChangedFile } from "../../shared/schemas.ts";
 import type { Annotation } from "../lib/annotations.ts";
-import { DiffView, type LineRef } from "./DiffView.tsx";
+import type { LineRef } from "./DiffView.tsx";
 import { ErrorText } from "./ErrorText.tsx";
 import { CONTEXT_PARTS, copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
+
+// The diff renderer (@pierre/diffs and Shiki) is most of the web app's weight: it loads with
+// the first diff you open, not with the app.
+const DiffView = lazy(async () => ({ default: (await import("./DiffView.tsx")).DiffView }));
 
 const STATUS: Record<ChangedFile["status"], string> = {
   added: "A",
@@ -82,6 +86,11 @@ export function FileDiffRow({
     };
   }, [open, version, diff?.version, load]);
 
+  const loading = (
+    <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+      <LoaderCircle className="size-3.5 animate-spin" /> Loading diff
+    </div>
+  );
   return (
     <div className="flex flex-col">
       <ContextMenu>
@@ -143,15 +152,13 @@ export function FileDiffRow({
       {open && (
         <div className="pt-1 pb-3 pl-1">
           {diff === null || diff.version !== version ? (
-            <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" /> Loading diff
-            </div>
+            loading
           ) : "error" in diff ? (
             <ErrorText className="px-2">{diff.error}</ErrorText>
           ) : diff.patch === "" ? (
             <p className="px-2 text-xs text-muted-foreground">No textual diff (binary or too large).</p>
           ) : (
-            <>
+            <Suspense fallback={loading}>
               <DiffView
                 patch={diff.patch}
                 annotations={annotations}
@@ -159,7 +166,7 @@ export function FileDiffRow({
                 {...(onRemove === undefined ? {} : { onRemove })}
               />
               {diff.truncated && <p className="px-2 pt-1 text-xs text-muted-foreground">Cut at 512 KB.</p>}
-            </>
+            </Suspense>
           )}
         </div>
       )}
