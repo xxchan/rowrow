@@ -8,8 +8,11 @@ import Testing
 final class LocalServer: @unchecked Sendable {
   static let repo = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../../..").standardized
 
+  /// Vite's own script: pnpm's `node_modules/.bin/vite` is a shell shim that Node can't run.
+  static let vite = "node_modules/vite/bin/vite.js"
+
   static var available: Bool {
-    FileManager.default.fileExists(atPath: repo.appending(path: "node_modules/.bin/vite").path) && node != nil
+    FileManager.default.fileExists(atPath: repo.appending(path: vite).path) && node != nil
   }
 
   /// Node 24 as pnpm installed it for the checkout (devEngines), else the one on PATH.
@@ -39,17 +42,25 @@ final class LocalServer: @unchecked Sendable {
     process.currentDirectoryURL = repo
     process.environment = ProcessInfo.processInfo.environment.merging(env) { $1 }
     let out = Pipe()
+    let err = Pipe()
     process.standardOutput = out
-    process.standardError = FileHandle.nullDevice
+    process.standardError = err
     try process.run()
     let data = out.fileHandleForReading.readDataToEndOfFile()
+    let message = err.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
+    // A failure here must fail the test: a kit that didn't build would leave an old one in dist/kit.
+    guard process.terminationStatus == 0 else {
+      throw JSONError(
+        description: "\(arguments.joined(separator: " ")) exited with \(process.terminationStatus): \(String(decoding: message, as: UTF8.self))"
+      )
+    }
     return String(decoding: data, as: UTF8.self)
   }
 
   static func start() async throws -> LocalServer {
     // The kit the server serves: built from this checkout's src/shared.
-    _ = try run(["node_modules/.bin/vite", "build", "--config", "vite.kit.config.ts", "--logLevel", "silent"])
+    _ = try run([vite, "build", "--config", "vite.kit.config.ts", "--logLevel", "silent"])
     let home = FileManager.default.temporaryDirectory.appending(path: "rowrow-swift-\(UUID().uuidString)")
     let process = Process()
     process.executableURL = URL(filePath: node ?? "/usr/bin/false")
