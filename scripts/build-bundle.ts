@@ -38,6 +38,37 @@ export function prunable(name: string): boolean {
 }
 
 /**
+ * Whether a package's `os` or `cpu` rules it out on the target, read the way npm reads them
+ * (npm-install-checks): no "!value" may match, and one of the others must, if there are any.
+ */
+export function forOtherPlatform(
+  manifest: { readonly os?: unknown; readonly cpu?: unknown },
+  platform: string,
+  arch: string,
+): boolean {
+  return !allows(manifest.os, platform) || !allows(manifest.cpu, arch);
+}
+
+function allows(rule: unknown, value: string): boolean {
+  const entries =
+    typeof rule === "string"
+      ? [rule]
+      : Array.isArray(rule)
+        ? rule.filter((entry): entry is string => typeof entry === "string")
+        : [];
+  if (entries.length === 0 || (entries.length === 1 && entries[0] === "any")) return true;
+  let excluded = 0;
+  let listed = false;
+  for (const entry of entries) {
+    if (entry.startsWith("!")) {
+      excluded++;
+      if (entry.slice(1) === value) return false;
+    } else if (entry === value) listed = true;
+  }
+  return listed || excluded === entries.length;
+}
+
+/**
  * The CLI's launcher: finds the bundle from its own path, through symlinks (ROWROW_HOME/bin/rowrow
  * is one), and runs the bundle's CLI with the bundle's Node.
  */
@@ -115,6 +146,42 @@ function prune(dir: string): number {
   return bytes;
 }
 
+/**
+ * Packages npm installed for other platforms. npm 11 installs every optional package a
+ * dependency's npm-shrinkwrap.json lists, whatever its `os` and `cpu`, --os and --cpu or not
+ * (pi-coding-agent's lists esbuild for 26 platforms: docs/upstream.md).
+ */
+function prunePlatforms(modules: string, platform: string, arch: string): number {
+  let bytes = 0;
+  for (const dir of packageDirs(modules)) {
+    const manifest = path.join(dir, "package.json");
+    if (!fs.existsSync(manifest)) continue;
+    const rules = JSON.parse(fs.readFileSync(manifest, "utf8")) as { os?: unknown; cpu?: unknown };
+    if (forOtherPlatform(rules, platform, arch)) {
+      bytes += sizeOf(dir);
+      fs.rmSync(dir, { recursive: true, force: true });
+    } else bytes += prunePlatforms(path.join(dir, "node_modules"), platform, arch);
+  }
+  return bytes;
+}
+
+/** The packages in a node_modules directory, scoped ones included. */
+function packageDirs(modules: string): string[] {
+  if (!fs.existsSync(modules)) return [];
+  return fs.readdirSync(modules, { withFileTypes: true }).flatMap((entry) => {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) return [];
+    const dir = path.join(modules, entry.name);
+    return entry.name.startsWith("@") ? packageDirs(dir) : [dir];
+  });
+}
+
+function sizeOf(dir: string): number {
+  let bytes = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true, recursive: true }))
+    if (entry.isFile()) bytes += fs.statSync(path.join(entry.parentPath, entry.name)).size;
+  return bytes;
+}
+
 export async function buildBundle(
   target: Target,
   tarball: string,
@@ -156,6 +223,7 @@ export async function buildBundle(
     ],
     { cwd: dir },
   );
+  const elsewhere = prunePlatforms(path.join(dir, "node_modules"), platform, arch);
   const pruned = prune(path.join(dir, "node_modules"));
 
   const { node, license } = await nodeBinary(target, cache);
@@ -178,7 +246,7 @@ export async function buildBundle(
   sh("tar", ["-czf", archive, "-C", out, name]);
   const size = (bytes: number): string => `${(bytes / 1e6).toFixed(1)} MB`;
   console.log(
-    `build:bundle: ${path.relative(root, archive)} (${size(fs.statSync(archive).size)}; pruned ${size(pruned)} of maps, types and docs)`,
+    `build:bundle: ${path.relative(root, archive)} (${size(fs.statSync(archive).size)}; pruned ${size(elsewhere)} of packages for other platforms, ${size(pruned)} of maps, types and docs)`,
   );
   return dir;
 }
