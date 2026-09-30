@@ -57,7 +57,7 @@
     "format:check": "oxfmt --check",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vite build && playwright test",
+    "test:e2e": "node scripts/e2e.ts",
     "test:desktop": "vite build && node scripts/build-desktop.ts && playwright test -c playwright.desktop.config.ts",
     "ios:test": "swift test --package-path ios/RowrowCore",
     "test:package": "node scripts/test-package.ts",

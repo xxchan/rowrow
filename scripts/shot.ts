@@ -1,12 +1,15 @@
 // Screenshot the real UI of a running rowrow server, signed in: what an agent looks at to
 // check its UI work without a person (PRINCIPLES.md, engineering 4).
 //
-//   pnpm shot [route] [--profile dev] [--mobile] [--dark] [--click "Button name"] [--wait 800] [--out file.png]
+//   pnpm shot [route] [--profile dev] [--mobile] [--dark] [--click "Name"]… [--element "Name"]
+//             [--wait 800] [--out file.png]
 //
 // Signs a throwaway browser in with a one-time link from the server (through the CLI's
 // credential in <profile>/server.json), opens the route, waits for the app to connect,
 // and writes a PNG (default .dev/shots/<route>-<viewport>.png). Prints the path.
-import { chromium, devices } from "@playwright/test";
+// --element shoots only the dialog, region or other landmark with that accessible name: a
+// smaller picture of just what changed.
+import { chromium, devices, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -20,6 +23,7 @@ const { values, positionals } = parseArgs({
     dark: { type: "boolean" },
     wait: { type: "string" },
     click: { type: "string", multiple: true },
+    element: { type: "string" },
     out: { type: "string" },
   },
 });
@@ -51,13 +55,42 @@ await page.waitForFunction(
   { timeout: 15_000 },
 );
 await page.waitForTimeout(Number(values.wait ?? 800));
-// Open panels or menus first: each --click presses the button or tab with that accessible name.
+type Role = Parameters<Page["getByRole"]>[0];
+/** The first visible element with one of `roles` named exactly `name`, else one whose name
+ * contains it ("Changes" finds the button named "Changes · 2"). */
+async function byName(roles: readonly Role[], name: string): Promise<Locator> {
+  const find = (exact: boolean): Locator =>
+    roles
+      .map((role) => page.getByRole(role, { name, exact }))
+      .reduce((all, one) => all.or(one))
+      .filter({ visible: true })
+      .first();
+  return (await find(true).count()) > 0 ? find(true) : find(false);
+}
+const clickable: Role[] = [
+  "button",
+  "tab",
+  "treeitem",
+  "menuitem",
+  "link",
+  "option",
+  "checkbox",
+  "switch",
+  "radio",
+];
+const landmarks: Role[] = [
+  "dialog",
+  "region",
+  "tabpanel",
+  "navigation",
+  "main",
+  "complementary",
+  "form",
+  "tree",
+];
+// Open panels, menus or folders first: each --click presses what has that accessible name.
 for (const name of values.click ?? []) {
-  await page
-    .getByRole("button", { name, exact: true })
-    .or(page.getByRole("tab", { name, exact: true }))
-    .first()
-    .click();
+  await (await byName(clickable, name)).click();
   await page.waitForTimeout(Number(values.wait ?? 800));
 }
 const name = route === "/" ? "home" : route.replaceAll(/[^a-z0-9]+/gi, "-").replaceAll(/^-|-$/g, "");
@@ -66,7 +99,8 @@ const out = path.resolve(
     `.dev/shots/${name}-${values.mobile === true ? "mobile" : "desktop"}${values.dark === true ? "-dark" : ""}.png`,
 );
 fs.mkdirSync(path.dirname(out), { recursive: true });
-await page.screenshot({ path: out, fullPage: false });
+if (values.element === undefined) await page.screenshot({ path: out, fullPage: false });
+else await (await byName(landmarks, values.element)).screenshot({ path: out });
 await browser.close();
 console.log(out);
 if (problems.length > 0) console.log(`browser console:\n  ${problems.join("\n  ")}`);

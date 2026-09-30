@@ -12,10 +12,12 @@ dependency workarounds in [docs/upstream.md](docs/upstream.md).
 pnpm install        # pnpm fetches Node 24 (devEngines) when your shell has another version
 pnpm dev            # a server (profile dev, scripted runtime) + Vite with hot reload; prints a sign-in link
 pnpm check          # typecheck + lint + format check + unit and integration tests: must pass before a commit
-pnpm test:e2e       # builds the web app, then Playwright on a desktop and a phone viewport
+pnpm test:e2e       # Playwright on a desktop and a phone viewport (rebuilds the web app if it changed)
+pnpm test:e2e -g "the inspector" --project desktop   # one test on one viewport
 pnpm test:package   # packs the npm package, installs it with npm in a temp prefix, and runs it
 pnpm rowrow …       # the CLI (node src/cli/main.ts …)
-pnpm shot <route>   # a screenshot of the real UI, signed in: --mobile, --dark, --profile dev (default)
+pnpm shot <route>   # a screenshot of the real UI, signed in: --mobile, --dark, --profile dev (default),
+                    # --click "Name" (a button, tab, tree row…), --element "Name" (just that dialog or region)
 pnpm ios:test       # the iOS app's core (swift test), against a real server from this checkout
 pnpm desktop        # the Mac app from this checkout: throwaway home, its server as a child process
 pnpm test:desktop   # builds the Mac app's code, then drives it with Playwright (test/e2e-desktop)
@@ -44,6 +46,13 @@ it without touching your launchd or `~/.rowrow`. Its log is `~/Library/Logs/rowr
    prints the browser console's warnings and errors.
 3. **Ask it.** `pnpm rowrow --profile dev status`, `agents`, `agent view <id>`,
    `logs --since 10m`, `errors`. The CLI calls the same API the UI uses.
+
+While you work, run the one test that covers your change (`pnpm exec vitest run
+test/inspector.test.ts -t "for the tree"`, `pnpm test:e2e -g "the inspector" --project desktop`); run all
+of `pnpm check` and `pnpm test:e2e` once before you commit. Both are quiet when they pass:
+what they print is what failed. Keep your own context small too: send a long log to a file
+and search it, shoot just the region you changed, and hand wide reading (a library's API,
+every caller of a function) to a subagent that returns the answer.
 
 The scripted runtime (`src/server/agents/scripted.ts`) is a real oar session with no model:
 `/echo <text>`, `/write <path>` (then the file's lines), `/sleep <ms>`, `/stream <n>`,
