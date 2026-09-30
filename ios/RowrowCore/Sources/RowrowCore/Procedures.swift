@@ -33,6 +33,21 @@ extension APIClient {
     try await call("agents.abort", ["agentId": agentId])
   }
 
+  /// Take back a message the agent holds for a later turn, to edit or drop it. Throws once it went.
+  public func withdraw(agentId: String, inputId: String) async throws -> Withdrawn {
+    try await call("agents.withdraw", ["agentId": agentId, "inputId": inputId])
+  }
+
+  /// Send a held message now: steered into the running turn, or as the next turn when idle.
+  public func sendNow(agentId: String, inputId: String) async throws -> SendResult {
+    try await call("agents.sendNow", ["agentId": agentId, "inputId": inputId])
+  }
+
+  /// Send held messages again after the queue paused (a stopped or failed turn, an ended run).
+  public func resume(agentId: String) async throws {
+    let _: OK = try await call("agents.resume", ["agentId": agentId])
+  }
+
   /// Stop the agent's process; the conversation resumes with the next message.
   public func stop(agentId: String) async throws {
     let _: OK = try await call("agents.stop", ["agentId": agentId])

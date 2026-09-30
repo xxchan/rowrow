@@ -2,8 +2,9 @@ import RowrowCore
 import SwiftUI
 
 /// Writing to an agent. Return is a newline (dictation and IME need it); the button sends.
-/// While the agent works, a message steers the running turn (or waits for the next when the
-/// runtime can't steer); hold the button to queue it instead, or to stop the turn and send.
+/// While the agent works, the button queues (D-035): the message waits above the composer until
+/// the turn ends, and until then you can edit, send now or delete it. Hold the button to steer
+/// into the turn instead (it can't be taken back), or to stop the turn and send.
 /// A send that may not have arrived keeps its id, so sending again can't deliver it twice.
 struct Composer: View {
   let agent: AgentState
@@ -19,6 +20,8 @@ struct Composer: View {
   @State private var sending = false
   @State private var skills: SkillList?
   @State private var sent = 0
+  /// A queued message you deleted, until you undo it or send something else.
+  @State private var deleted: Withdrawn?
 
   private var draft: Binding<String> {
     Binding(get: { model.drafts[agent.id] ?? "" }, set: { model.drafts[agent.id] = $0 })
@@ -45,6 +48,25 @@ struct Composer: View {
           skills = (try? await session.api.skills(runtime: agent.summary.runtime, workspaceId: agent.summary.workspaceId))
             ?? SkillList(skills: [], error: "Couldn't load commands.")
         }
+      }
+      if let deleted {
+        HStack {
+          Label(deleted.text.isEmpty ? "Deleted" : "Deleted “\(firstLine(deleted.text))”", systemImage: "trash")
+            .lineLimit(1)
+          Spacer()
+          Button("Undo") {
+            putBack(deleted)
+            self.deleted = nil
+          }
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+      }
+      QueueTray(agent: agent, session: session, putBack: putBack) { taken in
+        deleted = taken
+      } fail: { message in
+        note = (message, true)
       }
       if let note {
         Label(note.text, systemImage: note.error ? "exclamationmark.circle" : "clock")
@@ -73,7 +95,7 @@ struct Composer: View {
           }
           .disabled(agent.summary.archived)
         }
-        TextField(working ? "Steer it, or queue the next thing" : "Message", text: draft, axis: .vertical)
+        TextField(working ? "Queue a message for after this turn" : "Message", text: draft, axis: .vertical)
           .lineLimit(1...8)
           .focused($focused)
           .padding(.vertical, 7)
@@ -102,29 +124,35 @@ struct Composer: View {
   private func sendButton(working: Bool, empty: Bool) -> some View {
     let icon = Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
     if working {
+      let steer = SteerSupport(runtime: agent.summary.runtime)
       Menu {
-        Button {
-          Task { await send(.auto) }
-        } label: {
-          Label("Send Now (Steer)", systemImage: "arrow.turn.down.right")
-        }
         Button {
           Task { await send(.queue) }
         } label: {
-          Label("Queue for the Next Turn", systemImage: "text.line.last.and.arrowtriangle.forward")
+          Label("Queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+          Text("After this turn · you can still edit it")
+        }
+        if steer != .no {
+          Button {
+            Task { await send(.steer) }
+          } label: {
+            Label("Steer Now", systemImage: "arrow.turn.down.right")
+            Text(steer == .redoes ? "Into this turn · it redoes the current step" : "Into this turn · can't be taken back")
+          }
         }
         Button(role: .destructive) {
           Task { await send(.interrupt) }
         } label: {
-          Label("Stop the Turn and Send", systemImage: "stop.circle")
+          Label("Stop and Send", systemImage: "stop.circle")
+          Text("Ends this turn first")
         }
       } label: {
         icon
       } primaryAction: {
-        Task { await send(.auto) }
+        Task { await send(.queue) }
       }
       .disabled(empty || sending)
-      .accessibilityLabel("Send")
+      .accessibilityLabel("Queue")
     } else {
       Button {
         Task { await send(.auto) }
@@ -151,6 +179,7 @@ struct Composer: View {
     pending = (text, inputId)
     draft.wrappedValue = ""
     note = nil
+    deleted = nil
     sending = true
     defer { sending = false }
     do {
@@ -163,7 +192,8 @@ struct Composer: View {
         draft.wrappedValue = text
         note = ("Not delivered: \(result.reason ?? result.code ?? result.landed.rawValue)", true)
       case .queued:
-        note = ("Queued: it goes when the current turn ends.", false)
+        // It shows in the tray; say why only when it was meant as a steer.
+        if result.code == "steer_unsupported" { note = (result.reason ?? "Queued for after this turn.", false) }
         sent += 1
         onSent?()
       default:
@@ -177,12 +207,210 @@ struct Composer: View {
     }
   }
 
+  /// Put a message back into the composer to edit: into an empty one, or after what you're
+  /// writing, never over it. Its files are uploaded already.
+  private func putBack(_ taken: Withdrawn) {
+    var current = draft.wrappedValue
+    if current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      current = taken.text
+    } else if !taken.text.isEmpty {
+      while current.last?.isWhitespace == true { current.removeLast() }
+      current += "\n\n" + taken.text
+    }
+    draft.wrappedValue = current
+    model.attachments[agent.id, default: []] += taken.attachments.map {
+      PendingAttachment(name: $0.name, preview: nil, state: .ready($0))
+    }
+    focused = true
+  }
+
   private func stopTurn() async {
     do {
       let result = try await session.api.abort(agentId: agent.id)
       if !result.accepted { note = ("Couldn't stop it: \(result.reason ?? "no running turn")", true) }
     } catch {
       note = ("Couldn't stop it: \((error as? RowrowError)?.errorDescription ?? error.localizedDescription)", true)
+    }
+  }
+}
+
+private func firstLine(_ text: String) -> String {
+  String(text.split(separator: "\n", maxSplits: 1).first ?? "")
+}
+
+/// What waits above the composer (D-035): messages steered into the running turn until the agent
+/// reads them, steers it never read, and the queue rowrow sends one per turn. A queued message's
+/// ⋯ (or a long press) edits, sends now or deletes it; a steer can't be taken back.
+private struct QueueTray: View {
+  let agent: AgentState
+  let session: Session
+  let putBack: (Withdrawn) -> Void
+  let onDelete: (Withdrawn) -> Void
+  let fail: (String) -> Void
+  @State private var expanded = false
+
+  private enum Kind: Equatable {
+    case steering, unread
+    case queued(Int)
+  }
+
+  private struct Row: Identifiable {
+    let item: QueuedInput
+    let kind: Kind
+    var id: String { item.inputId }
+  }
+
+  /// Rows shown before "+N more": the conversation stays in view.
+  private static let shown = 3
+
+  var body: some View {
+    let summary = agent.summary
+    let queued = summary.queued ?? []
+    let rows =
+      (summary.steering ?? []).map { Row(item: $0, kind: .steering) }
+      + (summary.unread ?? []).map { Row(item: $0, kind: .unread) }
+      + queued.enumerated().map { Row(item: $1, kind: .queued($0 + 1)) }
+    if !rows.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        if !queued.isEmpty {
+          HStack {
+            Text(summary.queuePaused.map(Self.pausedTitle) ?? "Up next · \(queued.count) queued, sent one per turn")
+              .lineLimit(1)
+            Spacer()
+            if let paused = summary.queuePaused {
+              Button(paused == .stopped ? "Resume" : "Send Next") {
+                attempt { try await session.api.resume(agentId: agent.id) }
+              }
+              .buttonStyle(.bordered)
+              .controlSize(.small)
+            }
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 8)
+        }
+        ForEach(expanded ? rows : Array(rows.prefix(Self.shown))) { row in
+          if row.id != rows.first?.id || !queued.isEmpty { Divider() }
+          rowView(row)
+        }
+        if rows.count > Self.shown {
+          Divider()
+          Button(expanded ? "Show Less" : "+\(rows.count - Self.shown) more") { expanded.toggle() }
+            .font(.caption)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+      }
+      .glassEffect(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+  }
+
+  private static func pausedTitle(_ reason: QueuePauseReason) -> String {
+    switch reason {
+    case .stopped: "Queue paused · you stopped the turn"
+    case .failed: "Queue paused · the last turn failed"
+    case .exited: "Queue paused · the agent exited"
+    case .restarted: "Queue paused · rowrow restarted"
+    }
+  }
+
+  @ViewBuilder
+  private func rowView(_ row: Row) -> some View {
+    let content = HStack(alignment: .top, spacing: 10) {
+      Group {
+        switch row.kind {
+        case .queued(let n): Text("\(n)").font(.caption2.monospacedDigit())
+        case .steering: Image(systemName: "arrow.turn.down.right").font(.caption2).foregroundStyle(.tint)
+        case .unread: Image(systemName: "exclamationmark.circle").font(.caption2)
+        }
+      }
+      .frame(width: 20, height: 20)
+      .background(.quaternary, in: Circle())
+      VStack(alignment: .leading, spacing: 2) {
+        if !row.item.text.isEmpty { Text(row.item.text).font(.subheadline).lineLimit(2) }
+        if !row.item.attachments.isEmpty {
+          Label(row.item.attachments.map(\.name).joined(separator: ", "), systemImage: "paperclip")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        Text(note(row)).font(.caption).foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      if row.kind != .steering {
+        Menu {
+          actions(row)
+        } label: {
+          Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle())
+        }
+        .accessibilityLabel("Message actions")
+        .foregroundStyle(.secondary)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    if row.kind == .steering {
+      content
+    } else {
+      content.contextMenu { actions(row) }
+    }
+  }
+
+  @ViewBuilder
+  private func actions(_ row: Row) -> some View {
+    let item = row.item
+    Button {
+      Task { if let taken = await withdraw(item) { putBack(taken) } }
+    } label: {
+      Label("Edit", systemImage: "pencil")
+    }
+    if case .queued = row.kind, let now = sendNowLabel {
+      Button {
+        attempt { _ = try await session.api.sendNow(agentId: agent.id, inputId: item.inputId) }
+      } label: {
+        Label(now, systemImage: "arrow.up")
+      }
+    }
+    Button(role: .destructive) {
+      Task { if let taken = await withdraw(item) { onDelete(taken) } }
+    } label: {
+      Label("Delete", systemImage: "trash")
+    }
+  }
+
+  /// Idle there's no turn to steer into: it goes as the next turn, ahead of a paused queue.
+  private var sendNowLabel: String? {
+    guard agent.attention == .working else { return "Send Now" }
+    return SteerSupport(runtime: agent.summary.runtime) == .no ? nil : "Steer Now"
+  }
+
+  private func note(_ row: Row) -> String {
+    switch row.kind {
+    case .steering: return "Steering into this turn · the agent reads it at its next step"
+    case .unread: return "Not read · the turn ended before the agent read it"
+    case .queued:
+      if agent.summary.queuePaused != nil { return "Queued · waits until you send the queue on" }
+      return agent.attention == .working ? "Queued · sends after this turn ends" : "Queued · sends next"
+    }
+  }
+
+  private func withdraw(_ item: QueuedInput) async -> Withdrawn? {
+    do {
+      return try await session.api.withdraw(agentId: agent.id, inputId: item.inputId)
+    } catch {
+      fail((error as? RowrowError)?.errorDescription ?? error.localizedDescription)
+      return nil
+    }
+  }
+
+  private func attempt(_ call: @escaping @MainActor () async throws -> Void) {
+    Task {
+      do {
+        try await call()
+      } catch {
+        fail((error as? RowrowError)?.errorDescription ?? error.localizedDescription)
+      }
     }
   }
 }
