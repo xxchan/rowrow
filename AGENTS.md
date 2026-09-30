@@ -133,6 +133,7 @@ CI publishes to npm (D-018); nobody runs `npm publish` by hand.
    (`0.3.0-rc.1`) goes to npm's `next` tag.
 4. The same tag sends the iOS app to TestFlight (`.github/workflows/ios.yml`, D-029) once
    the repository has an Apple team configured ([docs/ios.md](docs/ios.md) → TestFlight).
-5. The same release carries the server bundles for SSH hosts and, once the repository has a
-   Developer ID certificate (`MACOS_CERT_P12_BASE64`: Botiverse's), rowrow for Mac, signed, notarized, with the
-   `latest-mac.yml` its updater reads ([docs/desktop.md](docs/desktop.md) → Releases, D-031).
+5. The same release carries the server bundles for SSH hosts and rowrow for Mac, signed with
+   Botiverse's Developer ID (`MACOS_CERT_P12_BASE64`, which expires 2027-02-01) and notarized,
+   with the `latest-mac.yml` its updater reads ([docs/desktop.md](docs/desktop.md) → Releases,
+   D-031).

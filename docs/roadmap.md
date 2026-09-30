@@ -60,12 +60,14 @@ file when something lands.
 
 ## The Mac app, next
 
-1. The first signed release: a Developer ID certificate in the repository's secrets, then
-   check an update from one release to the next on a real Mac (docs/desktop.md → Releases).
-2. SSH hosts that ask for a password or a 2FA code (an askpass through the app).
-3. Reaching this Mac's server from the phone in a click: `tailscale serve` and the public
+1. The first signed release: the signing secrets are set, so tag a version, then check an
+   update from one release to the next on a real Mac (docs/desktop.md → Releases).
+2. A G2 Developer ID certificate from Botiverse's Account Holder before 2027-02-01, when the
+   current one expires.
+3. SSH hosts that ask for a password or a 2FA code (an askpass through the app).
+4. Reaching this Mac's server from the phone in a click: `tailscale serve` and the public
    URL, set up from the app.
-4. A notification for what finished while the app was closed (today: the badge counts it).
+5. A notification for what finished while the app was closed (today: the badge counts it).
 
 ## The iOS app, next
 

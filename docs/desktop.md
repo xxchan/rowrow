@@ -239,16 +239,18 @@ A version tag (AGENTS.md → Releasing) builds everything in `.github/workflows/
 Without `MACOS_CERT_P12_BASE64` the app is built but not signed or released (a fork's tags
 still publish the server and the bundles).
 
-rowrow for Mac is signed with **Botiverse, Inc.**'s Developer ID, the one Botiverse's other
-macOS apps use, under the same secret names (botiverse/slock's `_macos-sign-notarize.yml`).
-GitHub keeps secrets per repository and never shows them again, so they are set here from the
-files they came from:
+rowrow for Mac is signed with **Botiverse, Inc.**'s Developer ID (team `XDAPXFY8FZ`), the
+certificate Botiverse's other macOS apps use, under the same secret names (botiverse/slock's
+`_macos-sign-notarize.yml`). It is notarized with its own App Store Connect team key, "rowrow
+notarization": Developer access, the least `notarytool` needs, and revocable without touching
+the other apps. GitHub keeps secrets per repository and never shows them again, so they are
+set here from the files they came from:
 
 ```bash
 base64 -i developer-id-application.p12 | gh secret set MACOS_CERT_P12_BASE64 -R xxchan/rowrow
 gh secret set MACOS_CERT_PASSWORD -R xxchan/rowrow           # the .p12's password (asks for it)
 gh secret set APPLE_TEAM_ID -R xxchan/rowrow                 # Botiverse's team id
-gh secret set APPLE_API_KEY_ID -R xxchan/rowrow              # App Store Connect API key, for notarization
+gh secret set APPLE_API_KEY_ID -R xxchan/rowrow              # the "rowrow notarization" key's id
 gh secret set APPLE_API_ISSUER_ID -R xxchan/rowrow
 gh secret set APPLE_API_PRIVATE_KEY -R xxchan/rowrow < AuthKey_<key id>.p8
 ```
@@ -257,6 +259,14 @@ The signing job refuses a certificate that isn't a Developer ID Application of `
 To try signing without a release: Actions → desktop → Run workflow (`gh workflow run
 desktop.yml -R xxchan/rowrow`); the run's `rowrow-mac-signed` artifact is the notarized zip and
 disk image. For another team, the same names with your own certificate and key work as well.
+
+**The certificate expires on 2027-02-01.** Apple's previous Developer ID intermediate issued
+it, and nothing it issued outlives it. Before then, Botiverse's Account Holder (only the
+Account Holder can create a Developer ID certificate) makes a new one under the G2
+intermediate, which lasts five years, and the two certificate secrets are replaced, here and
+in slock. Installed apps keep updating across the change: Squirrel checks an update against
+the app's designated requirement, which names the team, not the certificate. Released
+versions keep opening after the date, since they are notarized and timestamped.
 
 The bundle id is `io.github.xxchan.rowrow.mac` (`MAC_BUNDLE_ID` to use your own). Changing it,
 or the signing team, after a release strands every installed app on its version: Squirrel
