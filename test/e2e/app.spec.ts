@@ -196,7 +196,16 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
       : page.getByRole("region", { name: "Inspector" });
   await expect(panel.getByText("src/hello.ts")).toBeVisible();
   await panel.getByText("src/hello.ts").click();
-  await expect(panel.getByText("export const hello = 1;")).toBeVisible();
+  const line = panel.getByText("export const hello = 1;");
+  await expect(line).toBeVisible();
+
+  // Click a line to comment on it: the comment waits under it for the agent's next message.
+  await line.click();
+  await expect(panel.getByRole("textbox", { name: "Comment" })).toBeFocused();
+  await page.keyboard.type("Name it greeting.");
+  await panel.getByRole("button", { name: "Comment", exact: true }).click();
+  await expect(panel.getByText("Name it greeting.")).toBeVisible();
+  await expect(panel.getByText("1 review comment")).toBeVisible();
 });
 
 test("the inspector: stage a change, find a line, read the history", async ({ page, rowrow }, info) => {

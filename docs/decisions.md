@@ -851,3 +851,31 @@ Apple silicon Macs; the forwarded port reaches the server only from this Mac.
 
 **Revisit when** people need password or 2FA prompts (an askpass through the app), or hosts
 without SSH.
+
+## D-034 Diffs and file trees from @pierre (2026-09-30)
+
+**Context.** Changes showed diffs as plain rows, and Files could only search. Syntax
+highlighting, word-level emphasis and a browsable tree are each a project of their own;
+`@pierre/diffs` and `@pierre/trees` (diffs.com, trees.software) do them well and render in
+React.
+
+**Decision.** Changes renders each file's patch with `@pierre/diffs`' `PatchDiff` (unified,
+no file header, Shiki themes `github-light` and `tokyo-night`), and Files browses with
+`@pierre/trees`. Both are themed only through their `--diffs-*-override` and `--trees-*`
+variables set to our tokens (the library mixes the add and delete tints from
+`--success` and `--destructive`), plus our scrollbar CSS injected into the shadow root.
+A patch without hunks (binary, mode change) or one the library fails on (reported as
+`client.diff_render_error`) falls back to the plain rows. Review comments are the library's
+line annotations: they render as React portals into slots it creates after React commits, so
+the comment box takes focus on a later frame, not with `autoFocus`. Both packages are
+devDependencies: Vite bundles them into the web app, and the server never loads them.
+
+**Why.** They match what people see on GitHub and in their editor, handle long files and
+wide lines, and leave the colors ours.
+
+**Cost.** The web app grows (its main chunk is about 1.8 MB; each Shiki language is its own
+lazy chunk), and pinning `@shikijs/transformers` to 3.x keeps one Shiki core
+([upstream.md](upstream.md)). `@pierre/trees` is a beta.
+
+**Revisit when** either library breaks its variables or slots, the web app's weight matters
+(phones on slow links), or people want split diffs or diffs of whole files.

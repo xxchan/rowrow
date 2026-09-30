@@ -61,3 +61,5 @@ minimumReleaseAgeExclude:
 overrides:
   # electron-builder 26.15 asks for ^3.0.0 but uses ElectronDownloadCacheMode, new in 3.1.0.
   "@electron/get@^3": ^3.1.0
+  # @pierre/diffs takes either; 4.x would bring a second shiki core next to @streamdown/code's 3.x.
+  "@shikijs/transformers": ^3.23.0

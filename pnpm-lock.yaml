@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@electron/get@^3': ^3.1.0
+  '@shikijs/transformers': ^3.23.0
 
 importers:
 
@@ -51,6 +52,12 @@ importers:
       '@lobehub/icons-static-svg':
         specifier: ^1.95.1
         version: 1.95.1
+      '@pierre/diffs':
+        specifier: ^1.5.1
+        version: 1.5.1(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@pierre/trees':
+        specifier: 1.0.0-beta.6
+        version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)
       '@playwright/test':
         specifier: ^1.63.0
         version: 1.63.0
@@ -937,6 +944,67 @@ packages:
     resolution: {integrity: sha512-ODOov0sGMJMf3jPonOkgGqPknTsu+DdQ7kD++gz8aI+aFMOMHFbWAA2taqXXVTdP+OTOQR/znGvSpmkeI0WTYQ==}
     engines: {node: '>=14.18.0'}
 
+  '@pierre/diffs@1.5.1':
+    resolution: {integrity: sha512-+EXNfz4ZXI6FHr7P6ToWEORwyYiPVfAmzhA70xF+0y/oNvj7gbNTLJJ6jNzkBjuMbRlu564TAmgYZLc5OyHURA==}
+    peerDependencies:
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@pierre/theme@2.0.0':
+    resolution: {integrity: sha512-yNDd9GYLQl1mEUJR8AneJ5e4ohLIHQd/wZLWr4fagt78vS2RwwZNW530vVgHqXFAyFVcFlRmGUD5ramXH46OXw==}
+    engines: {vscode: ^1.0.0}
+
+  '@pierre/theming@1.0.0':
+    resolution: {integrity: sha512-WsdrnhKfjeyXGDikZmN9pkpeZ5S/cl6EE72feiSc0tlynT1tMYqXqouhuv/foK+PY9OEnebOAVRQn3+rAstR8g==}
+    peerDependencies:
+      '@pierre/theme': ^1.1.0
+      '@shikijs/themes': ^3.0.0 || ^4.0.0
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+      shiki: ^3.0.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@pierre/theme':
+        optional: true
+      '@shikijs/themes':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      shiki:
+        optional: true
+
+  '@pierre/theming@1.0.1':
+    resolution: {integrity: sha512-WCI5Qd7iprDpISL9fBYOLe8RV53+b7mFNA3bPzl60/2CKCSrsKN8zEcep6Y3BAzvARlmca50zGjDodqPGiTUKA==}
+    peerDependencies:
+      '@pierre/theme': ^1.1.0 || ^2.0.0
+      '@shikijs/themes': ^3.0.0 || ^4.0.0
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+      shiki: ^3.0.0 || ^4.0.0
+    peerDependenciesMeta:
+      '@pierre/theme':
+        optional: true
+      '@shikijs/themes':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      shiki:
+        optional: true
+
+  '@pierre/trees@1.0.0-beta.6':
+    resolution: {integrity: sha512-zxeuSFM9TveM7b5XofweJALCtm/tGYV9HZzdbf7Uf+kBxIlUyz24/EHaGRjB0dsmmfDQl2ETz7AWwJ15lhSnpw==}
+    peerDependencies:
+      react: ^18.3.1 || ^19.0.0
+      react-dom: ^18.3.1 || ^19.0.0
+
   '@playwright/test@1.63.0':
     resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
     engines: {node: '>=20'}
@@ -1773,6 +1841,9 @@ packages:
   '@shikijs/themes@3.23.0':
     resolution: {integrity: sha512-5qySYa1ZgAT18HR/ypENL9cUSGOeI2x+4IvYJu4JgVJdizn6kG4ia5Q1jDEOi7gTbN4RbuYtmHh0W3eccOrjMA==}
 
+  '@shikijs/transformers@3.23.0':
+    resolution: {integrity: sha512-F9msZVxdF+krQNSdQ4V+Ja5QemeAoTQ2jxt7nJCwhDsdF1JWS3KxIQXA3lQbyKwS3J61oHRUSv4jYWv3CkaKTQ==}
+
   '@shikijs/types@3.23.0':
     resolution: {integrity: sha512-3JZ5HXOZfYjsYSk0yPwBrkupyYSLpAE26Qc0HLghhZNGTZg/SKxXIIgoxOpmmeQP0RRSDJTk1/vPfw9tbw+jSQ==}
 
@@ -2161,10 +2232,6 @@ packages:
     resolution: {integrity: sha512-k2/tQ1+8Zf50dEUJWklUP80LcE/+Ph+OJ6cf2Ff2fD/c/TtCe6ofnCoNMz9UnyxOQYlaAALZtEWETzn+1JjfHg==}
     engines: {node: '>= 14'}
 
-  agent-base@7.1.0:
-    resolution: {integrity: sha512-o/zjMZRhJxny7OyEF+Op8X+efiELC7k7yOjMzgfzVqOzXqkBkWI79YoTdOtsuWd5BWhAGAuOY/Xa6xpiaWXiNg==}
-    engines: {node: '>= 14'}
-
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
@@ -2481,6 +2548,10 @@ packages:
 
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
+    engines: {node: '>=0.3.1'}
+
+  diff@9.0.0:
+    resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
   dijkstrajs@1.0.3:
@@ -2851,10 +2922,6 @@ packages:
     resolution: {integrity: sha512-0euwPCRyAPSgGdzD1IVN9nJYHtBhJwb6XPfbpQcYbPCwrBidX6GzxmchnaF4sfF/jPb74Ojx5g4yTg3sixlyPw==}
     engines: {node: '>= 14'}
 
-  https-proxy-agent@7.0.1:
-    resolution: {integrity: sha512-Eun8zV0kcYS1g19r78osiQLEFIRspRUDd9tIfBCTBPBeMieF/EsJNL8VI3xOIdYRDEkjQnqOYPsZ2DsWsVsFwQ==}
-    engines: {node: '>= 14'}
-
   https-proxy-agent@7.0.6:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
@@ -3160,6 +3227,9 @@ packages:
   lru-cache@6.0.0:
     resolution: {integrity: sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==}
     engines: {node: '>=10'}
+
+  lru_map@0.4.1:
+    resolution: {integrity: sha512-I+lBvqMMFfqaV8CJCISjI3wbjmwVu/VyOoU7+qtu9d7ioW5klMgsTTiUOUp+DJvfTTzKXoPbyC6YfgkNcyPSOg==}
 
   lucide-react@1.48.0:
     resolution: {integrity: sha512-R0CIKY/fXiC6y9xRBADgsK+VW2p/pcTJOMhLZf1T+uG+vJUvyUR02nGOgmIIC7MPkiNK4Ox8QDnbqF8rJYWPZQ==}
@@ -3782,6 +3852,14 @@ packages:
     resolution: {integrity: sha512-b9Eb8h2eVqNE8edvKdwqkrY6O7kAwmI8kcnBv1NScolYJbo59XUF0noFq+lxbC1yN20bmC0WBEbDC5H/7ASb0A==}
     engines: {node: '>=14.0.0'}
     hasBin: true
+
+  preact-render-to-string@6.6.5:
+    resolution: {integrity: sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA==}
+    peerDependencies:
+      preact: '>=10 || >= 11.0.0-0'
+
+  preact@11.0.0-beta.0:
+    resolution: {integrity: sha512-IcODoASASYwJ9kxz7+MJeiJhvLriwSb4y4mHIyxdgaRZp6kPUud7xytrk/6GZw8U3y6EFJaRb5wi9SrEK+8+lg==}
 
   proc-log@6.0.0:
     resolution: {integrity: sha512-KG/XsTDN901PNfPfAMmj6N/Ywg9tM+bHK8pAz+27fS4N4Pcr+4zoYBOcGSBu6ceXYNPxkLpa4ohtfxV1XcLAfA==}
@@ -5429,6 +5507,51 @@ snapshots:
       tslib: 2.8.1
       webcrypto-core: 1.9.2
 
+  '@pierre/diffs@1.5.1(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@pierre/theme': 2.0.0
+      '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)
+      '@shikijs/transformers': 3.23.0
+      diff: 9.0.0
+      hast-util-to-html: 9.0.5
+      lru_map: 0.4.1
+      shiki: 3.23.0
+    optionalDependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    transitivePeerDependencies:
+      - '@shikijs/themes'
+
+  '@pierre/theme@2.0.0': {}
+
+  '@pierre/theming@1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)':
+    optionalDependencies:
+      '@pierre/theme': 2.0.0
+      '@shikijs/themes': 3.23.0
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      shiki: 3.23.0
+
+  '@pierre/theming@1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)':
+    optionalDependencies:
+      '@pierre/theme': 2.0.0
+      '@shikijs/themes': 3.23.0
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      shiki: 3.23.0
+
+  '@pierre/trees@1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)':
+    dependencies:
+      '@pierre/theming': 1.0.0(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@3.23.0)
+      preact: 11.0.0-beta.0
+      preact-render-to-string: 6.6.5(preact@11.0.0-beta.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    transitivePeerDependencies:
+      - '@pierre/theme'
+      - '@shikijs/themes'
+      - shiki
+
   '@playwright/test@1.63.0':
     dependencies:
       playwright: 1.63.0
@@ -6273,6 +6396,11 @@ snapshots:
     dependencies:
       '@shikijs/types': 3.23.0
 
+  '@shikijs/transformers@3.23.0':
+    dependencies:
+      '@shikijs/core': 3.23.0
+      '@shikijs/types': 3.23.0
+
   '@shikijs/types@3.23.0':
     dependencies:
       '@shikijs/vscode-textmate': 10.0.2
@@ -6579,12 +6707,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agent-base@7.1.0(supports-color@7.1.0):
-    dependencies:
-      debug: 4.4.3(supports-color@7.1.0)
-    transitivePeerDependencies:
-      - supports-color
-
   agent-base@7.1.4: {}
 
   agent-base@9.0.0: {}
@@ -6741,7 +6863,7 @@ snapshots:
       debug: 4.4.3(supports-color@7.1.0)
       fs-extra: 10.1.0
       http-proxy-agent: 7.0.0(supports-color@7.1.0)
-      https-proxy-agent: 7.0.1(supports-color@7.1.0)
+      https-proxy-agent: 7.0.6(supports-color@7.1.0)
       js-yaml: 4.3.2
       sanitize-filename: 1.6.4
       source-map-support: 0.5.21
@@ -6919,6 +7041,8 @@ snapshots:
       dequal: 2.0.3
 
   diff@8.0.4: {}
+
+  diff@9.0.0: {}
 
   dijkstrajs@1.0.3: {}
 
@@ -7434,7 +7558,7 @@ snapshots:
 
   http-proxy-agent@7.0.0(supports-color@7.1.0):
     dependencies:
-      agent-base: 7.1.0(supports-color@7.1.0)
+      agent-base: 7.1.4
       debug: 4.4.3(supports-color@7.1.0)
     transitivePeerDependencies:
       - supports-color
@@ -7458,13 +7582,6 @@ snapshots:
   https-proxy-agent@7.0.0(supports-color@7.1.0):
     dependencies:
       agent-base: 7.0.2(supports-color@7.1.0)
-      debug: 4.4.3(supports-color@7.1.0)
-    transitivePeerDependencies:
-      - supports-color
-
-  https-proxy-agent@7.0.1(supports-color@7.1.0):
-    dependencies:
-      agent-base: 7.1.0(supports-color@7.1.0)
       debug: 4.4.3(supports-color@7.1.0)
     transitivePeerDependencies:
       - supports-color
@@ -7706,6 +7823,8 @@ snapshots:
   lru-cache@6.0.0:
     dependencies:
       yallist: 4.0.0
+
+  lru_map@0.4.1: {}
 
   lucide-react@1.48.0(react@19.3.0):
     dependencies:
@@ -8065,7 +8184,7 @@ snapshots:
 
   micromark-util-chunked@2.0.0:
     dependencies:
-      micromark-util-symbol: 2.0.0
+      micromark-util-symbol: 2.0.1
 
   micromark-util-chunked@2.0.1:
     dependencies:
@@ -8426,6 +8545,12 @@ snapshots:
     dependencies:
       commander: 9.5.0
     optional: true
+
+  preact-render-to-string@6.6.5(preact@11.0.0-beta.0):
+    dependencies:
+      preact: 11.0.0-beta.0
+
+  preact@11.0.0-beta.0: {}
 
   proc-log@6.0.0: {}
 

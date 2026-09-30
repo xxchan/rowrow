@@ -45,6 +45,8 @@
   --diff-del: rgb(214 69 97 / 0.12);
   --diff-del-strong: rgb(214 69 97 / 0.28);
   --diff-hunk: #e3eafa;
+  --scrollbar: rgb(28 34 64 / 0.22);
+  --scrollbar-hover: rgb(28 34 64 / 0.38);
 }
 
 .dark {
@@ -84,6 +86,8 @@
   --diff-del: rgb(247 118 142 / 0.1);
   --diff-del-strong: rgb(247 118 142 / 0.26);
   --diff-hunk: #1c2438;
+  --scrollbar: rgb(212 217 240 / 0.26);
+  --scrollbar-hover: rgb(212 217 240 / 0.42);
 }
 
 @theme inline {
@@ -146,6 +150,32 @@
   }
   html.dark {
     color-scheme: dark;
+  }
+  /* Scrollbars are a thin rounded thumb in the theme's colors, with no track, like macOS's
+     overlay ones: the Mac app and Windows showed the system's classic gray gutter on every
+     list. Chromium and Safari draw them from these pseudo-elements (Chromium ignores them
+     wherever `scrollbar-width` or `scrollbar-color` is set); Firefox has only those two. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background: var(--scrollbar) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-hover);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar) transparent;
+    }
   }
   /* Code shows the characters that are there: no `=>` drawn as an arrow. */
   code,
