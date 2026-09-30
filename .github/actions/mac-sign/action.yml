@@ -1,0 +1,99 @@
+# Signs, notarizes and staples rowrow for Mac with a Developer ID, then makes the zip and the
+# disk image (docs/desktop.md → Releases, D-031). Apple's tools only: the job that uses this
+# holds the certificate and the App Store Connect key, so it installs nothing from npm. The
+# inputs are Botiverse's secrets, by the names its other macOS apps use.
+name: Sign rowrow for Mac
+description: Developer ID signing, notarization and stapling of rowrow.app, then its zip and disk image.
+inputs:
+  app:
+    description: rowrow.app, unsigned
+    required: true
+  version:
+    description: The app's version (the zip and dmg are named for it)
+    required: true
+  out:
+    description: Where the zip and the disk image go
+    required: true
+  certificate:
+    description: The Developer ID Application certificate with its key, a .p12 in base64 (MACOS_CERT_P12_BASE64)
+    required: true
+  certificate-password:
+    description: The .p12's password (MACOS_CERT_PASSWORD)
+    required: true
+  team-id:
+    description: The team the certificate must belong to (APPLE_TEAM_ID)
+    required: true
+  api-key-id:
+    description: App Store Connect API key id, for notarization (APPLE_API_KEY_ID)
+    required: true
+  api-issuer-id:
+    description: Its issuer id (APPLE_API_ISSUER_ID)
+    required: true
+  api-private-key:
+    description: The key itself, the .p8's contents (APPLE_API_PRIVATE_KEY)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: A keychain with the Developer ID certificate
+      shell: bash
+      env:
+        CERTIFICATE: ${{ inputs.certificate }}
+        CERTIFICATE_PASSWORD: ${{ inputs.certificate-password }}
+        TEAM_ID: ${{ inputs.team-id }}
+      run: |
+        keychain="$RUNNER_TEMP/rowrow-signing.keychain-db"
+        password=$(openssl rand -hex 24)
+        security create-keychain -p "$password" "$keychain"
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$password" "$keychain"
+        printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+        security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        rm -f "$RUNNER_TEMP/certificate.p12"
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+        # The keychains already listed, one word each, after ours.
+        # shellcheck disable=SC2046
+        security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+        # A Developer ID Application identity of this team, and nothing else (not Distribution,
+        # not a Mac App Store certificate): an app signed by anyone else couldn't update itself.
+        identity=$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)
+        if [ -z "$identity" ]; then echo "::error::the certificate has no Developer ID Application identity"; exit 1; fi
+        if [[ "$identity" != *"($TEAM_ID)" ]]; then echo "::error::the Developer ID certificate isn't team $TEAM_ID's: $identity"; exit 1; fi
+        echo "Signing as: $identity"
+        echo "ROWROW_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+        echo "ROWROW_SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+    - name: Sign
+      shell: bash
+      run: '"$GITHUB_WORKSPACE/desktop/sign.sh" "${{ inputs.app }}" "$ROWROW_SIGN_IDENTITY"'
+    - name: Notarize and staple the app
+      shell: bash
+      env:
+        API_KEY_ID: ${{ inputs.api-key-id }}
+        API_ISSUER_ID: ${{ inputs.api-issuer-id }}
+        API_PRIVATE_KEY: ${{ inputs.api-private-key }}
+      run: |
+        key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
+        printf '%s' "$API_PRIVATE_KEY" > "$key"
+        ditto -c -k --keepParent "${{ inputs.app }}" "$RUNNER_TEMP/notarize.zip"
+        xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$key" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 45m
+        rm -f "$RUNNER_TEMP/notarize.zip"
+        xcrun stapler staple "${{ inputs.app }}"
+        spctl --assess --type execute --verbose=2 "${{ inputs.app }}"
+    - name: The zip and the disk image, the image signed and notarized too
+      shell: bash
+      env:
+        API_KEY_ID: ${{ inputs.api-key-id }}
+        API_ISSUER_ID: ${{ inputs.api-issuer-id }}
+      run: |
+        "$GITHUB_WORKSPACE/desktop/pack.sh" "${{ inputs.app }}" "${{ inputs.version }}" "${{ inputs.out }}"
+        dmg="${{ inputs.out }}/rowrow-${{ inputs.version }}-mac-arm64.dmg"
+        codesign --sign "$ROWROW_SIGN_IDENTITY" --timestamp "$dmg"
+        xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 45m
+        xcrun stapler staple "$dmg"
+        spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+    - name: Forget the keys
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${ROWROW_SIGN_KEYCHAIN:-}" ]; then security delete-keychain "$ROWROW_SIGN_KEYCHAIN" || true; fi
+        rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/certificate.p12"

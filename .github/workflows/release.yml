@@ -1,9 +1,14 @@
-# Publishes rowrow to npm when a version tag (v1.2.3) is pushed; AGENTS.md says how to cut a
-# release, docs/decisions.md (D-018) why it works this way.
+# Releases rowrow when a version tag (v1.2.3) is pushed: the npm package, the server bundles
+# for SSH hosts, and rowrow for Mac, all in one GitHub release. AGENTS.md says how to cut a
+# release; docs/decisions.md why it works this way (D-018 npm, D-031 the Mac app, D-032 bundles).
 #
 # npm trusted publishing: npm trusts this file (release.yml) in xxchan/rowrow, in the `npm`
 # environment, and swaps the publish job's OIDC token for a short-lived publish token. No npm
 # token is stored anywhere, and npm attaches a provenance attestation to every version.
+#
+# Jobs that run our code and our dependencies' code get no credentials. The Mac app is signed
+# and notarized in a job that holds the Developer ID certificate and installs nothing; without
+# the MACOS_CERT_P12_BASE64 secret the app is built but not released (docs/desktop.md → Releases).
 name: release
 
 on:
@@ -53,9 +58,166 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
-    # Runs only npm and gh, on the tarball the build job made and tested.
+  bundles:
+    # A server for each platform, from the tarball npm gets (D-032). No credentials.
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+      - name: Build the bundles
+        run: node scripts/build-bundle.ts --target linux-x64,linux-arm64,darwin-arm64 --tarball "rowrow-${GITHUB_REF_NAME#v}.tgz"
+      - name: Run the Linux one the way the Mac app does
+        run: node scripts/test-package.ts --bundle "dist/bundles/rowrow-server-${GITHUB_REF_NAME#v}-linux-x64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles
+          path: dist/bundles/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  mac-app:
+    # rowrow.app, unsigned: Electron, the app's code, and the darwin-arm64 bundle. No credentials.
+    needs: bundles
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundles
+          path: dist/bundles
+      - name: Unpack this Mac's bundle
+        run: tar -xzf "dist/bundles/rowrow-server-${GITHUB_REF_NAME#v}-darwin-arm64.tar.gz" -C dist/bundles
+      - name: Build rowrow.app
+        run: node scripts/package-desktop.ts --unsigned --bundle-as-is
+      - name: Its server runs
+        run: dist/desktop-release/mac-arm64/rowrow.app/Contents/Resources/server/bin/rowrow version --json
+      - name: Keep it whole (symlinks and all)
+        run: tar -czf rowrow-app.tgz -C dist/desktop-release/mac-arm64 rowrow.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-app
+          path: rowrow-app.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  mac-signing:
+    # Whether this repository can sign the Mac app. Holds the secret only to test that it's set.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+        run: |
+          if [ -n "$MACOS_CERT_P12_BASE64" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No MACOS_CERT_P12_BASE64: rowrow for Mac is built but not signed or released (docs/desktop.md → Releases)"
+          fi
+
+  mac-sign:
+    # Signs, notarizes and packs the app with Apple's tools only (.github/actions/mac-sign): this
+    # job holds the Developer ID certificate and the App Store Connect key, so it installs nothing
+    # from npm (D-031).
+    needs: [mac-app, mac-signing]
+    if: needs.mac-signing.outputs.enabled == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            desktop
+            .github/actions
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-app
+      - run: tar -xzf rowrow-app.tgz
+      - id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/mac-sign
+        with:
+          app: rowrow.app
+          version: ${{ steps.version.outputs.value }}
+          out: out
+          certificate: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          certificate-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-issuer-id: ${{ secrets.APPLE_API_ISSUER_ID }}
+          api-private-key: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-signed
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  mac-metadata:
+    # What the updater reads, made from the signed files: blockmaps and latest-mac.yml. No credentials.
+    needs: mac-sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-signed
+          path: out
+      - run: node scripts/desktop-metadata.ts out "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-release
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Runs only npm and gh, on what the jobs before made and tested. One GitHub release with
+    # every file, created at once, so the Mac app's updater never finds it without latest-mac.yml.
+    needs: [build, bundles, mac-signing, mac-metadata]
+    if: >-
+      !cancelled() && needs.build.result == 'success' && needs.bundles.result == 'success' &&
+      (needs.mac-metadata.result == 'success' || (needs.mac-signing.outputs.enabled != 'true' && needs.mac-metadata.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Must match the environment in the package's trusted publisher on npmjs.com.
@@ -72,6 +234,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: package
+      - uses: actions/download-artifact@v4
+        with:
+          name: bundles
+          path: release
+      - uses: actions/download-artifact@v4
+        if: needs.mac-metadata.result == 'success'
+        with:
+          name: mac-release
+          path: release
       - name: Publish to npm
         run: |
           # Trusted publishing needs npm 11.5.1 or later; Node 24.15.0 comes with 11.12.1.
@@ -88,12 +259,15 @@ jobs:
             *-*) npm publish "./rowrow-$version.tgz" --tag next ;;
             *) npm publish "./rowrow-$version.tgz" ;;
           esac
+      - name: Checksums
+        working-directory: release
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           case "$GITHUB_REF_NAME" in
-            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag --prerelease ;;
-            *) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag ;;
+            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag --prerelease release/* ;;
+            *) gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag release/* ;;
           esac
