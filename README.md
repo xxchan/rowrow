@@ -72,6 +72,17 @@ TestFlight ([docs/ios.md](docs/ios.md)), then scan the same pairing code. Notifi
 need your own APNs key (`rowrow push apns …`); Apple sees only that an agent finished,
 never what it said.
 
+## On your Mac
+
+rowrow for Mac (Apple silicon, from the [releases](https://github.com/xxchan/rowrow/releases))
+is a window onto your servers and the manager of the ones it runs. Tell it where your agents
+run: **on this Mac** (it installs the server and hands it to launchd, like
+`rowrow service install`), **on a machine over SSH** (it puts the server there and keeps it
+running, the way VS Code's Remote-SSH does), or **on a server you can reach** (sign in with
+its link). Agents keep working when the app is closed; it stays in the menu bar with
+notifications you can reply to, and keeps itself and its servers up to date, waiting for
+agents to finish their turn before a server restarts ([docs/desktop.md](docs/desktop.md)).
+
 ## CLI
 
 Everything the UI does, so agents can drive agents too. `rowrow help` for the rest.

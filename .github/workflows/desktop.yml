@@ -1,0 +1,147 @@
+# rowrow for Mac (docs/desktop.md): on a Mac, for changes that can affect it. Builds this Mac's
+# server bundle and runs it the way the app does, builds rowrow.app (unsigned) the way a release
+# does, and drives the app with Playwright (test/e2e-desktop). `pnpm check` (ci.yml) covers the
+# desktop code's types, lint and unit tests on every change.
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/desktop/**"
+      - "src/cli/**"
+      - "src/shared/host.ts"
+      - "src/server/notify/**"
+      - "src/server/install.ts"
+      - "desktop/**"
+      - "scripts/*bundle*.ts"
+      - "scripts/*desktop*.ts"
+      - scripts/electron.ts
+      - scripts/test-package.ts
+      - "test/e2e-desktop/**"
+      - playwright.desktop.config.ts
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/desktop.yml
+  pull_request:
+    paths:
+      - "src/desktop/**"
+      - "src/cli/**"
+      - "src/shared/host.ts"
+      - "src/server/notify/**"
+      - "src/server/install.ts"
+      - "desktop/**"
+      - "scripts/*bundle*.ts"
+      - "scripts/*desktop*.ts"
+      - scripts/electron.ts
+      - scripts/test-package.ts
+      - "test/e2e-desktop/**"
+      - playwright.desktop.config.ts
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/desktop.yml
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: This Mac's server bundle, run the way the app runs it
+        run: |
+          pnpm build:bundle --target darwin-arm64
+          version=$(node -p 'require("./package.json").version')
+          node scripts/test-package.ts --bundle "dist/bundles/rowrow-server-$version-darwin-arm64"
+      - name: rowrow.app, as a release builds it (unsigned)
+        run: node scripts/package-desktop.ts --unsigned --bundle-as-is
+      - name: The app, driven by Playwright
+        run: pnpm test:desktop
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-playwright
+          path: |
+            test-results/desktop
+            playwright-report
+          retention-days: 7
+      - name: Keep the app whole for signing (symlinks and all)
+        if: github.event_name == 'workflow_dispatch'
+        run: tar -czf rowrow-app.tgz -C dist/desktop-release/mac-arm64 rowrow.app
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: mac-app
+          path: rowrow-app.tgz
+          if-no-files-found: error
+          retention-days: 3
+
+  mac-signing:
+    # Run by hand (Actions → desktop → Run workflow): sign a test build, if this repository can.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+        run: |
+          if [ -n "$MACOS_CERT_P12_BASE64" ]; then echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No MACOS_CERT_P12_BASE64 in this repository: nothing to sign with (docs/desktop.md → Releases)"
+          fi
+
+  sign:
+    # A signed, notarized build to try, without a release: the same steps as release.yml's, in a
+    # job that installs nothing from npm. The zip and the disk image are the run's artifact.
+    needs: [app, mac-signing]
+    if: github.event_name == 'workflow_dispatch' && needs.mac-signing.outputs.enabled == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            desktop
+            .github/actions
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-app
+      - run: tar -xzf rowrow-app.tgz
+      - id: version
+        run: echo "value=$(plutil -extract CFBundleShortVersionString raw rowrow.app/Contents/Info.plist)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/mac-sign
+        with:
+          app: rowrow.app
+          version: ${{ steps.version.outputs.value }}
+          out: out
+          certificate: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          certificate-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+          team-id: ${{ secrets.APPLE_TEAM_ID }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-issuer-id: ${{ secrets.APPLE_API_ISSUER_ID }}
+          api-private-key: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rowrow-mac-signed
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7

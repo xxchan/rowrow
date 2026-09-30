@@ -5,6 +5,10 @@
 // /healthz, the web app at /, the kit at /kit.js (the iOS app's fold, D-027), a workspace and
 // an agent that answers, then a clean stop.
 // Needs Node 24 with npm, git, and the network (npm installs the package's dependencies).
+//
+// `pnpm test:package --bundle dist/bundles/rowrow-server-x.y.z-<os>-<arch>`: a server bundle
+// (D-032) instead, run the way the Mac app runs it: copied into ROWROW_HOME/versions/<version>
+// and started by its own bin/rowrow, with no Node on the PATH.
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,16 +20,25 @@ const { version } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), 
 };
 const PROFILE = "pkgtest";
 
+const bundleIndex = process.argv.indexOf("--bundle");
+const bundle = bundleIndex === -1 ? null : path.resolve(process.argv[bundleIndex + 1] ?? "");
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-package-")));
 const prefix = path.join(tmp, "prefix");
 const home = path.join(tmp, "home");
-const bin = path.join(prefix, "bin", "rowrow");
+const bin =
+  bundle === null
+    ? path.join(prefix, "bin", "rowrow")
+    : path.join(home, "versions", version, "bin", "rowrow");
 const env: NodeJS.ProcessEnv = {
   // Never the user's rowrow: no inherited ROWROW_URL/TOKEN/PROFILE, and a throwaway home.
   ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("ROWROW_"))),
   ROWROW_HOME: home,
-  // The installed bin's `#!/usr/bin/env node` finds the Node running this script.
-  PATH: [path.dirname(process.execPath), path.dirname(bin), process.env["PATH"]].join(path.delimiter),
+  // The installed bin's `#!/usr/bin/env node` finds the Node running this script; a bundle
+  // brings its own, so there is none to find.
+  PATH:
+    bundle === null
+      ? [path.dirname(process.execPath), path.dirname(bin), process.env["PATH"]].join(path.delimiter)
+      : [path.dirname(bin), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(path.delimiter),
   // Git, here and in the server's turn snapshots, ignores this machine's config.
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_CONFIG_GLOBAL: os.devNull,
@@ -112,17 +125,29 @@ function inspect(file: string): void {
 }
 
 async function main(): Promise<void> {
-  const file = tarball();
-  inspect(file);
-
-  step(`npm install --global ${path.basename(file)} (into a throwaway prefix)`);
-  execFileSync("npm", ["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", file], {
-    env,
-    stdio: "inherit",
-  });
+  let label = path.basename(bundle ?? "");
+  if (bundle === null) {
+    const file = tarball();
+    label = path.basename(file);
+    inspect(file);
+    step(`npm install --global ${path.basename(file)} (into a throwaway prefix)`);
+    execFileSync("npm", ["install", "--global", "--prefix", prefix, "--no-audit", "--no-fund", file], {
+      env,
+      stdio: "inherit",
+    });
+  } else {
+    step(`${path.basename(bundle)} into ROWROW_HOME/versions/${version}`);
+    fs.mkdirSync(path.join(home, "versions"), { recursive: true });
+    fs.cpSync(bundle, path.dirname(path.dirname(bin)), { recursive: true, verbatimSymlinks: true });
+  }
 
   step("the installed CLI");
   check(rowrow("--help").includes("rowrow serve"), "--help doesn't describe serve");
+  const said = JSON.parse(rowrow("version", "--json")) as { version: string; install: { kind: string } };
+  check(
+    said.version === version && said.install.kind === (bundle === null ? "npm" : "bundle"),
+    `rowrow version says ${JSON.stringify(said)}`,
+  );
 
   step(`rowrow serve --profile ${PROFILE} --port 0 --test-runtime`);
   const server = spawn(bin, ["serve", "--profile", PROFILE, "--port", "0", "--test-runtime"], {
@@ -193,7 +218,7 @@ async function main(): Promise<void> {
     const code = await exited;
     console.log(`exit code ${code}`);
     check(code === 0 && !fs.existsSync(serverFile), `rowrow serve didn't stop cleanly:\n${output}`);
-    console.log(`\nThe package works: ${path.basename(file)}`);
+    console.log(`\nThe ${bundle === null ? "package" : "bundle"} works: ${label}`);
   } catch (error) {
     console.error(`\nrowrow serve said:\n${output}`);
     throw error;

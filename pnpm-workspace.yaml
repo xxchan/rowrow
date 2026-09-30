@@ -1,7 +1,11 @@
 # Install scripts are off unless listed. These come with oar's pi runtime and are not needed
-# (esbuild runs from its per-platform package without its postinstall check).
+# (esbuild runs from its per-platform package without its postinstall check). Electron's
+# downloads its binary: `pnpm desktop` and the desktop build fetch it when they need it, so
+# `pnpm install` for the server and the web app stays small.
 allowBuilds:
   "@google/genai": false
+  electron: false
+  electron-winstaller: false # electron-builder's Windows installer; rowrow builds for macOS only
   esbuild: false
   protobufjs: false
 minimumReleaseAgeExclude:
@@ -45,3 +49,7 @@ minimumReleaseAgeExclude:
   - oxfmt@0.71.0
   - oxlint@1.86.0
   - "@botiverse/oar@0.10.0"
+  - electron@44.5.0
+overrides:
+  # electron-builder 26.15 asks for ^3.0.0 but uses ElectronDownloadCacheMode, new in 3.1.0.
+  "@electron/get@^3": ^3.1.0

@@ -1,0 +1,4 @@
+/* The Mac app's own pages use the web app's look: its tokens and components (D-017). */
+@import "../../web/index.css";
+@source "../../web/components/ui";
+@source "./";

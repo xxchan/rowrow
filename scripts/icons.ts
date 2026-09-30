@@ -5,6 +5,9 @@
 //   and the iOS app's icon (1024, square and opaque: iOS rounds the corners itself).
 // - oar's runtime marks (assets/brands, see its NOTICE.md) → the iOS app's runtime-<id> image
 //   sets: single-color marks as templates (they take the text color), the rest as they are.
+// - The same icon → the Mac app's (desktop/icon.png, 1024: on macOS's grid, 824 wide with a
+//   shadow, since macOS doesn't shape icons), and the rowrow mark → its menu-bar template
+//   image (desktop/trayTemplate.png, @2x: black and transparent; macOS colors it).
 import { chromium } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +29,25 @@ async function render(source: string, size: number, file: string, transparent: b
 
 for (const size of [192, 512]) await render(svg, size, path.join(dir, `icon-${size}.png`), true);
 await render(svg.replace(/ rx="\d+"/, ""), 1024, path.join(assets, "AppIcon.appiconset/AppIcon.png"), false);
+
+// ─── The Mac app ─────────────────────────────────────────────────────────────
+
+const desktop = path.join(root, "desktop");
+{
+  const page = await browser.newPage({ viewport: { width: 1024, height: 1024 } });
+  const art = svg.replace(/ rx="\d+"/, ' rx="92"').replace("<svg ", '<svg width="824" height="824" ');
+  await page.setContent(
+    `<html><body style="margin:0;display:flex;align-items:center;justify-content:center;width:1024px;height:1024px;background:transparent"><div style="filter:drop-shadow(0 10px 14px rgb(0 0 0 / 0.28))">${art}</div></body></html>`,
+  );
+  await page.screenshot({ path: path.join(desktop, "icon.png"), omitBackground: true });
+  await page.close();
+}
+const mark = `<svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.25" stroke-linecap="round"><path d="M3 16c3-2 6-2 9 0s6 2 9 0"/><path d="M7 4l5 9"/><path d="M13 4l5 9"/></svg>`;
+for (const [scale, suffix] of [
+  [1, ""],
+  [2, "@2x"],
+] as const)
+  await render(mark, 18 * scale, path.join(desktop, `trayTemplate${suffix}.png`), true);
 await browser.close();
 
 // ─── Runtime marks for the iOS app ───────────────────────────────────────────
@@ -90,5 +112,5 @@ for (const [id, files] of Object.entries(RUNTIMES)) {
   );
 }
 console.log(
-  `wrote icon-192.png, icon-512.png, the iOS app icon, and ${Object.keys(RUNTIMES).length} runtime marks`,
+  `wrote icon-192.png, icon-512.png, the iOS app icon, the Mac app's icon and menu-bar mark, and ${Object.keys(RUNTIMES).length} runtime marks`,
 );

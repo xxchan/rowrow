@@ -27,6 +27,7 @@ import {
   LogFilter,
   LoginLink,
   ModelInfo,
+  Notice,
   PullRequestStatus,
   RuntimeInfo,
   SearchKind,
@@ -479,6 +480,12 @@ const notify = {
   unsubscribe: oc
     .route({ summary: "Stop push notifications for this device (Web Push and the iOS app's)." })
     .output(ok),
+  watch: oc
+    .route({
+      summary:
+        "Notifications for this device as a stream, for an app that stays connected instead of taking pushes (the Mac app): `badge` first (how many agents need you), then an `alert` when an agent finishes or needs you and no window of this device is focused (the rule Web Push follows; a focused device gets `badge` instead), and `seen` when agents stop needing you, so their notifications can go.",
+    })
+    .output(eventIterator(Notice)),
   test: oc
     .route({ summary: "Send a test notification to this device." })
     .output(z.object({ sent: z.number() })),

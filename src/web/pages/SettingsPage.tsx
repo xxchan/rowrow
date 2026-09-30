@@ -94,7 +94,18 @@ export function SettingsPage({ route }: { route: Route }) {
             title="Notifications on this device"
             description="You're notified when an agent finishes or needs you, unless you're looking at it."
           >
-            {support === "insecure" ? (
+            {support === "desktop" ? (
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-sm text-muted-foreground">
+                  The rowrow app shows this server's notifications while it runs, in the menu bar when its
+                  windows are closed. Turn on "Open rowrow when you log in" in its Servers window to keep them
+                  coming.
+                </p>
+                <Button variant="outline" onClick={() => void run("Test", async () => client?.notify.test())}>
+                  Send a test
+                </Button>
+              </div>
+            ) : support === "insecure" ? (
               <Callout icon={<Info />} title="Notifications need HTTPS">
                 Browsers only allow push notifications on HTTPS pages (or localhost). Serve rowrow over HTTPS,
                 for example with tailscale serve or --tls-cert.
@@ -162,7 +173,7 @@ export function SettingsPage({ route }: { route: Route }) {
                       )}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {`${device.kind === "cli" ? "command line" : device.kind === "app" ? "iOS app" : "browser"}${device.push ? " · notifications on" : ""} · last seen ${device.lastSeenAt === null ? "never" : `${ago(device.lastSeenAt)} ago`}`}
+                      {`${device.kind === "cli" ? "command line" : device.kind === "app" ? "app" : "browser"}${device.push ? " · notifications on" : ""} · last seen ${device.lastSeenAt === null ? "never" : `${ago(device.lastSeenAt)} ago`}`}
                     </div>
                   </div>
                   <Button

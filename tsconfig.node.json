@@ -9,10 +9,11 @@
     "src/kit",
     "src/server",
     "src/cli",
+    "src/desktop",
     "scripts",
     "test",
     "vitest.config.ts",
     "vite.kit.config.ts"
   ],
-  "exclude": ["test/e2e"]
+  "exclude": ["test/e2e", "test/e2e-desktop", "src/desktop/ui"]
 }

@@ -3,9 +3,16 @@
 import type { Client } from "./connection.ts";
 import { report } from "./telemetry.ts";
 
-export type PushSupport = "ok" | "insecure" | "unsupported";
+export type PushSupport = "ok" | "insecure" | "unsupported" | "desktop";
+
+/** Inside the rowrow app for Mac, which says so in its user agent (docs/desktop.md). */
+export function inDesktopApp(): boolean {
+  return navigator.userAgent.includes(" rowrow-desktop/");
+}
 
 export function pushSupport(): PushSupport {
+  // The Mac app has no push service (Electron doesn't); it shows notifications itself (notify.watch).
+  if (inDesktopApp()) return "desktop";
   if (!window.isSecureContext) return "insecure";
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window))
     return "unsupported";

@@ -25,6 +25,7 @@ Server
   rowrow open                      sign this machine's browser in and open rowrow
   rowrow pair [name]               a one-time sign-in link for another device (show it as a QR code)
   rowrow status                    server, live runs, connected clients, recent problems
+  rowrow version                   this rowrow's version, and how it was installed
 
 Push notifications
   rowrow push                      which devices get notifications; whether the iOS app can
@@ -33,8 +34,9 @@ Push notifications
   rowrow push apns --off           forget the APNs key
 
 Service (keeps the server running: starts at login, restarts after a crash)
-  rowrow service install [serve flags…]   launchd on macOS, systemd --user on Linux
-  rowrow service status|restart|uninstall
+  rowrow service install [serve flags…] [--if-idle]   launchd on macOS, systemd --user on Linux;
+                                   --if-idle: not while an agent is mid-turn (exit code 75)
+  rowrow service status|start|stop|restart|uninstall
 
 Agents
   rowrow agents [--all]            list agents, the ones that need you first
@@ -97,6 +99,8 @@ async function main(argv: string[]): Promise<void> {
       "tls-cert": { type: "string" },
       "tls-key": { type: "string" },
       "test-runtime": { type: "boolean" },
+      "if-idle": { type: "boolean" },
+      version: { type: "boolean", short: "v" },
       "idle-timeout": { type: "string" },
       open: { type: "boolean" },
       runtime: { type: "string" },
@@ -147,6 +151,23 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (bool("version") || command === "version") {
+    const { installKind, packageVersion } = await import("../server/install.ts");
+    const root = path.resolve(import.meta.dirname, "../..");
+    const info = {
+      version: packageVersion(root),
+      node: process.version,
+      platform: `${process.platform}-${process.arch}`,
+      install: { kind: installKind(root, rowrowHome()), root },
+    };
+    console.log(
+      json
+        ? JSON.stringify(info, null, 2)
+        : `rowrow ${info.version ?? "?"} (${info.install.kind}, node ${info.node}, ${info.platform})`,
+    );
+    return;
+  }
+
   if (command === "serve") {
     await serve({
       profile: str("profile") ?? process.env["ROWROW_PROFILE"] ?? "default",
@@ -176,20 +197,31 @@ async function main(argv: string[]): Promise<void> {
         value === undefined ? [] : [`--${flag}`, value];
       const file = (value: string | undefined): string | undefined =>
         value === undefined ? undefined : path.resolve(value);
-      await service.installService(profile, [
-        ...(profile === "default" ? [] : ["--profile", profile]),
-        ...pass("host", str("host")),
-        ...pass("port", str("port")),
-        ...pass("public-url", str("public-url")),
-        ...pass("tls-cert", file(str("tls-cert"))),
-        ...pass("tls-key", file(str("tls-key"))),
-        ...pass("idle-timeout", str("idle-timeout")),
-        ...(bool("test-runtime") ? ["--test-runtime"] : []),
-      ]);
+      const outcome = await service.installService(
+        profile,
+        [
+          ...(profile === "default" ? [] : ["--profile", profile]),
+          ...pass("host", str("host")),
+          ...pass("port", str("port")),
+          ...pass("public-url", str("public-url")),
+          ...pass("tls-cert", file(str("tls-cert"))),
+          ...pass("tls-key", file(str("tls-key"))),
+          ...pass("idle-timeout", str("idle-timeout")),
+          ...(bool("test-runtime") ? ["--test-runtime"] : []),
+        ],
+        { ifIdle: bool("if-idle"), json },
+      );
+      if (json) console.log(JSON.stringify(outcome, null, 2));
+      if (outcome.outcome === "busy") process.exitCode = service.BUSY_EXIT;
     } else if (action === "uninstall") service.uninstallService(profile);
+    else if (action === "start") await service.startService(profile);
+    else if (action === "stop") await service.stopService(profile);
     else if (action === "restart") await service.restartService(profile);
-    else if (action === "status") service.serviceStatus(profile);
-    else throw new Error(`unknown service command "${action}" (install, status, restart, uninstall)`);
+    else if (action === "status") service.serviceStatus(profile, json);
+    else
+      throw new Error(
+        `unknown service command "${action}" (install, status, start, stop, restart, uninstall)`,
+      );
     return;
   }
 

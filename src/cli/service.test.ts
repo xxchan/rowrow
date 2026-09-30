@@ -3,7 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { inNpxCache, launchdPlist, systemdUnit, type ServiceSpec } from "./service.ts";
+import {
+  inNpxCache,
+  launchdPlist,
+  plistCommand,
+  systemdUnit,
+  unitCommand,
+  type ServiceSpec,
+} from "./service.ts";
 
 // Values a shell, XML and systemd would each mangle if they weren't escaped.
 const awkward = `/certs/it's "mine" 100%$HOME & <co>.pem`;
@@ -63,4 +70,17 @@ test("a service is never installed from npx's cache", () => {
   ).toBe(true);
   expect(inNpxCache("/usr/local/lib/node_modules/rowrow/lib/cli/service.js")).toBe(false);
   expect(inNpxCache("/Users/me/code/rowrow/src/cli/service.ts")).toBe(false);
+});
+
+test("what a definition runs reads back exactly, from either format", () => {
+  expect(plistCommand(launchdPlist(spec))).toEqual(spec.argv);
+  expect(unitCommand(systemdUnit(spec))).toEqual(spec.argv);
+  // Xcode and plutil write plists with tabs and without our indentation.
+  expect(
+    plistCommand(
+      "<dict>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/a/node</string>\n\t\t<string>x &amp; y</string>\n\t</array>\n</dict>",
+    ),
+  ).toEqual(["/a/node", "x & y"]);
+  expect(plistCommand("<dict></dict>")).toBeNull();
+  expect(unitCommand("[Service]\nType=simple\n")).toBeNull();
 });
