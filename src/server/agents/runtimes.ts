@@ -1,5 +1,5 @@
-// The runtimes rowrow can start agents with: oar's built-in ones (Claude Code, Codex, Grok,
-// Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
+// The runtimes rowrow can start agents with: oar's built-in ones (Claude Code, Codex, Cursor,
+// Antigravity, Grok, Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
 // local and cheap; model lists may ask the runtime's provider, so they are cached.
 import {
   runtimes as builtins,

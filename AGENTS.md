@@ -1,9 +1,9 @@
 # rowrow: working in this repo
 
-rowrow runs many coding agents (Claude Code, Codex, Grok, Kimi, Pi) on one machine and lets
-you steer them from any browser, including your phone. Read [PRINCIPLES.md](PRINCIPLES.md)
-first. The design is in [docs/architecture.md](docs/architecture.md), the reasons in
-[docs/decisions.md](docs/decisions.md), git mechanics in [docs/git.md](docs/git.md), and
+rowrow runs many coding agents (Claude Code, Codex, Cursor, Antigravity, Grok, Kimi, Pi) on
+one machine and lets you steer them from any browser, including your phone. Read
+[PRINCIPLES.md](PRINCIPLES.md) first. The design is in [docs/architecture.md](docs/architecture.md),
+the reasons in [docs/decisions.md](docs/decisions.md), git mechanics in [docs/git.md](docs/git.md), and
 dependency workarounds in [docs/upstream.md](docs/upstream.md).
 
 ## Commands

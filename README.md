@@ -3,8 +3,8 @@
 <h1 align="center">rowrow</h1>
 
 <p align="center">
-  Run Claude Code, Codex, Grok, Kimi and Pi side by side on your machine, and steer them
-  from any browser, including your phone.
+  Run Claude Code, Codex, Cursor, Antigravity, Grok, Kimi and Pi side by side on your machine,
+  and steer them from any browser, including your phone.
 </p>
 
 <p align="center">
@@ -14,8 +14,8 @@
 
 ## Quick start
 
-Needs Node.js 24+, git, and an agent CLI you're signed in to (`claude`, `codex`, `grok`,
-`kimi` or `pi`).
+Needs Node.js 24+, git, and an agent CLI you're signed in to (`claude`, `codex`,
+`cursor-agent`, `grok`, `kimi`, `pi`, or Antigravity's `agy_acp_server.par`).
 
 ```bash
 npx rowrow@latest serve        # http://127.0.0.1:7373; open the sign-in link it prints

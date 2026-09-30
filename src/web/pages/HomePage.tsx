@@ -57,7 +57,7 @@ export function HomePage({ route }: { route: Route }) {
           <EmptyState
             icon={<Bot />}
             title="Add a workspace to start"
-            description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
+            description="An agent is a conversation with Claude Code, Codex, Cursor or another coding agent, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
             actions={<Button onClick={() => open({})}>New agent</Button>}
           />
         ) : (
@@ -75,7 +75,7 @@ export function HomePage({ route }: { route: Route }) {
               <EmptyState
                 icon={<Bot />}
                 title="No agents yet"
-                description="An agent is a conversation with Claude Code, Codex, Grok, Kimi or Pi, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
+                description="An agent is a conversation with Claude Code, Codex, Cursor or another coding agent, working in a folder on this machine. Start a few; rowrow tells you which one needs you."
               />
             ) : (
               groups

@@ -75,7 +75,7 @@ struct InboxView: View {
         ContentUnavailableView {
           Label("No agents yet", systemImage: "sparkles")
         } description: {
-          Text("Say what you want done; rowrow starts Claude Code, Codex, Grok, Kimi or Pi on it and tells you when it needs you.")
+          Text("Say what you want done; rowrow starts Claude Code, Codex, Cursor or another coding agent on it and tells you when it needs you.")
         } actions: {
           Button("Start an agent") { model.newAgent = NewAgentRequest(context: .anywhere) }
             .buttonStyle(.borderedProminent)

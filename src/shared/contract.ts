@@ -171,7 +171,9 @@ const agents = {
     .input(
       z.object({
         workspaceId,
-        runtime: z.string().describe("Runtime id: claude, codex, grok, kimi, pi (see runtimes.list)."),
+        runtime: z
+          .string()
+          .describe("Runtime id: claude, codex, cursor, antigravity, grok, kimi, pi (see runtimes.list)."),
         model: z.string().optional().describe("Runtime-native model id; the runtime's default when omitted."),
         effort: z
           .string()
