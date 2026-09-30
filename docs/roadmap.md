@@ -38,7 +38,8 @@ file when something lands.
   server's own web app, and the manager of the servers it runs, on this Mac (launchd) or over
   SSH (a bundle put on the host, systemd, a tunnel), through the same `rowrow service`
   commands as the CLI. Updates itself from GitHub Releases; servers follow once no agent is
-  mid-turn. Notifications with Reply and Mark as Seen (`notify.watch`).
+  mid-turn. Notifications with Reply and Mark as Seen (`notify.watch`). Signed with
+  Botiverse's Developer ID and notarized since 0.3.0.
 
 ## Parked
 
@@ -60,8 +61,8 @@ file when something lands.
 
 ## The Mac app, next
 
-1. The first signed release: the signing secrets are set, so tag a version, then check an
-   update from one release to the next on a real Mac (docs/desktop.md → Releases).
+1. See "Restart to Update" and the install when the Mac is idle work on a real Mac. So far
+   only the install on quit has been seen: a signed build updating itself to 0.3.0.
 2. A G2 Developer ID certificate from Botiverse's Account Holder before 2027-02-01, when the
    current one expires.
 3. SSH hosts that ask for a password or a 2FA code (an askpass through the app).
