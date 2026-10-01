@@ -1,6 +1,7 @@
 // What the Mac app's own pages (src/desktop/ui: servers, setup, offline) see of the main
 // process, through the preload's `window.rowrow` (docs/desktop.md). Types only: the main
 // process, the preload and the pages all import them, and none of them imports the others.
+import type { AppUpdateView } from "../shared/app-bridge.ts";
 
 export type ServerKind = "local" | "ssh" | "url";
 
@@ -55,15 +56,8 @@ export interface ServerView {
   readonly notifications: boolean | null;
 }
 
-export interface UpdateView {
-  readonly current: string;
-  readonly state: "idle" | "checking" | "downloading" | "ready" | "error" | "disabled";
-  /** The newer version, while downloading and once ready. */
-  readonly version: string | null;
-  readonly progress: number | null;
-  readonly error: string | null;
-  readonly checkedAt: number | null;
-}
+/** The app's updater, as the menu, its own pages and a server's Settings (window.rowrowApp) show it. */
+export type UpdateView = AppUpdateView;
 
 /** What runs on this Mac before the app set anything up: offered on the welcome page. */
 export interface LocalFound {

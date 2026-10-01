@@ -1,7 +1,9 @@
 // The app's API for its own pages (src/desktop/ui), as `window.rowrow`. This preload runs in
 // every window, sandboxed, but gives the API only to pages at rowrow-app://ui: a server's web
-// app never sees it (and the main process checks the sender again, ipc.ts).
+// app never sees it (and the main process checks the sender again, ipc.ts). A server's web app
+// gets only `window.rowrowApp`, the app's updater (src/shared/app-bridge.ts), for its Settings.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { AppBridge, AppUpdateView } from "../shared/app-bridge.ts";
 import type { DesktopApi, ShellState } from "./api.ts";
 
 // A page's location (this runs in the renderer; the main process's types have no DOM).
@@ -32,4 +34,17 @@ if (location.protocol === "rowrow-app:" && location.host === "ui") {
     showLogs: (serverId) => call("showLogs", serverId),
   };
   contextBridge.exposeInMainWorld("rowrow", api);
+} else if (location.protocol === "http:" || location.protocol === "https:") {
+  const call = <T>(method: string): Promise<T> => ipcRenderer.invoke("rowrow-app", method) as Promise<T>;
+  const bridge: AppBridge = {
+    update: () => call("update"),
+    onUpdate: (listener) => {
+      const handler = (_event: IpcRendererEvent, view: AppUpdateView): void => listener(view);
+      ipcRenderer.on("rowrow-app:update", handler);
+      return () => void ipcRenderer.off("rowrow-app:update", handler);
+    },
+    checkForUpdates: () => call("checkForUpdates"),
+    installUpdate: () => call("installUpdate"),
+  };
+  contextBridge.exposeInMainWorld("rowrowApp", bridge);
 }

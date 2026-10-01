@@ -87,7 +87,8 @@ export interface UpdateCheckerOptions {
   readonly install: Install;
   readonly registry: string;
   readonly enabled: () => boolean;
-  readonly changed: (update: UpdateInfo | null) => void;
+  /** What's known changed: `current`, `checkedAt` or `error`. */
+  readonly changed: () => void;
   readonly fetch?: typeof fetch;
 }
 
@@ -96,6 +97,8 @@ export class UpdateChecker {
   #timer: NodeJS.Timeout | null = null;
   #current: UpdateInfo | null = null;
   #checking: Promise<void> | null = null;
+  #checkedAt: number | null = null;
+  #error: string | null = null;
 
   constructor(options: UpdateCheckerOptions) {
     this.#options = options;
@@ -103,6 +106,11 @@ export class UpdateChecker {
 
   get current(): UpdateInfo | null {
     return this.#current;
+  }
+
+  /** When the registry last answered, and why the last ask failed (until one works). */
+  get status(): { checkedAt: number | null; error: string | null } {
+    return { checkedAt: this.#checkedAt, error: this.#error };
   }
 
   start(delayMs = FIRST_CHECK_MS): void {
@@ -120,19 +128,22 @@ export class UpdateChecker {
     this.#timer = null;
   }
 
-  /** Ask the registry now; clears what's known when checking is off. */
-  check(): Promise<void> {
-    if (!this.#options.enabled()) {
+  /**
+   * Ask the registry now; clears what's known when checking is off, unless someone asked by
+   * hand (`manual`), which asks anyway.
+   */
+  check(manual = false): Promise<void> {
+    if (!manual && !this.#options.enabled()) {
       this.#set(null);
       return Promise.resolve();
     }
-    this.#checking ??= this.#ask().finally(() => {
+    this.#checking ??= this.#ask(manual).finally(() => {
       this.#checking = null;
     });
     return this.#checking;
   }
 
-  async #ask(): Promise<void> {
+  async #ask(manual: boolean): Promise<void> {
     const { registry, current, install } = this.#options;
     const url = `${registry}/${PACKAGE}`;
     try {
@@ -144,17 +155,22 @@ export class UpdateChecker {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const body = (await response.json()) as { "dist-tags"?: Record<string, string> };
       const latest = newerVersion(current, body["dist-tags"] ?? {});
-      if (!this.#options.enabled()) return;
-      log.info("update.checked", { registry, current, available: latest });
-      this.#set(latest === null ? null : { version: latest, ...updateCommand(install, latest) });
+      if (!manual && !this.#options.enabled()) return;
+      log.info("update.checked", { registry, current, available: latest, manual });
+      this.#checkedAt = Date.now();
+      this.#error = null;
+      this.#current = latest === null ? null : { version: latest, ...updateCommand(install, latest) };
+      this.#options.changed();
     } catch (error) {
-      log.warn("update.check_failed", { registry, err: serializeError(error) });
+      log.warn("update.check_failed", { registry, manual, err: serializeError(error) });
+      this.#error = `Couldn't reach ${registry}: ${error instanceof Error ? error.message : String(error)}`;
+      this.#options.changed();
     }
   }
 
   #set(update: UpdateInfo | null): void {
     if (JSON.stringify(update) === JSON.stringify(this.#current)) return;
     this.#current = update;
-    this.#options.changed(update);
+    this.#options.changed();
   }
 }

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import type { AppState, Device, LoginLink } from "../../shared/schemas.ts";
 import { PageHeader } from "../components/Shell.tsx";
 import { RuntimeList, useRuntimeUpdates } from "../components/RuntimeList.tsx";
+import { UpdateStatus } from "../components/UpdateStatus.tsx";
 import { ago } from "../lib/format.ts";
 import { currentSubscription, disablePush, enablePush, pushSupport } from "../lib/push.ts";
 import type { Route } from "../lib/router.ts";
@@ -220,13 +221,7 @@ export function SettingsPage({ route }: { route: Route }) {
               <Fact label="Machine">{host.name}</Fact>
               <Fact label="Version">
                 {`rowrow ${host.version} · oar ${host.oar} · node ${host.node}`}
-                {host.update !== null && (
-                  <span className="block text-muted-foreground">
-                    {`rowrow ${host.update.version} is out: `}
-                    <code className="font-mono text-xs break-all text-foreground">{host.update.command}</code>
-                    {host.update.after === null ? "" : ` ${host.update.after}`}
-                  </span>
-                )}
+                <UpdateStatus host={host} />
               </Fact>
               <Fact label="Address">
                 {host.url + (host.exposed ? " (reachable beyond this machine)" : " (this machine only)")}

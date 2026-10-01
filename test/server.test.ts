@@ -682,8 +682,26 @@ describe("updates", () => {
 
       await server.client.settings.update({ checkForUpdates: false });
       expect((await server.client.app.info()).update).toBeNull();
+
+      // Asked by hand, it checks even when checking is off, and says when it last heard.
+      const now = await server.client.app.checkForUpdates();
+      expect(now.update?.version).toBe("99.0.0");
+      expect(now.check).toMatchObject({ via: "npm", error: null });
+      expect(now.check.checkedAt).toBeGreaterThan(Date.now() - 10_000);
     } finally {
       registry.close();
     }
+  });
+
+  it("says why a check failed, and that a checkout updates with git", async () => {
+    t = await startTestServer({ updateRegistry: "http://127.0.0.1:9" });
+    const failed = await t.client.app.checkForUpdates();
+    expect(failed.update).toBeNull();
+    expect(failed.check.error).toMatch(/^Couldn't reach http:\/\/127\.0\.0\.1:9/);
+    expect((await t.client.state.get()).state.host.updateCheck.error).toBe(failed.check.error);
+    await t.close();
+    t = await startTestServer();
+    expect((await t.client.app.info()).updateCheck.via).toBe("git");
+    await expect(t.client.app.checkForUpdates()).rejects.toThrow("update it with git pull");
   });
 });

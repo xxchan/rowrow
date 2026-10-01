@@ -50,7 +50,8 @@ function updateItem(state: ShellState, actions: MenuActions): MenuItemConstructo
       enabled: false,
     };
   return {
-    label: "Check for Updates…",
+    // A failed update is said, not hidden behind the same item: checking again shows why.
+    label: update.state === "error" ? "Update Failed: Check Again…" : "Check for Updates…",
     enabled: update.state !== "disabled" && update.state !== "checking",
     click: () => actions.checkForUpdates(),
   };

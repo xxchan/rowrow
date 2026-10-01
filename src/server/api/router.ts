@@ -33,6 +33,7 @@ import type { Runtimes } from "../agents/runtimes.ts";
 import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
+import type { UpdateChecker } from "../updates.ts";
 import type { Apns } from "../notify/apns.ts";
 import type { LiveNotices } from "../notify/live.ts";
 import type { Presence } from "../notify/presence.ts";
@@ -91,6 +92,8 @@ export interface GitOps {
 
 export interface Services {
   host(): HostInfo;
+  /** The npm update checker, when this install asks npm (not a checkout or a Mac app's bundle). */
+  updates(): UpdateChecker | null;
   readonly state: StateStore;
   readonly workspaces: Workspaces;
   readonly agents: AgentService;
@@ -161,6 +164,19 @@ export function createRouter(s: Services) {
   return os.router({
     app: {
       info: os.app.info.handler(() => s.host()),
+      checkForUpdates: os.app.checkForUpdates.handler(async () => {
+        const checker = s.updates();
+        if (checker === null) {
+          throw new UserError(
+            s.host().updateCheck.via === "mac"
+              ? "rowrow for Mac updates this server: rowrow menu → Check for Updates…"
+              : "This rowrow runs from a checkout: update it with git pull.",
+            "PRECONDITION_FAILED",
+          );
+        }
+        await checker.check(true);
+        return { update: checker.current, check: s.host().updateCheck };
+      }),
       status: os.app.status.handler(() => ({
         host: s.host(),
         runs: s.agents.liveRuns(),

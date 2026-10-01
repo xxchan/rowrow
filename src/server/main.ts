@@ -96,6 +96,7 @@ export async function startServer(
   let url = "";
   let publicUrl = "";
   let updates: UpdateChecker | null = null;
+  const install = detectInstall(root, options.profile);
   const host = (): HostInfo => ({
     name: os.hostname(),
     version,
@@ -111,6 +112,10 @@ export async function startServer(
     pushKey: push.publicKey,
     update: updates?.current ?? null,
     apns: apns.configured,
+    updateCheck: {
+      via: updates !== null ? "npm" : install.kind === "bundle" ? "mac" : "git",
+      ...(updates?.status ?? { checkedAt: null, error: null }),
+    },
   });
 
   const state = new StateStore({
@@ -124,7 +129,6 @@ export async function startServer(
   settings.load();
   // A checkout (tests, pnpm dev) runs .ts and updates through git, and a bundle is upgraded by
   // the Mac app that put it there (D-032): they ask only when told where.
-  const install = detectInstall(root, options.profile);
   const updateRegistry =
     options.updateRegistry === undefined
       ? import.meta.filename.endsWith(".ts") || install.kind === "bundle"
@@ -137,9 +141,9 @@ export async function startServer(
       install,
       registry: updateRegistry,
       enabled: () => settings.get().checkForUpdates,
-      changed: (update) =>
+      changed: () =>
         state.update("host.update", (draft) => {
-          draft.host.update = update;
+          draft.host = host();
         }),
     });
     settings.onChange((keys) => {
@@ -213,6 +217,7 @@ export async function startServer(
 
   const router = createRouter({
     host,
+    updates: () => updates,
     state,
     settings,
     workspaces,

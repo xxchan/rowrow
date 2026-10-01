@@ -11,7 +11,25 @@ const id = z.string().min(1).max(100);
 const optionalName = z.string().max(100).nullable();
 const action = z.enum(["start", "stop", "restart", "upgrade-now", "adopt"]);
 
-export function registerIpc(shell: Shell, log: Logger): void {
+export function registerIpc(shell: Shell, log: Logger, isServerPage: (url: string) => boolean): void {
+  // A server's web app (window.rowrowApp): the app's updater and nothing else, and only for the
+  // top frame of a server this app opened.
+  ipcMain.handle("rowrow-app", async (event, method: unknown) => {
+    const frame = event.senderFrame;
+    if (frame === null || frame !== event.sender.mainFrame || !isServerPage(frame.url))
+      throw new Error("not allowed");
+    switch (method) {
+      case "update":
+        return shell.state().update;
+      case "checkForUpdates":
+        return await shell.checkForUpdates();
+      case "installUpdate":
+        return await shell.installUpdate();
+      default:
+        throw new Error(`no method ${String(method)}`);
+    }
+  });
+
   ipcMain.handle("rowrow", async (event, method: unknown, ...args: unknown[]) => {
     if (!isAppPage(event.senderFrame?.url ?? "")) throw new Error("not allowed");
     try {
@@ -53,10 +71,15 @@ export function registerIpc(shell: Shell, log: Logger): void {
     }
   });
 
+  let update = "";
   shell.onState((state) => {
+    const updateChanged = JSON.stringify(state.update) !== update;
+    update = JSON.stringify(state.update);
     for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || !isAppPage(window.webContents.getURL())) continue;
-      window.webContents.send("rowrow:state", state);
+      if (window.isDestroyed()) continue;
+      const url = window.webContents.getURL();
+      if (isAppPage(url)) window.webContents.send("rowrow:state", state);
+      else if (updateChanged && isServerPage(url)) window.webContents.send("rowrow-app:update", state.update);
     }
   });
 }
