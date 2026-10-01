@@ -48,16 +48,16 @@ minimumReleaseAgeExclude:
   - hono@4.13.10
   - oxfmt@0.71.0
   - oxlint@1.86.0
-  - "@botiverse/oar@0.10.2"
+  - "@botiverse/oar@0.10.3"
   - electron@44.5.0
-  - "@earendil-works/chord@0.99.1"
-  - "@earendil-works/pi-agent-core@0.99.1"
-  - "@earendil-works/pi-ai@0.99.1"
-  - "@earendil-works/pi-codemode@0.99.1"
-  - "@earendil-works/pi-coding-agent@0.99.1"
-  - "@earendil-works/pi-mcp@0.99.1"
-  - "@earendil-works/pi-telemetry@0.99.1"
-  - "@earendil-works/pi-tui@0.99.1"
+  - "@earendil-works/chord@0.99.2"
+  - "@earendil-works/pi-agent-core@0.99.2"
+  - "@earendil-works/pi-ai@0.99.2"
+  - "@earendil-works/pi-codemode@0.99.2"
+  - "@earendil-works/pi-coding-agent@0.99.2"
+  - "@earendil-works/pi-mcp@0.99.2"
+  - "@earendil-works/pi-telemetry@0.99.2"
+  - "@earendil-works/pi-tui@0.99.2"
 overrides:
   # electron-builder 26.15 asks for ^3.0.0 but uses ElectronDownloadCacheMode, new in 3.1.0.
   "@electron/get@^3": ^3.1.0
