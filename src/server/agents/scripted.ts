@@ -8,6 +8,8 @@
 //   /sleep <ms>             work for <ms> (abortable), then say so
 //   /stream <n>             say n chunks, 40 ms apart
 //   /fail <reason>          end the turn failed with <reason>
+//   /background <ms> <text> start <text> as a background command, end the turn, and finish
+//                           the command <ms> later (a task that outlives its turn)
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
 // attachments, commands are read from the request after the list of files, and the answer
 // says which files and images arrived.
@@ -24,6 +26,7 @@ const COMMANDS: readonly SkillEntry[] = [
   { name: "sleep", description: "Work for that many milliseconds (stoppable), then say so" },
   { name: "stream", description: "Say that many chunks, 40 ms apart" },
   { name: "fail", description: "End the turn failed, with the rest of the line as the reason" },
+  { name: "background", description: "Run a command in the background for that many milliseconds" },
 ];
 
 export function scriptedDemoRuntime(): Runtime {
@@ -67,6 +70,14 @@ export function scriptedDemoRuntime(): Runtime {
         }
         case "/fail":
           throw new Error(arg || "scripted failure");
+        case "/background": {
+          const ms = Number(args[0]) || 1000;
+          const description = args.slice(1).join(" ") || "background work";
+          const task = turn.task({ taskType: "shell", description, background: true });
+          turn.say(`Started \`${description}\` in the background.`);
+          setTimeout(() => task.end("completed", { summary: `${description}: done` }), ms).unref();
+          return;
+        }
         default:
           await demo(turn);
       }

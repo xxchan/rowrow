@@ -673,6 +673,24 @@ test("⌘↵ steers into the turn, ↑ takes a queued message back, and a stoppe
   await expect(tray).toBeHidden();
 });
 
+test("work an agent runs in the background shows beside it until it ends", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "backgrounds",
+    input: { inputId: randomUUID(), text: "/background 4000 npm test" },
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  // The turn is over; the command isn't.
+  await expect(page.getByText("Started npm test in the background.")).toBeVisible();
+  const tasks = page.getByRole("button", { name: "1 in background" });
+  await tasks.click();
+  await expect(page.getByRole("dialog").getByText("npm test", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(tasks).toBeHidden({ timeout: 10_000 });
+});
+
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
 async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
   if (!phone) return row.getByRole("button", { name }).click();
