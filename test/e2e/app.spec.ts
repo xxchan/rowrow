@@ -203,6 +203,14 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
   // Click a line to comment on it: the comment waits under it for the agent's next message.
   await line.click();
   await expect(panel.getByRole("textbox", { name: "Comment" })).toBeFocused();
+  // The server re-reads the checkout now and then: the diff stays, and so does the comment.
+  const before = (await rowrow.client.state.get()).state.workspaces[ws.id]?.git?.updatedAt;
+  await rowrow.client.workspaces.refresh({ id: ws.id });
+  await expect
+    .poll(async () => (await rowrow.client.state.get()).state.workspaces[ws.id]?.git?.updatedAt)
+    .not.toBe(before);
+  await page.waitForTimeout(500);
+  await expect(panel.getByRole("textbox", { name: "Comment" })).toBeFocused();
   await page.keyboard.type("Name it greeting.");
   await panel.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(panel.getByText("Name it greeting.")).toBeVisible();
@@ -377,7 +385,10 @@ test("⌘K jumps to an agent by name; ⌘J goes to the next one that needs you",
   await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByRole("combobox")).toBeFocused();
   await page.keyboard.type("quiet");
+  // Enter opens the highlighted one: wait until the filter has moved the highlight.
+  await expect(page.getByRole("option", { name: /quiet one/ })).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(new RegExp(`/a/${quiet.agent.id}$`));
 

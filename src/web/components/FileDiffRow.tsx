@@ -151,7 +151,9 @@ export function FileDiffRow({
       </ContextMenu>
       {open && (
         <div className="pt-1 pb-3 pl-1">
-          {diff === null || diff.version !== version ? (
+          {/* A newer version loads behind the one shown: the diff, and a comment being written on
+              it, stay until it arrives (the server re-reads the checkout often). */}
+          {diff === null ? (
             loading
           ) : "error" in diff ? (
             <ErrorText className="px-2">{diff.error}</ErrorText>
