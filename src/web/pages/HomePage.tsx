@@ -150,6 +150,7 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
                   {` · ${queued} queued${agent.summary.queuePaused !== null ? ", paused" : ""}`}
                 </span>
               )}
+              {agent.summary.tasks.length > 0 && ` · ${agent.summary.tasks.length} in background`}
               {` · ${ws?.label ?? "?"}`}
               {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
               {` · ${runtime}`}

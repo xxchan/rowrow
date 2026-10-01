@@ -2,7 +2,13 @@
 // to know about one agent. Pure and incremental (reduceSummary), so the server keeps one
 // per agent up to date as entries are appended, and any tool can rebuild it from a log.
 import type { ContextUsage, RawEvent, TokenTotals, TurnOutcome } from "@botiverse/oar";
-import { initialStatus, reduceStatus, type AgentStatus } from "@botiverse/oar/observe";
+import {
+  initialStatus,
+  reduceStatus,
+  reduceTasks,
+  type AgentStatus,
+  type TaskView,
+} from "@botiverse/oar/observe";
 import type { Actor, Attachment, Entry, EntryOf, QueuePauseReason } from "./entries.ts";
 
 export interface PendingRequestSummary {
@@ -93,6 +99,12 @@ export interface AgentSummary {
   readonly stopping: boolean;
   /** Fold internals: the latest input, until its result says whether rowrow holds it. */
   readonly unanswered: QueuedInput | null;
+  /**
+   * What the runtime runs beside its turns, still going (oar's task events, folded by
+   * reduceTasks): background commands, subagents, tool calls moved off the turn. They can run
+   * on after the turn ends; they end with the run. Work the runtime does for itself is left out.
+   */
+  readonly tasks: readonly TaskView[];
 }
 
 const PREVIEW_CHARS = 280;
@@ -128,6 +140,7 @@ export function initialSummary(): AgentSummary {
     textOpen: false,
     stopping: false,
     unanswered: null,
+    tasks: [],
   };
 }
 
@@ -217,6 +230,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         sessionId: entry.sessionId,
         status: initialStatus,
         pending: [],
+        tasks: [],
         lastError: null,
         textOpen: false,
         stopping: false,
@@ -269,6 +283,19 @@ function unreadSteering(s: AgentSummary): AgentSummary {
   return s.steering.length === 0 ? s : { ...s, steering: [], unread: [...s.unread, ...s.steering] };
 }
 
+const ACTIVE = new Set<TaskView["status"]>(["pending", "running", "paused"]);
+
+/** The runtime's tasks still going, after `record` (only frames that report tasks change them). */
+function foldTasks(s: AgentSummary, record: RawEvent): AgentSummary {
+  if (record.kind !== "frame" || !record.body.events.some((event) => event.kind.startsWith("task_")))
+    return s;
+  const known = reduceTasks(new Map(s.tasks.map((task) => [task.taskId, task])), record);
+  return {
+    ...s,
+    tasks: [...known.values()].filter((task) => task.ambient !== true && ACTIVE.has(task.status)),
+  };
+}
+
 function endRun(s: AgentSummary, entry: EntryOf<"run.ended">): AgentSummary {
   // A run the server lost (crashed) or that exited while a turn was open ended that turn
   // without the runtime saying so. That is a failure you should see.
@@ -280,6 +307,8 @@ function endRun(s: AgentSummary, entry: EntryOf<"run.ended">): AgentSummary {
     ...unreadSteering(s),
     run: null,
     pending: [],
+    // Its processes ended with it.
+    tasks: [],
     textOpen: false,
     stopping: false,
     status: cutTurn
@@ -297,7 +326,7 @@ function foldRecord(
   at: number,
 ): AgentSummary {
   const status = reduceStatus(s.status, record, sessionId);
-  let next: AgentSummary = status === s.status ? s : { ...s, status };
+  let next: AgentSummary = foldTasks(status === s.status ? s : { ...s, status }, record);
   const root = record.sessionId === sessionId && record.agentPath.length === 0;
 
   switch (record.kind) {
@@ -364,6 +393,10 @@ function foldRecord(
           case "compaction_started":
           case "compaction_ended":
           case "retry":
+          // Folded by foldTasks, every agent's, not just the root's.
+          case "task_started":
+          case "task_updated":
+          case "task_ended":
             break;
         }
         // Usage and model reports interleave with text on some runtimes; they don't end a text run.

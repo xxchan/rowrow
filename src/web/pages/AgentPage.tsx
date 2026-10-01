@@ -28,6 +28,7 @@ import {
   type InspectorTab,
 } from "../components/Inspector.tsx";
 import { SelectionComment } from "../components/SelectionComment.tsx";
+import { BackgroundTasks } from "../components/BackgroundTasks.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
@@ -127,6 +128,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
         subtitle={`${dot.label} · ${facts.join(" · ")}`}
         actions={
           <>
+            <BackgroundTasks tasks={summary.tasks} now={now} />
             {nextUp !== undefined && (
               <Tooltip>
                 <TooltipTrigger asChild>
