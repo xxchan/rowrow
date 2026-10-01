@@ -19,6 +19,17 @@ export const UpdateInfo = z.object({
 });
 export type UpdateInfo = z.infer<typeof UpdateInfo>;
 
+export const UpdateCheckStatus = z.object({
+  via: z
+    .enum(["npm", "mac", "git"])
+    .describe(
+      "How this install updates: npm (rowrow asks the registry: npm, pnpm and npx installs), mac (the Mac app that put this server here updates it, D-032), git (a checkout).",
+    ),
+  checkedAt: z.number().nullable().describe("When rowrow last heard from the registry (via npm)."),
+  error: z.string().nullable().describe("Why the last check failed, until one works."),
+});
+export type UpdateCheckStatus = z.infer<typeof UpdateCheckStatus>;
+
 export const HostInfo = z.object({
   name: z.string().describe("The machine's hostname."),
   version: z.string(),
@@ -36,6 +47,7 @@ export const HostInfo = z.object({
     "A newer rowrow is on npm (checked on start, then twice a day; off with settings.checkForUpdates). null when up to date, unknown, or not checked.",
   ),
   apns: z.boolean().describe("Push to the iOS app works: the server has an APNs key (notify.configureApns)."),
+  updateCheck: UpdateCheckStatus,
 });
 export type HostInfo = z.infer<typeof HostInfo>;
 

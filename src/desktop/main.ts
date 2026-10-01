@@ -15,6 +15,7 @@ import { appMenu, MenuBar, type MenuActions } from "./menu.ts";
 import { Notifications } from "./notifications.ts";
 import { LOCAL_ID, ServerStore, type Sealer } from "./servers.ts";
 import { Shell } from "./shell.ts";
+import { checkOutcome } from "./update-words.ts";
 import { Updater } from "./updater.ts";
 import { APP_SCHEME, Windows } from "./windows.ts";
 
@@ -175,7 +176,7 @@ async function main(): Promise<void> {
     setQuitting,
   });
   shell = new Shell({ config, store, windows, bundles, local, log, notifications, updater: () => updater });
-  registerIpc(shell, log);
+  registerIpc(shell, log, (url) => windows.isServerPage(url));
 
   const actions: MenuActions = {
     openServer: (id) => void current().open(id),
@@ -185,7 +186,13 @@ async function main(): Promise<void> {
       else void windows.openServer(current().controller(id).target(), "/", true);
     },
     openHosts: (route) => void windows.openHosts(route),
-    checkForUpdates: () => void updater.check(true),
+    // Asked from the menu: say what the check found, even "nothing newer".
+    checkForUpdates: () =>
+      void (async () => {
+        await updater.check(true);
+        const outcome = checkOutcome(updater.view);
+        if (outcome !== null) await dialog.showMessageBox({ type: "info", ...outcome });
+      })(),
     installUpdate: () => void updater.install(false),
     installCommand: () =>
       void current()

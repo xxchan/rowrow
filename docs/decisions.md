@@ -940,3 +940,25 @@ it is never done behind anyone's back; checking is harmless, so it's automatic.
 **Revisit when** people want rowrow to keep runtimes current on its own (an opt-in, like
 D-025's update check), or an updater needs input we can't give it (`requires_terminal`
 today, for some Kimi installs).
+
+## D-037 Check for updates by hand, and see the Mac app's updater in Settings (2026-10-01)
+
+**Context.** People looked for "check for updates" in Settings and found only a command that
+shows up when the twice-daily check (D-025) finds something. In rowrow for Mac, Check for
+Updates… sat in the menu bar and said nothing when nothing was newer, and a failed update kept
+the same label, so the error was never seen; Settings knew nothing about the app.
+
+**Decision.** `app.checkForUpdates` asks the registry now (even with automatic checks off), and
+`host.updateCheck` says how this install updates (npm, the Mac app, git), when the registry last
+answered and why the last check failed. Settings → Server shows that with Check now and the
+command (with Copy). rowrow for Mac gives the pages of servers it opened one narrow bridge,
+`window.rowrowApp` (src/shared/app-bridge.ts): its updater's state, check, and restart to
+install; Settings shows it with those buttons. Check for Updates… from the menu now says what it
+found (up to date, downloading, or the error), and a failed update reads "Update Failed: Check
+Again…".
+
+**Why.** Updating is something people go looking for, and silence reads as "can't". The bridge
+gives a server's page nothing but the app's own updater, which only installs signed releases.
+
+**Revisit when** the web app can update an npm install itself (`rowrow update`, roadmap), or a
+server page needs more of the app than its updater.

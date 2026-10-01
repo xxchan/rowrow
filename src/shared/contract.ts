@@ -38,6 +38,8 @@ import {
   SendResult,
   Settings,
   SkillInfo,
+  UpdateCheckStatus,
+  UpdateInfo,
   UpgradeResult,
   type StateMessage,
   Workspace,
@@ -54,6 +56,12 @@ const workspaceId = z.string().describe("Workspace id (ws_…).");
 
 const app = {
   info: oc.route({ summary: "Server version, profile, data directory, address, pid." }).output(HostInfo),
+  checkForUpdates: oc
+    .route({
+      summary:
+        "Ask the registry for a newer rowrow now (even with settings.checkForUpdates off). PRECONDITION_FAILED when this install updates another way: through the Mac app that runs it, or git.",
+    })
+    .output(z.object({ update: UpdateInfo.nullable(), check: UpdateCheckStatus })),
   status: oc
     .route({
       summary:

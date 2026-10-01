@@ -31,6 +31,17 @@ export function isAppPage(url: string): boolean {
 }
 
 export class Windows {
+  /** A page of a server this app opened (it gets window.rowrowApp, the updater). */
+  isServerPage(url: string): boolean {
+    let origin: string;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      return false;
+    }
+    return [...this.origins.values()].includes(origin);
+  }
+
   private readonly preload: string;
   private readonly log: Logger;
   private readonly userAgent: string;
