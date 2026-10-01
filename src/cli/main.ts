@@ -11,7 +11,7 @@ import { contract } from "../shared/contract.ts";
 import type { Attachment, Entry } from "../shared/entries.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
-import type { AgentState, AppState, LogEntry } from "../shared/schemas.ts";
+import type { AgentState, AppState, LogEntry, UpgradeResult } from "../shared/schemas.ts";
 import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
@@ -32,6 +32,11 @@ Push notifications
   rowrow push apns <AuthKey_ID.p8> --key-id ID --team-id ID
                                    let the server push to the iOS app you built (your APNs key)
   rowrow push apns --off           forget the APNs key
+
+Runtimes
+  rowrow runtimes [--check]        what's installed; --check: whether a newer version is out
+  rowrow runtimes upgrade <runtime>   run that runtime's own updater (agents running now keep
+                                   the old version until their next run)
 
 Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service install [serve flags…] [--if-idle]   launchd on macOS, systemd --user on Linux;
@@ -130,6 +135,7 @@ async function main(argv: string[]): Promise<void> {
       names: { type: "boolean" },
       content: { type: "boolean" },
       refresh: { type: "boolean" },
+      check: { type: "boolean" },
       attach: { type: "string", multiple: true },
       "key-id": { type: "string" },
       "team-id": { type: "string" },
@@ -320,6 +326,41 @@ async function main(argv: string[]): Promise<void> {
           agents.length === 0
             ? "No agents yet. Create one: rowrow agent new <workspace> [prompt…]"
             : agents.map((a) => formatAgent(a, state)).join("\n"),
+        );
+        return;
+      }
+      case "runtimes": {
+        if (rest[0] === "upgrade") {
+          if (rest[1] === undefined) throw new Error("usage: rowrow runtimes upgrade <runtime>");
+          const result = await client.runtimes.upgrade({ runtime: rest[1] });
+          out(result, () => formatUpgrade(result));
+          return;
+        }
+        if (rest[0] !== undefined) throw new Error(`unknown runtimes command "${rest[0]}" (upgrade)`);
+        const list = await client.runtimes.list({ refresh: true });
+        const updates = bool("check") ? await client.runtimes.updates({ refresh: true }) : [];
+        out({ runtimes: list, updates }, () =>
+          list
+            .map((runtime) => {
+              const check = updates.find((update) => update.runtime === runtime.id)?.check;
+              const version = runtime.installed
+                ? (runtime.version ?? "installed")
+                : (runtime.reason ?? "not installed");
+              const news =
+                check === undefined
+                  ? ""
+                  : check.kind === "ok"
+                    ? check.updateAvailable
+                      ? `  → ${check.latest} is out (rowrow runtimes upgrade ${runtime.id})`
+                      : "  (latest)"
+                    : check.reason === "not_installed"
+                      ? ""
+                      : check.reason === "no_updater"
+                        ? `  (${check.detail ?? "updates with rowrow"})`
+                        : `  (can't check: ${check.detail ?? check.reason})`;
+              return `${runtime.installed ? "●" : "○"} ${runtime.id.padEnd(12)} ${version}${news}`;
+            })
+            .join("\n"),
         );
         return;
       }
@@ -812,3 +853,18 @@ main(process.argv.slice(2)).catch((error: unknown) => {
   console.error(`rowrow: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
 });
+
+function formatUpgrade(result: UpgradeResult): string {
+  switch (result.kind) {
+    case "upgraded":
+      return `upgraded ${result.from} → ${result.to}`;
+    case "current":
+      return `already the latest (${result.version})`;
+    case "unchanged":
+      return `the updater finished, but it's still ${result.version}\n${result.output}`;
+    case "failed":
+      return `the update failed (exit code ${result.exitCode ?? "none: it took too long"})\n${result.output}`;
+    case "unsupported":
+      return `can't update it here: ${result.detail ?? result.reason}`;
+  }
+}

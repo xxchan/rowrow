@@ -31,12 +31,14 @@ import {
   Notice,
   PullRequestStatus,
   RuntimeInfo,
+  RuntimeUpdate,
   SearchKind,
   SearchResult,
   SeenFile,
   SendResult,
   Settings,
   SkillInfo,
+  UpgradeResult,
   type StateMessage,
   Workspace,
 } from "./schemas.ts";
@@ -330,6 +332,20 @@ const runtimes = {
     })
     .input(z.object({ runtime: z.string(), workspaceId }))
     .output(z.object({ skills: z.array(SkillInfo), error: z.string().nullable() })),
+  updates: oc
+    .route({
+      summary:
+        "Whether a newer version of each runtime is out, as its own updater would install it (asks the runtime or its release feed; cached for an hour, `refresh` asks again).",
+    })
+    .input(z.object({ refresh: z.boolean().optional() }))
+    .output(z.array(RuntimeUpdate)),
+  upgrade: oc
+    .route({
+      summary:
+        "Run a runtime's own updater (no terminal, up to 10 minutes), then probe it again. Only when asked; agents running now keep the old version until their next run.",
+    })
+    .input(z.object({ runtime: z.string() }))
+    .output(UpgradeResult),
 };
 
 const git = {

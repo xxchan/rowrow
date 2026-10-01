@@ -916,3 +916,27 @@ needs its own tray.
 
 **Revisit when** people want several queued messages sent as one turn, or a runtime's own
 queue becomes visible and editable through oar.
+
+## D-036 Runtime updates: checked for you, installed only when you ask (2026-10-01)
+
+**Context.** Agent CLIs (Claude Code, Codex, Kimi…) ship often, and an old one is a common
+cause of odd failures. Someone running agents from a phone can't easily open a terminal on the
+machine to update them. oar 0.11 can ask each runtime which version its own updater would
+install (`checkUpdate`) and run that updater (`upgrade`), judging the result by the version
+the same executable reports afterwards.
+
+**Decision.** `runtimes.updates` asks every installed runtime (cached for an hour; Settings
+asks when it opens, "Check again" and `rowrow runtimes --check` ask afresh). Settings shows
+"X is out" with an Update button, and `runtimes.upgrade` runs the updater only when someone
+presses it (or runs `rowrow runtimes upgrade <runtime>`): one run per runtime at a time, then
+a probe, so every client sees the new version. rowrow never upgrades on its own. Agents
+running now keep the old version until their next run. Pi has no updater: oar carries its
+SDK, so it updates with rowrow.
+
+**Why.** Updating is the fix people reach for first, and rowrow already runs these CLIs as
+the same user. Running an updater changes the machine for every tool that uses that CLI, so
+it is never done behind anyone's back; checking is harmless, so it's automatic.
+
+**Revisit when** people want rowrow to keep runtimes current on its own (an opt-in, like
+D-025's update check), or an updater needs input we can't give it (`requires_terminal`
+today, for some Kimi installs).

@@ -6,14 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Info, Plus, TriangleAlert, X } from "lucide-react";
+import { Info, LoaderCircle, Plus, TriangleAlert, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type { AppState, Device, LoginLink } from "../../shared/schemas.ts";
 import { PageHeader } from "../components/Shell.tsx";
-import { AgentIcon } from "../components/AgentIcon.tsx";
-import { StatusDot } from "../components/StatusDot.tsx";
+import { RuntimeList, useRuntimeUpdates } from "../components/RuntimeList.tsx";
 import { ago } from "../lib/format.ts";
 import { currentSubscription, disablePush, enablePush, pushSupport } from "../lib/push.ts";
 import type { Route } from "../lib/router.ts";
@@ -61,6 +60,7 @@ export function SettingsPage({ route }: { route: Route }) {
     }
   };
 
+  const runtimeUpdates = useRuntimeUpdates();
   const support = pushSupport();
   const { host } = state;
   return (
@@ -204,29 +204,15 @@ export function SettingsPage({ route }: { route: Route }) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void run("Refresh", async () => client?.runtimes.list({ refresh: true }))}
+                disabled={runtimeUpdates.checking}
+                onClick={runtimeUpdates.recheck}
               >
+                {runtimeUpdates.checking && <LoaderCircle className="animate-spin" />}
                 Check again
               </Button>
             }
           >
-            <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-              {Object.values(state.runtimes).map((runtime) => (
-                <li key={runtime.id} className="flex items-center gap-3 px-3 py-2.5">
-                  <StatusDot
-                    tone={runtime.installed ? "success" : "neutral"}
-                    label={runtime.installed ? "Installed" : "Not installed"}
-                  />
-                  <AgentIcon runtime={runtime.id} label={runtime.name} />
-                  <span className="text-sm font-medium">{runtime.name}</span>
-                  <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
-                    {runtime.installed
-                      ? (runtime.version ?? "installed")
-                      : (runtime.reason ?? "not installed")}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <RuntimeList runtimes={Object.values(state.runtimes)} updates={runtimeUpdates} />
           </Section>
 
           <Section title="Server">
@@ -286,7 +272,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section aria-label={title} className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>

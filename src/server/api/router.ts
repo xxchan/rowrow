@@ -359,6 +359,13 @@ export function createRouter(s: Services) {
           throw new ORPCError("NOT_FOUND", { message: `no workspace ${input.workspaceId}` });
         return s.runtimes.skills(input.runtime, ws.path);
       }),
+      updates: os.runtimes.updates.handler(async ({ input }) => s.runtimes.updates(input.refresh ?? false)),
+      upgrade: os.runtimes.upgrade.handler(async ({ input }) => {
+        const result = await s.runtimes.upgrade(input.runtime);
+        // The new version, in every client's state.
+        if (result.kind === "upgraded" || result.kind === "unchanged") await s.refreshRuntimes();
+        return result;
+      }),
     },
 
     git: {

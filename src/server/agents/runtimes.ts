@@ -1,6 +1,8 @@
 // The runtimes rowrow can start agents with: oar's built-in ones (Claude Code, Codex, Cursor,
 // Antigravity, Grok, Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
-// local and cheap; model lists may ask the runtime's provider, so they are cached.
+// local and cheap; model lists may ask the runtime's provider, so they are cached, and so are
+// update checks (each asks the runtime's release feed). An upgrade runs the runtime's own
+// updater, only when someone asks for it.
 import {
   runtimes as builtins,
   type AvailableInstallation,
@@ -8,7 +10,15 @@ import {
   type Session,
   type SessionOptions,
 } from "@botiverse/oar";
-import type { ModelInfo, RuntimeInfo, SkillInfo } from "../../shared/schemas.ts";
+import type {
+  ModelInfo,
+  RuntimeInfo,
+  RuntimeUpdate,
+  SkillInfo,
+  UpdateCheck,
+  UpgradeResult,
+} from "../../shared/schemas.ts";
+import { UserError } from "../errors.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import { scriptedDemoRuntime } from "./scripted.ts";
 
@@ -22,11 +32,16 @@ interface Known {
 const PROBE_TIMEOUT_MS = 10_000;
 const MODELS_TTL_MS = 10 * 60_000;
 const SKILLS_TTL_MS = 60_000;
+const UPDATES_TTL_MS = 60 * 60_000;
+/** The end of an updater's output is where it says what went wrong. */
+const OUTPUT_CHARS = 8000;
 
 export class Runtimes {
   private readonly known = new Map<string, Known>();
   private readonly models = new Map<string, { at: number; models: ModelInfo[]; error: string | null }>();
   private readonly skillsCache = new Map<string, { at: number; skills: SkillInfo[]; error: string | null }>();
+  private readonly checks = new Map<string, { at: number; check: UpdateCheck }>();
+  private readonly upgrading = new Map<string, Promise<UpgradeResult>>();
 
   constructor(options: {
     readonly testRuntime: boolean;
@@ -121,6 +136,97 @@ export class Runtimes {
       };
       log.warn("runtime.probe_failed", { runtime: runtime.id, err: serializeError(error) });
     }
+  }
+
+  /** Whether each real runtime has a newer version out (the scripted one never does). */
+  async updates(refresh: boolean): Promise<RuntimeUpdate[]> {
+    return Promise.all(
+      [...this.known.values()]
+        .filter((known) => !known.test)
+        .map(async (known) => ({
+          runtime: known.runtime.id,
+          check: await this.checkUpdate(known, refresh),
+          canUpgrade: known.installation !== null && known.runtime.upgrade !== undefined,
+        })),
+    );
+  }
+
+  private async checkUpdate(known: Known, refresh: boolean): Promise<UpdateCheck> {
+    const { runtime, installation } = known;
+    if (installation === null) return { kind: "unavailable", reason: "not_installed" };
+    if (runtime.checkUpdate === undefined) {
+      // Pi: oar carries its SDK, so it updates with rowrow.
+      return {
+        kind: "unavailable",
+        reason: "no_updater",
+        detail: `${runtime.brand.name} updates with rowrow.`,
+      };
+    }
+    const cached = this.checks.get(runtime.id);
+    if (!refresh && cached !== undefined && Date.now() - cached.at < UPDATES_TTL_MS) return cached.check;
+    let check: UpdateCheck;
+    try {
+      check = await runtime.checkUpdate(installation);
+    } catch (error) {
+      check = {
+        kind: "unavailable",
+        reason: "lookup_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    log.info("runtime.update_checked", {
+      runtime: runtime.id,
+      ...(check.kind === "ok"
+        ? { installed: check.installed, latest: check.latest, updateAvailable: check.updateAvailable }
+        : { reason: check.reason, detail: check.detail }),
+    });
+    this.checks.set(runtime.id, { at: Date.now(), check });
+    return check;
+  }
+
+  /**
+   * Run the runtime's own updater, then probe it again. One at a time per runtime: asking
+   * again while it runs waits for the same run.
+   */
+  upgrade(id: string): Promise<UpgradeResult> {
+    const known = this.known.get(id);
+    if (known === undefined || known.test) throw new UserError(`no runtime ${id}`, "NOT_FOUND");
+    const running = this.upgrading.get(id);
+    if (running !== undefined) return running;
+    const run = this.runUpgrade(known).finally(() => this.upgrading.delete(id));
+    this.upgrading.set(id, run);
+    return run;
+  }
+
+  private async runUpgrade(known: Known): Promise<UpgradeResult> {
+    const { runtime, installation } = known;
+    if (installation === null) {
+      return {
+        kind: "unsupported",
+        reason: "not_installed",
+        detail: `${runtime.brand.name} is not installed.`,
+      };
+    }
+    if (runtime.upgrade === undefined) {
+      return {
+        kind: "unsupported",
+        reason: "unsupported_installation",
+        detail: `${runtime.brand.name} updates with rowrow.`,
+      };
+    }
+    const started = Date.now();
+    log.info("runtime.upgrade_started", { runtime: runtime.id, version: known.info.version });
+    const result = clipOutput(await runtime.upgrade(installation));
+    log.info("runtime.upgrade_finished", {
+      runtime: runtime.id,
+      kind: result.kind,
+      ...(result.kind === "upgraded" ? { from: result.from, to: result.to } : {}),
+      ...(result.kind === "failed" ? { exitCode: result.exitCode, output: result.output.slice(-1000) } : {}),
+      ms: Date.now() - started,
+    });
+    this.checks.delete(runtime.id);
+    await this.probe(known);
+    return result;
   }
 
   info(id: string): RuntimeInfo | undefined {
@@ -233,4 +339,9 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   } finally {
     clearTimeout(timer);
   }
+}
+
+function clipOutput(result: UpgradeResult): UpgradeResult {
+  if (!("output" in result) || result.output.length <= OUTPUT_CHARS) return result;
+  return { ...result, output: `…${result.output.slice(-OUTPUT_CHARS)}` };
 }

@@ -1,5 +1,6 @@
 // Runtime probing: every runtime is published as soon as its own probe answers, so one slow
-// CLI (kimi can take seconds) never hides the others, the scripted one included.
+// CLI (kimi can take seconds) never hides the others, the scripted one included. Update checks
+// are cached; an upgrade runs once however often it's asked for, and the new version shows.
 import { scriptedRuntime } from "@botiverse/oar/testing";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
@@ -23,5 +24,58 @@ describe("runtimes", () => {
       { scripted: true, slow: false },
       { scripted: true, slow: true },
     ]);
+  });
+
+  it("checks for updates once an hour, and upgrades only once however often it's asked", async () => {
+    let version = "1.0.0";
+    let checks = 0;
+    let upgrades = 0;
+    const fake = {
+      ...scriptedRuntime({ id: "fake", turn: () => {} }),
+      installation: async () => ({ kind: "available", via: "executable", command: "fake", version }) as const,
+      checkUpdate: async () => {
+        checks++;
+        return {
+          kind: "ok",
+          installed: version,
+          latest: "1.1.0",
+          updateAvailable: version !== "1.1.0",
+          source: "fake --check",
+        } as const;
+      },
+      upgrade: async () => {
+        upgrades++;
+        await sleep(50);
+        const from = version;
+        version = "1.1.0";
+        return { kind: "upgraded", from, to: version, output: "x".repeat(10_000) } as const;
+      },
+    };
+    const runtimes = new Runtimes({ testRuntime: true, probe: false, extra: [fake] });
+    await runtimes.refresh();
+    const available = {
+      runtime: "fake",
+      check: {
+        kind: "ok",
+        installed: "1.0.0",
+        latest: "1.1.0",
+        updateAvailable: true,
+        source: "fake --check",
+      },
+      canUpgrade: true,
+    };
+    expect(await runtimes.updates(false)).toEqual([available]);
+    expect(await runtimes.updates(false)).toEqual([available]);
+    expect(checks).toBe(1);
+
+    const [first, second] = await Promise.all([runtimes.upgrade("fake"), runtimes.upgrade("fake")]);
+    expect(upgrades).toBe(1);
+    expect(second).toBe(first);
+    expect(first).toMatchObject({ kind: "upgraded", from: "1.0.0", to: "1.1.0" });
+    expect(first.kind === "upgraded" ? first.output.length : 0).toBe(8001);
+    expect(runtimes.info("fake")?.version).toBe("1.1.0");
+    expect((await runtimes.updates(false))[0]?.check).toMatchObject({ updateAvailable: false });
+    expect(checks).toBe(2);
+    expect(() => runtimes.upgrade("scripted")).toThrow("no runtime scripted");
   });
 });

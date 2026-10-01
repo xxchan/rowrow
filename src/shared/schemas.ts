@@ -138,6 +138,51 @@ export const RuntimeInfo = z.object({
 });
 export type RuntimeInfo = z.infer<typeof RuntimeInfo>;
 
+/** Whether a newer version of a runtime is out, as its own updater would install (oar's UpdateCheck). */
+export const UpdateCheck = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    installed: z.string(),
+    latest: z.string(),
+    updateAvailable: z.boolean(),
+    channel: z.string().optional(),
+    source: z.string().describe("The command that answered, or the release URL its updater reads."),
+  }),
+  z.object({
+    kind: z.literal("unavailable"),
+    reason: z
+      .string()
+      .describe(
+        "oar's reason (unsupported_installation, package_manager, unmanaged_installation, updates_disabled, lookup_failed, version_unreadable), or rowrow's: not_installed, no_updater.",
+      ),
+    detail: z.string().optional(),
+    source: z.string().optional(),
+  }),
+]);
+export type UpdateCheck = z.infer<typeof UpdateCheck>;
+
+export const RuntimeUpdate = z.object({
+  runtime: z.string(),
+  check: UpdateCheck,
+  /** rowrow can run its updater (runtimes.upgrade). */
+  canUpgrade: z.boolean(),
+});
+export type RuntimeUpdate = z.infer<typeof RuntimeUpdate>;
+
+/** What running a runtime's own updater did, judged by the version it reports afterwards. */
+export const UpgradeResult = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("upgraded"), from: z.string(), to: z.string(), output: z.string() }),
+  z.object({ kind: z.literal("current"), version: z.string(), check: UpdateCheck }),
+  z.object({ kind: z.literal("unchanged"), version: z.string(), output: z.string() }),
+  z.object({ kind: z.literal("failed"), exitCode: z.number().nullable(), output: z.string() }),
+  z.object({
+    kind: z.literal("unsupported"),
+    reason: z.string().describe("unsupported_installation, requires_terminal, or rowrow's: not_installed."),
+    detail: z.string().optional(),
+  }),
+]);
+export type UpgradeResult = z.infer<typeof UpgradeResult>;
+
 export const ModelInfo = z.object({
   id: z.string().describe("What to pass as `model`."),
   name: z.string(),
