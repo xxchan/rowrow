@@ -555,6 +555,8 @@ describe("attachments", () => {
         "/echo seen",
       ].join("\n\n"),
       images: [{ path: shot.path, mediaType: "image/png" }],
+      // A person sent it (oar records it; the runtime never sees it).
+      origin: { kind: "user", source: expect.any(String) },
     });
 
     const view = await t.client.agents.view({ agentId: agent.id });

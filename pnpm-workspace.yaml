@@ -48,7 +48,7 @@ minimumReleaseAgeExclude:
   - hono@4.13.10
   - oxfmt@0.71.0
   - oxlint@1.86.0
-  - "@botiverse/oar@0.12.1"
+  - "@botiverse/oar@0.13.0"
   - electron@44.5.0
   - "@earendil-works/chord@0.99.2"
   - "@earendil-works/pi-agent-core@0.99.2"

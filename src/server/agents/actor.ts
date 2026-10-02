@@ -3,7 +3,7 @@
 // owns the live run: an oar Session whose records it appends verbatim, started lazily on
 // input (resuming the runtime's own conversation) and stopped after an idle timeout. It
 // holds input sent while a turn runs and sends it, one per turn, when the turn ends (D-035).
-import { awaitIdle, type ControlOutcome, type Session } from "@botiverse/oar";
+import { awaitIdle, type ControlOutcome, type InputOrigin, type Session } from "@botiverse/oar";
 import type {
   Actor,
   Attachment,
@@ -173,7 +173,7 @@ export class AgentActor {
         reason: `${summary.runtime} can't take input in the middle of a turn; it goes after this one`,
       };
     const how = !busy ? "prompt" : input.mode === "interrupt" ? "interrupt" : "steer";
-    return this.dispatch(input.inputId, input.text, input.attachments ?? [], how);
+    return this.dispatch(input.inputId, input.text, input.attachments ?? [], how, input.by);
   }
 
   /** Whether the live run is in a turn. */
@@ -190,6 +190,7 @@ export class AgentActor {
     body: string,
     attachments: readonly Attachment[],
     how: "prompt" | "steer" | "interrupt",
+    by: Actor,
   ): Promise<Delivery> {
     let run: LiveRun;
     try {
@@ -205,7 +206,7 @@ export class AgentActor {
     const text = runtimeText(body, attachments);
     // A runtime without image input still gets every image's path in the text.
     const images = session.capabilities.images ? runtimeImages(attachments) : [];
-    const options = { inputId, ...(images.length === 0 ? {} : { images }) };
+    const options = { inputId, origin: originOf(by), ...(images.length === 0 ? {} : { images }) };
     if (session.status().value.kind === "running") {
       if (how === "steer") {
         const outcome = await session.steer(text, options);
@@ -273,7 +274,7 @@ export class AgentActor {
   }
 
   private async sendHeld(item: QueuedInput, how: "prompt" | "steer"): Promise<Delivery> {
-    const result = await this.dispatch(item.inputId, item.text, item.attachments, how);
+    const result = await this.dispatch(item.inputId, item.text, item.attachments, how, item.by);
     const landed = result.landed === "queued" ? "rejected" : result.landed; // dispatch never queues
     this.append({
       kind: "input.sent",
@@ -507,4 +508,19 @@ async function awaitIdleFor(session: Session, timeoutMs: number): Promise<void> 
     }),
   ]);
   clearTimeout(timer);
+}
+
+/**
+ * Who sent an input, in oar's words (recorded with the request, never sent to the runtime): a
+ * person on a device typed it; another agent or rowrow itself is automation.
+ */
+function originOf(by: Actor): InputOrigin {
+  switch (by.kind) {
+    case "device":
+      return { kind: "user", source: by.name };
+    case "agent":
+      return { kind: "automation", source: `agent:${by.agentId}` };
+    case "system":
+      return { kind: "automation", source: "rowrow" };
+  }
 }

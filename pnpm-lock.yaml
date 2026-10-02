@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@botiverse/oar':
-        specifier: ^0.12.1
-        version: 0.12.1(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+        specifier: ^0.13.0
+        version: 0.13.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.10)
@@ -273,8 +273,8 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
-  '@botiverse/oar@0.12.1':
-    resolution: {integrity: sha512-48V+O8BEjjMTIYwxrqylTqToCdbZ9fJaq8dGBIYeGDQKEqNlpobeja1sVWlfT+mfSu1EGyYs+4GkK9OtHdrbrw==}
+  '@botiverse/oar@0.13.0':
+    resolution: {integrity: sha512-qCbfqoN9MN6/iy60jFs3kE7SbNop9W0MEZZJI0KX3PqijQnPz4X6WNsoc8TvZsGyRaEpX/QW90/6Tm5AF+Rr9w==}
     engines: {node: '>=24.0.0'}
 
   '@earendil-works/chord@0.99.2':
@@ -4835,7 +4835,7 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
-  '@botiverse/oar@0.12.1(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
+  '@botiverse/oar@0.13.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
       '@earendil-works/pi-ai': 0.99.2(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
