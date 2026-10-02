@@ -673,13 +673,13 @@ test("⌘↵ steers into the turn, ↑ takes a queued message back, and a stoppe
   await expect(tray).toBeHidden();
 });
 
-test("work an agent runs in the background shows beside it until it ends", async ({ page, rowrow }) => {
+test("work an agent runs in the background shows beside it until it stops", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({
     workspaceId: ws.id,
     runtime: "scripted",
     title: "backgrounds",
-    input: { inputId: randomUUID(), text: "/background 4000 npm test" },
+    input: { inputId: randomUUID(), text: "/background 600000 npm test" },
   });
   await rowrow.open(page, `/a/${agent.id}`);
   // The turn is over; the command isn't.
@@ -688,7 +688,9 @@ test("work an agent runs in the background shows beside it until it ends", async
   await tasks.click();
   await expect(page.getByRole("dialog").getByText("npm test", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(tasks).toBeHidden({ timeout: 10_000 });
+  // Its processes end with the agent's.
+  await rowrow.client.agents.stop({ agentId: agent.id });
+  await expect(tasks).toBeHidden();
 });
 
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
