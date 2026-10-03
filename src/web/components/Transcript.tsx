@@ -12,6 +12,8 @@ import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
+import { signInSteps } from "../../shared/sign-in.ts";
+import { useApp } from "../lib/store.ts";
 import {
   held,
   landedIn,
@@ -146,6 +148,9 @@ const Message = memo(function Message({
               {`Failed: ${message.outcome.reason}`}
             </p>
           )}
+          {message.outcome?.kind === "failed" && message.outcome.failure === "auth" && (
+            <SignInAgain runtime={runtime} />
+          )}
           {message.outcome?.kind === "aborted" && (
             <p className="text-sm text-muted-foreground">You stopped the turn.</p>
           )}
@@ -153,6 +158,36 @@ const Message = memo(function Message({
       );
   }
 });
+
+/** The runtime's login ran out: where and how to sign it in again, then send again. */
+function SignInAgain({ runtime }: { runtime: string }) {
+  const name = useApp((s) => s.state?.runtimes[runtime]?.name ?? runtime);
+  const machine = useApp((s) => s.state?.host.name ?? "the server's machine");
+  const steps = signInSteps(runtime);
+  const literal = (text: string) => (
+    <code className="rounded bg-muted px-1 font-mono text-xs text-foreground">{text}</code>
+  );
+  return (
+    <p className="pl-6 text-sm text-muted-foreground">
+      {`${name} needs you to sign in again. On ${machine}, open a terminal and `}
+      {steps === null ? (
+        `sign in with ${name}'s own command`
+      ) : (
+        <>
+          {"run "}
+          {literal(steps.run)}
+          {steps.type !== undefined && (
+            <>
+              {", type "}
+              {literal(steps.type)}
+            </>
+          )}
+        </>
+      )}
+      {", then send your message again."}
+    </p>
+  );
+}
 
 function UserMessage({
   text,
