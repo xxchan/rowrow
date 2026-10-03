@@ -80,12 +80,13 @@ describe("runtimes", () => {
     expect(() => runtimes.upgrade("scripted")).toThrow("no runtime scripted");
   });
 
-  it("gives no environment to a runtime that refuses one (Cursor, through its SDK)", async () => {
+  it("gives no environment to a runtime that declares it refuses one (Cursor, through its SDK)", async () => {
     const seen: Record<string, SessionOptions> = {};
-    const recording = (id: string) => {
+    const recording = (id: string, refusesEnv = false) => {
       const base = scriptedRuntime({ id, turn: () => {} });
       return {
         ...base,
+        ...(refusesEnv ? { refusedSessionOptions: { env: "runs in this process" } } : {}),
         session: (installation: AvailableInstallation, options: SessionOptions) => {
           seen[id] = options;
           return base.session(installation, options);
@@ -95,7 +96,7 @@ describe("runtimes", () => {
     const runtimes = new Runtimes({
       testRuntime: false,
       probe: false,
-      extra: [recording("cursor"), recording("other")],
+      extra: [recording("cursor", true), recording("other")],
     });
     await runtimes.refresh();
     const options = { cwd: process.cwd(), env: { ROWROW_URL: "http://127.0.0.1:1" } };
