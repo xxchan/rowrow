@@ -1,6 +1,7 @@
 // Runtime probing: every runtime is published as soon as its own probe answers, so one slow
 // CLI (kimi can take seconds) never hides the others, the scripted one included. Update checks
 // are cached; an upgrade runs once however often it's asked for, and the new version shows.
+import type { AvailableInstallation, SessionOptions } from "@botiverse/oar";
 import { scriptedRuntime } from "@botiverse/oar/testing";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
@@ -77,5 +78,29 @@ describe("runtimes", () => {
     expect((await runtimes.updates(false))[0]?.check).toMatchObject({ updateAvailable: false });
     expect(checks).toBe(2);
     expect(() => runtimes.upgrade("scripted")).toThrow("no runtime scripted");
+  });
+
+  it("gives no environment to a runtime that refuses one (Cursor, through its SDK)", async () => {
+    const seen: Record<string, SessionOptions> = {};
+    const recording = (id: string) => {
+      const base = scriptedRuntime({ id, turn: () => {} });
+      return {
+        ...base,
+        session: (installation: AvailableInstallation, options: SessionOptions) => {
+          seen[id] = options;
+          return base.session(installation, options);
+        },
+      };
+    };
+    const runtimes = new Runtimes({
+      testRuntime: false,
+      probe: false,
+      extra: [recording("cursor"), recording("other")],
+    });
+    await runtimes.refresh();
+    const options = { cwd: process.cwd(), env: { ROWROW_URL: "http://127.0.0.1:1" } };
+    for (const id of ["cursor", "other"]) await (await runtimes.start(id, options)).dispose();
+    expect(seen["cursor"]?.env).toBeUndefined();
+    expect(seen["other"]?.env).toEqual(options.env);
   });
 });

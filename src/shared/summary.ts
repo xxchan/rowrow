@@ -33,7 +33,7 @@ export function echoesInput(runtime: string): boolean {
  * "redoes": grok takes it by starting the current step again.
  */
 export function steerSupport(runtime: string): "yes" | "no" | "redoes" {
-  if (runtime === "cursor" || runtime === "kimi" || runtime === "antigravity") return "no";
+  if (runtime === "kimi" || runtime === "antigravity") return "no";
   return runtime === "grok" ? "redoes" : "yes";
 }
 

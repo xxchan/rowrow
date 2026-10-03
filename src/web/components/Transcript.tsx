@@ -169,6 +169,14 @@ function SignInAgain({ runtime }: { runtime: string }) {
   const literal = (text: string) => (
     <code className="rounded bg-muted px-1 font-mono text-xs text-foreground">{text}</code>
   );
+  if (steps !== null && "env" in steps)
+    return (
+      <p className="pl-6 text-sm text-muted-foreground">
+        {`${name} signs in with an API key: on ${machine}, give rowrow's server `}
+        {literal(steps.env)}
+        {", restart it, then send your message again."}
+      </p>
+    );
   return (
     <p className="pl-6 text-sm text-muted-foreground">
       {`${name} needs you to sign in again. On ${machine}, open a terminal and `}

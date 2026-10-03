@@ -894,7 +894,7 @@ Only the first can be undone, because a steer is read by the model at its next s
 the actor sends it as the next turn's prompt when the turn ends, one per turn, in order
 (`input.sent`). Held input can be withdrawn (`agents.withdraw`, to edit or drop it) or sent
 now (`agents.sendNow`). `steer` goes into the running turn and can't be taken back; a
-runtime that can't steer (kimi, cursor, antigravity; `steerSupport` in `summary.ts`) holds
+runtime that can't steer (kimi, antigravity; `steerSupport` in `summary.ts`) holds
 it instead and the result says why. When the turn is stopped or fails, the run exits or
 rowrow restarts, the queue pauses (`queue.paused`) until someone resumes it: nobody asked
 for the next turn to start on its own after they stopped one.

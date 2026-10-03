@@ -33,6 +33,12 @@ const PROBE_TIMEOUT_MS = 10_000;
 const MODELS_TTL_MS = 10 * 60_000;
 const SKILLS_TTL_MS = 60_000;
 const UPDATES_TTL_MS = 60 * 60_000;
+/**
+ * Runtimes that refuse SessionOptions.env: Cursor runs in this process through its SDK, which
+ * takes no environment for the agent's tools (oar 0.16). Their agents run without ROWROW_URL and
+ * the rest, so they can't use the rowrow CLI as themselves (docs/upstream.md).
+ */
+const NO_SESSION_ENV = new Set(["cursor"]);
 /** The end of an updater's output is where it says what went wrong. */
 const OUTPUT_CHARS = 8000;
 
@@ -240,6 +246,10 @@ export class Runtimes {
     if (known.installation === null) await this.probe(known);
     if (known.installation === null)
       throw new Error(known.info.reason ?? `${known.info.name} is not available`);
+    if (NO_SESSION_ENV.has(id) && options.env !== undefined) {
+      const { env: _refused, ...rest } = options;
+      return known.runtime.session(known.installation, rest);
+    }
     return known.runtime.session(known.installation, options);
   }
 

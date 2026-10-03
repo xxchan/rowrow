@@ -336,7 +336,7 @@ public enum SteerSupport: Sendable {
 
   public init(runtime: String) {
     switch runtime {
-    case "cursor", "kimi", "antigravity": self = .no
+    case "kimi", "antigravity": self = .no
     case "grok": self = .redoes
     default: self = .yes
     }
