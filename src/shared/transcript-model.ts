@@ -17,6 +17,7 @@ import {
 } from "@botiverse/oar/observe";
 import type { Attachment, EntryOf } from "./entries.ts";
 import { actorLabel } from "./render-text.ts";
+import { toolText } from "./tool-output.ts";
 import {
   held,
   landedIn,
@@ -340,6 +341,7 @@ function partItem(
       };
     case "tool": {
       const action = classifyTool(runtime, part.tool, part.input);
+      const output = toolText(part);
       return {
         kind: "tool",
         ...where,
@@ -348,9 +350,9 @@ function partItem(
         action: action.kind,
         detail: action.detail ?? null,
         input: part.input === undefined ? null : cut(part.input, clip),
-        output: part.output === undefined ? null : cut(part.output, clip),
+        output: output === undefined ? null : cut(output, clip),
         inputLength: part.input?.length ?? 0,
-        outputLength: part.output?.length ?? 0,
+        outputLength: output?.length ?? 0,
         result: part.result,
       };
     }

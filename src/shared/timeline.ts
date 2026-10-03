@@ -8,6 +8,7 @@
 // may start at any entry (a window that begins mid-run gets a run block without its
 // start), because oar's view adopts a turn it joins midway.
 import { initialSessionView, reduceSessionView, type SessionView } from "@botiverse/oar/observe";
+import { upgradeRecord } from "./oar-compat.ts";
 import type { Entry, EntryOf } from "./entries.ts";
 import { echoesInput } from "./summary.ts";
 
@@ -119,7 +120,7 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
           : (t.blocks[index] as RunBlock);
       const run: RunBlock = {
         ...base,
-        view: reduceSessionView(base.view, entry.record, entry.runId),
+        view: reduceSessionView(base.view, upgradeRecord(entry.record), entry.runId),
         lastSeq: entry.seq,
       };
       const blocks = index === -1 ? [...t.blocks, run] : replaceAt(t.blocks, index, run);

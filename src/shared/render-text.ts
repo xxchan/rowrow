@@ -4,6 +4,7 @@
 import type { ViewMessage, ViewNotice, ViewPart } from "@botiverse/oar/observe";
 import type { Actor, Attachment } from "./entries.ts";
 import type { Timeline } from "./timeline.ts";
+import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
   /** Cut tool input and output to this many characters (default 400; 0 hides them). */
@@ -107,8 +108,9 @@ function renderPart(part: ViewPart, indent: string, toolChars: number): string[]
       const lines = [
         `${indent}${mark} ${part.tool}${toolChars > 0 && part.input !== undefined ? `: ${clip(oneLine(part.input), toolChars)}` : ""}`,
       ];
-      if (toolChars > 0 && part.output !== undefined && part.output !== "")
-        lines.push(`${indent}  ⎿ ${clip(oneLine(part.output), toolChars)}`);
+      const output = toolText(part);
+      if (toolChars > 0 && output !== undefined && output !== "")
+        lines.push(`${indent}  ⎿ ${clip(oneLine(output), toolChars)}`);
       return lines;
     }
     case "notice":

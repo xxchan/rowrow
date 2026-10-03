@@ -13,6 +13,7 @@ import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
+import { toolImages, toolText } from "../../shared/tool-output.ts";
 import { useApp } from "../lib/store.ts";
 import {
   held,
@@ -409,7 +410,8 @@ function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
 
 function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>; runtime: string }) {
   const action = classifyTool(runtime, part.tool, part.input);
-  const output = part.output ?? "";
+  const output = toolText(part) ?? "";
+  const images = toolImages(part);
   const detail = toolDetail(action.kind, part.input, output);
   const status =
     part.result === "running" ? (
@@ -449,6 +451,18 @@ function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>
             {detail.slice(0, 20_000)}
           </pre>
         </CollapsibleContent>
+      )}
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-2.5 pb-2 pl-8">
+          {images.map((image, index) => (
+            <img
+              key={index}
+              src={`data:${image.mediaType};base64,${image.data}`}
+              alt={`What ${part.tool} returned (image ${index + 1})`}
+              className="max-h-64 max-w-full rounded-md border object-contain"
+            />
+          ))}
+        </div>
       )}
     </Collapsible>
   );
