@@ -693,6 +693,20 @@ test("work an agent runs in the background shows beside it until it stops", asyn
   await expect(tasks).toBeHidden();
 });
 
+test("a tool call says how long it took", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "runs",
+    input: { inputId: randomUUID(), text: "/run 2200 npm test" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 15_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await expect(page.getByText("Ran npm test.")).toBeVisible();
+  await expect(page.getByTitle("How long it took")).toHaveText(/^[23]s$/);
+});
+
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
 async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
   if (!phone) return row.getByRole("button", { name }).click();

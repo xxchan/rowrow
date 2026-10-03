@@ -8,6 +8,7 @@
 //   /sleep <ms>             work for <ms> (abortable), then say so
 //   /stream <n>             say n chunks, 40 ms apart
 //   /fail <reason>          end the turn failed with <reason>
+//   /run <ms> <command>     run <command> as a Bash tool call that takes <ms>
 //   /background <ms> <text> start <text> as a background command, end the turn, and finish
 //                           the command <ms> later (a task that outlives its turn)
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
@@ -27,6 +28,7 @@ const COMMANDS: readonly SkillEntry[] = [
   { name: "stream", description: "Say that many chunks, 40 ms apart" },
   { name: "fail", description: "End the turn failed, with the rest of the line as the reason" },
   { name: "background", description: "Run a command in the background for that many milliseconds" },
+  { name: "run", description: "Run a command as a tool call that takes that many milliseconds" },
 ];
 
 export function scriptedDemoRuntime(): Runtime {
@@ -70,6 +72,16 @@ export function scriptedDemoRuntime(): Runtime {
         }
         case "/fail":
           throw new Error(arg || "scripted failure");
+        case "/run": {
+          const ms = Number(args[0]) || 1000;
+          const line = args.slice(1).join(" ") || "true";
+          await turn.tool("Bash", JSON.stringify({ command: line }), async () => {
+            await sleep(ms, undefined, { signal: turn.signal });
+            return `ran ${line}`;
+          });
+          turn.say(`Ran \`${line}\`.`);
+          return;
+        }
         case "/background": {
           const ms = Number(args[0]) || 1000;
           const description = args.slice(1).join(" ") || "background work";

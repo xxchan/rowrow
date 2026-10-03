@@ -56,7 +56,8 @@ every caller of a function) to a subagent that returns the answer.
 
 The scripted runtime (`src/server/agents/scripted.ts`) is a real oar session with no model:
 `/echo <text>`, `/write <path>` (then the file's lines), `/sleep <ms>`, `/stream <n>`,
-`/fail <reason>`, `/background <ms> <text>` (a background command that outlives the turn).
+`/fail <reason>`, `/run <ms> <command>` (a Bash tool call that takes that long),
+`/background <ms> <text>` (a background command that outlives the turn).
 Real runtimes spend the user's quota: use them only on purpose.
 
 ## Debug the user's running rowrow

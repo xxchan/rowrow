@@ -12,6 +12,7 @@ import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
+import { duration } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
 import { useApp } from "../lib/store.ts";
@@ -412,6 +413,11 @@ function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>
   const action = classifyTool(runtime, part.tool, part.input);
   const output = toolText(part) ?? "";
   const images = toolImages(part);
+  // How long it took, once it's done; a blink isn't worth saying.
+  const took =
+    part.startedAt !== undefined && part.endedAt !== undefined && part.endedAt - part.startedAt >= 1000
+      ? duration(part.endedAt - part.startedAt)
+      : null;
   const detail = toolDetail(action.kind, part.input, output);
   const status =
     part.result === "running" ? (
@@ -430,6 +436,14 @@ function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>
           {action.detail}
         </span>
       )}
+      {took !== null && (
+        <span
+          className="ml-auto shrink-0 text-[11px] text-muted-foreground tabular-nums"
+          title="How long it took"
+        >
+          {took}
+        </span>
+      )}
     </>
   );
   return (
@@ -439,7 +453,12 @@ function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>
       ) : (
         <CollapsibleTrigger className="flex min-h-8 w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-accent/50">
           {row}
-          <ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/tool:rotate-90" />
+          <ChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/tool:rotate-90",
+              took === null ? "ml-auto" : "ml-0.5",
+            )}
+          />
         </CollapsibleTrigger>
       )}
       {part.result === "failed" && output !== "" && (
