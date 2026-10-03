@@ -1,5 +1,5 @@
-// Logs written before oar 0.14 keep their tool output: the result was a string then, and the
-// folds read old records upgraded to today's ordered parts.
+// Logs written before oar 0.14 keep their tool output: the result was a string then, and oar's
+// fold (0.14.2) reads old records upgraded to today's ordered parts.
 import type { RawEvent } from "@botiverse/oar";
 import { describe, expect, it } from "vitest";
 import type { Entry, EntryBody } from "../src/shared/entries.ts";
