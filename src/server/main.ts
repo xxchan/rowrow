@@ -152,7 +152,11 @@ export async function startServer(
     checker.start();
     updates = checker;
   }
-  const runtimes = new Runtimes({ testRuntime: options.testRuntime, probe: options.probeRuntimes });
+  const runtimes = new Runtimes({
+    testRuntime: options.testRuntime,
+    probe: options.probeRuntimes,
+    ...(options.extraRuntimes === undefined ? {} : { extra: options.extraRuntimes }),
+  });
   const syncRuntimes = (): void => {
     state.update("runtimes", (draft) => {
       draft.runtimes = Object.fromEntries(runtimes.list().map((info) => [info.id, info]));

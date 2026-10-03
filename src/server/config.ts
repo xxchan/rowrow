@@ -1,4 +1,5 @@
 // Where a profile keeps its data, and the server's options (docs/decisions.md, D-013).
+import type { Runtime } from "@botiverse/oar";
 import os from "node:os";
 import path from "node:path";
 
@@ -79,6 +80,8 @@ export interface ServerOptions {
   readonly idleTimeoutMs: number;
   /** Keep oar's installed-runtime probe out of the way (tests that need only the scripted runtime). */
   readonly probeRuntimes: boolean;
+  /** Runtimes to offer besides oar's (tests: one that behaves like a runtime they can't install). */
+  readonly extraRuntimes?: readonly Runtime[];
   /** The GitHub CLI for pull request status: `gh` on PATH unless given (tests use a fake one). */
   readonly gh?: string;
   /**

@@ -10,6 +10,8 @@ import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
 import type { StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
+import type { Runtime } from "@botiverse/oar";
+import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { describe as describeAlert } from "../src/server/notify/notifier.ts";
 import { eventually, input, startTestServer, type TestServer } from "./helpers.ts";
 
@@ -196,6 +198,30 @@ describe("the queue (D-035)", () => {
         e.record.kind === "frame" &&
         e.record.body.events.some((event) => event.kind === "turn_ended"),
     ).length;
+
+  it("holds a steer for a runtime that can't steer, says why, and sends it after the turn", async () => {
+    const server = await startTestServer({ extraRuntimes: [withoutSteer()] });
+    t = server;
+    const ws = await server.client.workspaces.add({ path: server.repo() });
+    const { agent } = await server.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "nosteer",
+      input: input("/sleep 2000"),
+    });
+    const steer = await server.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/echo now",
+      mode: "steer",
+    });
+    expect(steer).toMatchObject({ landed: "queued", code: "steer_unsupported" });
+    await expect(server.client.agents.sendNow({ agentId: agent.id, inputId: steer.inputId })).rejects.toThrow(
+      "can't take input in the middle of a turn",
+    );
+    await eventually(async () =>
+      (await server.client.state.get()).state.agents[agent.id]?.summary.preview === "now" ? true : undefined,
+    );
+  });
 
   it("holds what you send during a turn and sends it, one per turn, when the turn ends", async () => {
     t = await startTestServer();
@@ -707,3 +733,24 @@ describe("updates", () => {
     await expect(t.client.app.checkForUpdates()).rejects.toThrow("update it with git pull");
   });
 });
+
+/** The scripted runtime, with sessions that have no `steer` (oar 0.17: as kimi's and antigravity's). */
+function withoutSteer(): Runtime {
+  const base = scriptedDemoRuntime();
+  return {
+    ...base,
+    id: "nosteer",
+    session: async (installation, options) => {
+      const session = await base.session(installation, options);
+      return new Proxy(session, {
+        get: (target, key) => {
+          if (key === "steer") return undefined;
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === "function"
+            ? (value as (...args: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+    },
+  };
+}

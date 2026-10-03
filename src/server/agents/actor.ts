@@ -165,7 +165,7 @@ export class AgentActor {
     // Behind a running turn, or behind inputs still waiting for theirs: one per turn, in order.
     if ((input.mode === "queue" || input.mode === "auto") && (busy || waiting(summary)))
       return { landed: "queued", held: true };
-    if (input.mode === "steer" && busy && this.run?.session.capabilities.steer === false)
+    if (input.mode === "steer" && busy && !this.canSteer())
       return {
         landed: "queued",
         held: true,
@@ -209,6 +209,9 @@ export class AgentActor {
     const options = { inputId, origin: originOf(by), ...(images.length === 0 ? {} : { images }) };
     if (session.status().value.kind === "running") {
       if (how === "steer") {
+        // Callers check canSteer first; a session without steer never gets here steering.
+        if (session.steer === undefined)
+          return { runId, landed: "rejected", code: "steer_unsupported", reason: "this runtime can't steer" };
         const outcome = await session.steer(text, options);
         if (outcome.kind === "accepted") return { runId, landed: "steered" };
         // Most often the turn ended as it came: then it starts the next one.
@@ -240,6 +243,11 @@ export class AgentActor {
     });
   }
 
+  /** The live session can take input mid-turn (oar 0.17: a session that can't has no `steer`). */
+  private canSteer(): boolean {
+    return this.run === null || this.run.session.steer !== undefined;
+  }
+
   /** Send a held input now, out of turn: steered into the running turn, or as the next one. */
   sendNow(inputId: string): Promise<SendResult> {
     return this.enqueue("send_now", async () => {
@@ -247,7 +255,7 @@ export class AgentActor {
       const item = summary.queued.find((q) => q.inputId === inputId);
       if (item === undefined) throw new UserError(ALREADY_SENT, "CONFLICT");
       const busy = this.busy();
-      if (busy && this.run?.session.capabilities.steer === false)
+      if (busy && !this.canSteer())
         throw new UserError(
           `${summary.runtime} can't take input in the middle of a turn: stop the turn, or let it go after this one`,
           "PRECONDITION_FAILED",

@@ -1,5 +1,6 @@
 // Integration-test helpers: a real server in this process, on a throwaway ROWROW_HOME with
 // the scripted runtime (zero tokens), and a typed client for it over HTTP or WebSocket.
+import type { Runtime } from "@botiverse/oar";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink as FetchLink } from "@orpc/client/fetch";
 import { RPCLink as WebSocketLink } from "@orpc/client/websocket";
@@ -36,6 +37,7 @@ export async function startTestServer(
     updateRegistry?: string;
     apnsOrigin?: string;
     kitFile?: string;
+    extraRuntimes?: readonly Runtime[];
   } = {},
 ): Promise<TestServer> {
   const home = options.home ?? fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-test-"));
@@ -52,6 +54,7 @@ export async function startTestServer(
       ...(options.updateRegistry === undefined ? {} : { updateRegistry: options.updateRegistry }),
       ...(options.apnsOrigin === undefined ? {} : { apnsOrigin: options.apnsOrigin }),
       ...(options.kitFile === undefined ? {} : { kitFile: options.kitFile }),
+      ...(options.extraRuntimes === undefined ? {} : { extraRuntimes: options.extraRuntimes }),
     },
     process.env["ROWROW_TEST_LOG"] === "1" ? "pretty" : "off",
   );

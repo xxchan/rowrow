@@ -29,7 +29,7 @@ export function echoesInput(runtime: string): boolean {
 
 /**
  * Whether input can go into a running turn, for what the composer offers before sending.
- * The server asks the session (oar's `capabilities.steer`) and says so when it can't;
+ * The server asks the session (whether oar gave it a `steer`) and says so when it can't;
  * "redoes": grok takes it by starting the current step again.
  */
 export function steerSupport(runtime: string): "yes" | "no" | "redoes" {
