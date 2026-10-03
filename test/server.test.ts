@@ -199,7 +199,7 @@ describe("the queue (D-035)", () => {
         e.record.body.events.some((event) => event.kind === "turn_ended"),
     ).length;
 
-  it("holds a steer for a runtime that can't steer, says why, and sends it after the turn", async () => {
+  it("holds a steer (and a Send now) for a runtime that can't steer, says why, and sends it after the turn", async () => {
     const server = await startTestServer({ extraRuntimes: [withoutSteer()] });
     t = server;
     const ws = await server.client.workspaces.add({ path: server.repo() });
@@ -215,9 +215,10 @@ describe("the queue (D-035)", () => {
       mode: "steer",
     });
     expect(steer).toMatchObject({ landed: "queued", code: "steer_unsupported" });
-    await expect(server.client.agents.sendNow({ agentId: agent.id, inputId: steer.inputId })).rejects.toThrow(
-      "can't take input in the middle of a turn",
-    );
+    expect(await server.client.agents.sendNow({ agentId: agent.id, inputId: steer.inputId })).toMatchObject({
+      landed: "queued",
+      code: "steer_unsupported",
+    });
     await eventually(async () =>
       (await server.client.state.get()).state.agents[agent.id]?.summary.preview === "now" ? true : undefined,
     );

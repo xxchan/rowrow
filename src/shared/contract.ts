@@ -227,7 +227,7 @@ const agents = {
   sendNow: oc
     .route({
       summary:
-        "Send a held input now instead of after the queue: steered into the running turn, or as the next turn when idle. Doesn't resume a paused queue.",
+        "Send a held input now instead of after the queue: steered into the running turn, or as the next turn when idle. A runtime that can't steer keeps it for after the turn (landed queued, code steer_unsupported). Doesn't resume a paused queue.",
     })
     .input(z.object({ agentId, inputId: z.string() }))
     .output(SendResult),

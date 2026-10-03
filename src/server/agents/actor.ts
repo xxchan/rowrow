@@ -255,11 +255,16 @@ export class AgentActor {
       const item = summary.queued.find((q) => q.inputId === inputId);
       if (item === undefined) throw new UserError(ALREADY_SENT, "CONFLICT");
       const busy = this.busy();
+      // It can't go into this turn: it stays where it is, going after it, and the answer says so
+      // (the same as a steer to it).
       if (busy && !this.canSteer())
-        throw new UserError(
-          `${summary.runtime} can't take input in the middle of a turn: stop the turn, or let it go after this one`,
-          "PRECONDITION_FAILED",
-        );
+        return {
+          inputId,
+          landed: "queued",
+          code: "steer_unsupported",
+          reason: `${summary.runtime} can't take input in the middle of a turn; it goes after this one`,
+          seq: this.deps.log.findInput(this.id, inputId).input?.seq ?? -1,
+        };
       const result = await this.sendHeld(item, busy ? "steer" : "prompt");
       return {
         inputId,
