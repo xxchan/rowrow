@@ -12,6 +12,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { useCommandState } from "cmdk";
+import { commandFilter } from "../lib/command-filter.ts";
 import { Folder, House, Keyboard, Pencil, Plus, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -183,6 +184,7 @@ export function CommandMenu({ route }: { route: Route }) {
 
   return (
     <CommandDialog
+      filter={commandFilter}
       open={isOpen}
       onOpenChange={setOpen}
       title="Go to an agent, a workspace, or an action"
