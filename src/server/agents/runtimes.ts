@@ -4,6 +4,7 @@
 // update checks (each asks the runtime's release feed). An upgrade runs the runtime's own
 // updater, only when someone asks for it.
 import {
+  createCursorRuntime,
   runtimes as builtins,
   type AvailableInstallation,
   type Runtime,
@@ -36,6 +37,15 @@ const UPDATES_TTL_MS = 60 * 60_000;
 /** The end of an updater's output is where it says what went wrong. */
 const OUTPUT_CHARS = 8000;
 
+/**
+ * oar's built-in runtimes, and Cursor, whose SDK rowrow installs and hands to oar (oar 0.20): it
+ * loads the first time a Cursor agent runs. Listed by id, the order every screen shows.
+ */
+function hostRuntimes(): Runtime[] {
+  const cursor = createCursorRuntime({ sdk: () => import("@cursor/sdk") });
+  return [...builtins.list(), cursor].sort((a, b) => a.id.localeCompare(b.id));
+}
+
 export class Runtimes {
   private readonly known = new Map<string, Known>();
   private readonly models = new Map<string, { at: number; models: ModelInfo[]; error: string | null }>();
@@ -50,7 +60,7 @@ export class Runtimes {
     readonly extra?: readonly Runtime[];
   }) {
     const list: { runtime: Runtime; test: boolean }[] = options.probe
-      ? builtins.list().map((runtime) => ({ runtime, test: false }))
+      ? hostRuntimes().map((runtime) => ({ runtime, test: false }))
       : [];
     if (options.testRuntime) list.push({ runtime: scriptedDemoRuntime(), test: true });
     for (const runtime of options.extra ?? []) list.push({ runtime, test: false });

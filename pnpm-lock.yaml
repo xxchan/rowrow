@@ -13,8 +13,11 @@ importers:
   .:
     dependencies:
       '@botiverse/oar':
-        specifier: ^0.18.0
-        version: 0.18.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+        specifier: ^0.20.0
+        version: 0.20.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+      '@cursor/sdk':
+        specifier: 1.0.35
+        version: 1.0.35
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.10)
@@ -273,9 +276,14 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
-  '@botiverse/oar@0.18.0':
-    resolution: {integrity: sha512-9k86zMHOf6a81tAnjVt/Cs2EGDxUJrMTOqs+Z9NQy2Rs0kGkkL9MW1Y/73zK6Hi0fmoG2iUSht/1WiylU2KwRQ==}
+  '@botiverse/oar@0.20.0':
+    resolution: {integrity: sha512-ZDK2twlkX1hgymZk7twmsC+X4eHZGk5ZMi7etxvKn5uqf379PBif0rm9nuYemKIsLQYRSggXme3bgF+IJt88JA==}
     engines: {node: '>=24.0.0'}
+    peerDependencies:
+      '@cursor/sdk': 1.0.35
+    peerDependenciesMeta:
+      '@cursor/sdk':
+        optional: true
 
   '@bufbuild/protobuf@1.10.0':
     resolution: {integrity: sha512-QDdVFLoN93Zjg36NoQPZfsVH9tZew7wKDKyV5qRdj8ntT4wQCOradQjRaTdwMhWUYsgKsvCINKKm87FdEk96Ag==}
@@ -4892,15 +4900,16 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
-  '@botiverse/oar@0.18.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
+  '@botiverse/oar@0.20.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
-      '@cursor/sdk': 1.0.35
       '@earendil-works/pi-ai': 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
       '@earendil-works/pi-coding-agent': 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
       cross-spawn: 7.0.6
       undici: 8.10.2
       which: 2.0.2
+    optionalDependencies:
+      '@cursor/sdk': 1.0.35
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@modelcontextprotocol/sdk'
