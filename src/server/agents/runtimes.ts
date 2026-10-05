@@ -5,7 +5,7 @@
 // updater, only when someone asks for it.
 import {
   createCursorRuntime,
-  runtimes as builtins,
+  defaultRuntimes as builtins,
   type AvailableInstallation,
   type Runtime,
   type Session,
