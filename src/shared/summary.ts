@@ -3,6 +3,7 @@
 // per agent up to date as entries are appended, and any tool can rebuild it from a log.
 import type { ContextUsage, RawEvent, TokenTotals, TurnOutcome } from "@botiverse/oar";
 import {
+  appRequestKind,
   initialStatus,
   reduceStatus,
   reduceTasks,
@@ -333,6 +334,8 @@ function foldRecord(
     case "request":
       if (record.direction === "toApp") {
         const type = record.body.kind === "native" ? record.body.type : record.body.kind;
+        // A client call the adapter answers itself (grok's terminal/*) needs nobody.
+        if (appRequestKind(type) === "service") return next;
         return { ...next, pending: [...next.pending, { requestId: record.id, type, seq }] };
       }
       if (record.body.kind === "dispose") return { ...next, stopping: true };

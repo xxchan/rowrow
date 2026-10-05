@@ -1,7 +1,7 @@
 // Plain-text rendering of a timeline: what `rowrow agent view` prints, and what a debugging
 // agent reads instead of a screenshot. Same fold as the UI, so the text is what the UI
 // showed.
-import type { ViewMessage, ViewNotice, ViewPart } from "@botiverse/oar/observe";
+import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
 import type { Actor, Attachment } from "./entries.ts";
 import type { Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
@@ -116,6 +116,7 @@ function renderPart(part: ViewPart, indent: string, toolChars: number): string[]
     case "notice":
       return [`${indent}· ${noticeText(part.notice)}`];
     case "app_request":
+      if (appRequestKind(part.type) === "service") return [];
       return [`${indent}? ${part.type}${part.answered ? " (answered)" : " (waiting for an answer)"}`];
   }
 }

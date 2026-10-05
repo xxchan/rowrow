@@ -9,6 +9,7 @@
 // source objects are the same ones as last time is skipped without being looked at: while
 // text streams, one item is re-serialized and sent.
 import {
+  appRequestKind,
   classifyTool,
   type ViewMessage,
   type ViewNotice,
@@ -294,6 +295,8 @@ function turnItems(turnId: string, turn: ViewTurn, open: boolean, runtime: strin
   turn.sections.forEach((section, s) => {
     const lastSection = s === turn.sections.length - 1;
     section.parts.forEach((part, p) => {
+      // A client call the adapter answered itself (grok's terminal/*) isn't part of the conversation.
+      if (part.kind === "app_request" && appRequestKind(part.type) === "service") return;
       const id = `${turnId}:${s}:${p}`;
       const streaming = open && lastSection && p === section.parts.length - 1;
       const where = { id, turn: turnId, lane: section.agentPath };

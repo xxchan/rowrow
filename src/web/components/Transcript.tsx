@@ -4,7 +4,13 @@
 // "agent"): selection comments quote only what the agent wrote (SelectionComment).
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { classifyTool, type ViewMessage, type ViewPart, type ViewSection } from "@botiverse/oar/observe";
+import {
+  appRequestKind,
+  classifyTool,
+  type ViewMessage,
+  type ViewPart,
+  type ViewSection,
+} from "@botiverse/oar/observe";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
@@ -366,6 +372,8 @@ function Section({
         out.push(<SystemLine key={index}>{noticeText(part.notice)}</SystemLine>);
         break;
       case "app_request":
+        // A client call the adapter answered itself (grok's terminal/*): not the person's business.
+        if (appRequestKind(part.type) === "service") break;
         out.push(
           <div key={index} className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
             {part.answered
