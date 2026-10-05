@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@botiverse/oar':
-        specifier: ^0.21.1
-        version: 0.21.1(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+        specifier: ^0.21.2
+        version: 0.21.2(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
       '@cursor/sdk':
         specifier: 1.0.35
         version: 1.0.35
@@ -276,8 +276,8 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
-  '@botiverse/oar@0.21.1':
-    resolution: {integrity: sha512-OBvrE9YfY2+x7BYkD9GoOknzxJXkYTMtDe0QAjfApb+pHAKQAJB1g9/OHV/0fBhyrwnbTTlvAzaS9ntvHq/r0Q==}
+  '@botiverse/oar@0.21.2':
+    resolution: {integrity: sha512-f7+XPDpQmZiqF7u2KZYQbPYOUuOSZGbkVl64Kj3iWcLTT+X3ht1ZHQl4jguFd7h1s3fCaXeMp4SOn7bJble2Vg==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@cursor/sdk': 1.0.35
@@ -4900,7 +4900,7 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
-  '@botiverse/oar@0.21.1(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
+  '@botiverse/oar@0.21.2(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.35)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
       '@earendil-works/pi-ai': 1.0.3(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
