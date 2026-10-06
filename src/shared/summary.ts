@@ -391,6 +391,7 @@ function foldRecord(
             break;
           case "reasoning":
           case "tool_call_started":
+          case "tool_call_input":
           case "tool_call_ended":
           case "tool_call_progress":
           case "compaction_started":
