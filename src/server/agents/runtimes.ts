@@ -41,7 +41,13 @@ interface Login {
   answer: { readonly promptId: string; readonly resolve: (text: string) => void } | null;
 }
 
-const PROBE_TIMEOUT_MS = 10_000;
+/**
+ * A safety net around a whole installation probe, not a limit of our own: oar bounds each
+ * command a probe runs (15 s by default, 30 s where a runtime says so), and Codex runs two.
+ */
+const PROBE_TIMEOUT_MS = 60_000;
+/** Asking whether a runtime is signed in runs one local status command. */
+const AUTH_TIMEOUT_MS = 10_000;
 const MODELS_TTL_MS = 10 * 60_000;
 const SKILLS_TTL_MS = 60_000;
 const UPDATES_TTL_MS = 60 * 60_000;
@@ -501,8 +507,8 @@ async function readAuth(runtime: Runtime, installation: AvailableInstallation): 
   if (runtime.authStatus === undefined) return null;
   try {
     const status = await withTimeout(
-      runtime.authStatus(installation, { timeoutMs: PROBE_TIMEOUT_MS }),
-      PROBE_TIMEOUT_MS,
+      runtime.authStatus(installation, { timeoutMs: AUTH_TIMEOUT_MS }),
+      AUTH_TIMEOUT_MS + 1000,
       `asking ${runtime.id} whether it is signed in took too long`,
     );
     switch (status.kind) {
