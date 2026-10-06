@@ -18,6 +18,8 @@ export function signInSteps(runtime: string): SignIn | null {
       return { run: "claude", type: "/login" };
     case "codex":
       return { run: "codex login" };
+    case "opencode":
+      return { run: "opencode auth login" };
     case "cursor":
       return { env: "CURSOR_API_KEY" };
     default:

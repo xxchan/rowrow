@@ -7,6 +7,7 @@ import codex from "@lobehub/icons-static-svg/icons/codex-color.svg?raw";
 import cursor from "@lobehub/icons-static-svg/icons/cursor.svg?raw";
 import grok from "@lobehub/icons-static-svg/icons/grok.svg?raw";
 import kimi from "@lobehub/icons-static-svg/icons/kimi-color.svg?raw";
+import opencode from "@lobehub/icons-static-svg/icons/opencode.svg?raw";
 import pi from "@lobehub/icons-static-svg/icons/pi.svg?raw";
 import { Bot, FlaskConical } from "lucide-react";
 import type { Tone } from "../lib/format.ts";
@@ -19,6 +20,7 @@ const ICONS: Readonly<Record<string, string>> = {
   cursor,
   grok,
   kimi,
+  opencode,
   pi,
 };
 

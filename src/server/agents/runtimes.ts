@@ -1,5 +1,5 @@
 // The runtimes rowrow can start agents with: oar's built-in ones (Claude Code, Codex, Cursor,
-// Antigravity, Grok, Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
+// Antigravity, Grok, Kimi, OpenCode, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
 // local and cheap; model lists may ask the runtime's provider, so they are cached, and so are
 // update checks (each asks the runtime's release feed). An upgrade runs the runtime's own
 // updater, and a login its own sign-in, only when someone asks for it.
@@ -194,12 +194,7 @@ export class Runtimes {
     const { runtime, installation } = known;
     if (installation === null) return { kind: "unavailable", reason: "not_installed" };
     if (runtime.checkUpdate === undefined) {
-      // Pi: oar carries its SDK, so it updates with rowrow.
-      return {
-        kind: "unavailable",
-        reason: "no_updater",
-        detail: `${runtime.brand.name} updates with rowrow.`,
-      };
+      return { kind: "unavailable", reason: "no_updater", detail: noUpdater(runtime, installation) };
     }
     const cached = this.checks.get(runtime.id);
     if (!refresh && cached !== undefined && Date.now() - cached.at < UPDATES_TTL_MS) return cached.check;
@@ -250,7 +245,7 @@ export class Runtimes {
       return {
         kind: "unsupported",
         reason: "unsupported_installation",
-        detail: `${runtime.brand.name} updates with rowrow.`,
+        detail: noUpdater(runtime, installation),
       };
     }
     const started = Date.now();
@@ -489,6 +484,16 @@ export class Runtimes {
     this.skillsCache.set(key, { at: Date.now(), ...result });
     return result;
   }
+}
+
+/**
+ * Why rowrow can't update a runtime oar has no updater for: Pi's SDK comes with oar, so it
+ * updates with rowrow; an installed CLI (OpenCode) updates itself, outside rowrow.
+ */
+function noUpdater(runtime: Runtime, installation: AvailableInstallation): string {
+  return installation.via === "bundled"
+    ? `${runtime.brand.name} updates with rowrow.`
+    : `rowrow can't update ${runtime.brand.name}: use its own updater.`;
 }
 
 /** Whether it is signed in, by its own status query; null when it has none. */
