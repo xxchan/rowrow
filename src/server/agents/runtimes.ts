@@ -2,16 +2,21 @@
 // Antigravity, Grok, Kimi, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
 // local and cheap; model lists may ask the runtime's provider, so they are cached, and so are
 // update checks (each asks the runtime's release feed). An upgrade runs the runtime's own
-// updater, only when someone asks for it.
+// updater, and a login its own sign-in, only when someone asks for it.
 import {
   createCursorRuntime,
   defaultRuntimes as builtins,
   type AvailableInstallation,
+  type ProviderLoginPrompt,
   type Runtime,
   type Session,
   type SessionOptions,
 } from "@botiverse/oar";
+import { randomUUID } from "node:crypto";
 import type {
+  AuthState,
+  LoginProgress,
+  LoginResult,
   ModelInfo,
   RuntimeInfo,
   RuntimeUpdate,
@@ -28,6 +33,12 @@ interface Known {
   readonly test: boolean;
   installation: AvailableInstallation | null;
   info: RuntimeInfo;
+}
+
+/** A sign-in running now: its question's answer goes to `answer`, and `abort` stops it. */
+interface Login {
+  readonly abort: AbortController;
+  answer: { readonly promptId: string; readonly resolve: (text: string) => void } | null;
 }
 
 const PROBE_TIMEOUT_MS = 10_000;
@@ -52,13 +63,18 @@ export class Runtimes {
   private readonly skillsCache = new Map<string, { at: number; skills: SkillInfo[]; error: string | null }>();
   private readonly checks = new Map<string, { at: number; check: UpdateCheck }>();
   private readonly upgrading = new Map<string, Promise<UpgradeResult>>();
+  private readonly logins = new Map<string, { readonly login: Login; readonly done: Promise<LoginResult> }>();
+  private readonly changed: () => void;
 
   constructor(options: {
     readonly testRuntime: boolean;
     readonly probe: boolean;
     /** Runtimes to know besides oar's built-in ones (tests). */
     readonly extra?: readonly Runtime[];
+    /** A runtime's info changed outside `refresh` (a sign-in's progress, or its end). */
+    readonly changed?: () => void;
   }) {
+    this.changed = options.changed ?? (() => undefined);
     const list: { runtime: Runtime; test: boolean }[] = options.probe
       ? hostRuntimes().map((runtime) => ({ runtime, test: false }))
       : [];
@@ -76,6 +92,9 @@ export class Runtimes {
           version: null,
           reason: "not probed yet",
           test,
+          auth: null,
+          canLogin: false,
+          login: null,
         },
       });
     }
@@ -112,12 +131,17 @@ export class Runtimes {
               `probing ${runtime.id} took too long`,
             );
       if (snapshot.kind === "available") {
+        // Read before the update below, which must not spread an info from before this await
+        // (a sign-in's progress may change it meanwhile).
+        const auth = await readAuth(runtime, snapshot);
         known.installation = snapshot;
         known.info = {
           ...known.info,
           installed: true,
           version: snapshot.via === "executable" ? (snapshot.version ?? null) : null,
           reason: null,
+          auth,
+          canLogin: runtime.login !== undefined,
         };
       } else {
         known.installation = null;
@@ -129,12 +153,15 @@ export class Runtimes {
             snapshot.kind === "not_found"
               ? `${runtime.brand.name} is not installed (not found on PATH)`
               : snapshot.reason,
+          auth: null,
+          canLogin: false,
         };
       }
       log.info("runtime.probe", {
         runtime: runtime.id,
         installed: known.info.installed,
         version: known.info.version,
+        auth: known.info.auth?.kind ?? null,
         ms: Date.now() - started,
       });
     } catch (error) {
@@ -143,6 +170,8 @@ export class Runtimes {
         ...known.info,
         installed: false,
         reason: error instanceof Error ? error.message : String(error),
+        auth: null,
+        canLogin: false,
       };
       log.warn("runtime.probe_failed", { runtime: runtime.id, err: serializeError(error) });
     }
@@ -236,6 +265,125 @@ export class Runtimes {
     });
     this.checks.delete(runtime.id);
     await this.probe(known);
+    return result;
+  }
+
+  /**
+   * Sign a runtime in through its own login (oar's `login`). What the person opens or types,
+   * and the question it waits on, are in the runtime's info (`login`) until it ends; then it is
+   * probed again, so every client sees who it is signed in as. One at a time per runtime:
+   * asking again while it runs waits for the same one.
+   */
+  login(id: string): Promise<LoginResult> {
+    const known = this.known.get(id);
+    if (known === undefined) throw new UserError(`no runtime ${id}`, "NOT_FOUND");
+    const running = this.logins.get(id);
+    if (running !== undefined) return running.done;
+    const login: Login = { abort: new AbortController(), answer: null };
+    const done = this.runLogin(known, login).finally(() => this.logins.delete(id));
+    this.logins.set(id, { login, done });
+    return done;
+  }
+
+  /** Answer the question a running sign-in waits on. Never logged: it may be a code. */
+  answerLogin(id: string, promptId: string, answer: string): void {
+    const waiting = this.logins.get(id)?.login.answer;
+    if (waiting === undefined || waiting === null || waiting.promptId !== promptId)
+      throw new UserError("That sign-in isn't waiting for this answer any more.", "CONFLICT");
+    waiting.resolve(answer);
+  }
+
+  /** Stop a running sign-in; the runtime's previous login stays as it was. */
+  cancelLogin(id: string): void {
+    this.logins.get(id)?.login.abort.abort();
+  }
+
+  private async runLogin(known: Known, login: Login): Promise<LoginResult> {
+    const { runtime, installation } = known;
+    if (installation === null) {
+      return {
+        kind: "unsupported",
+        reason: "not_installed",
+        detail: `${runtime.brand.name} is not installed.`,
+      };
+    }
+    if (runtime.login === undefined) {
+      return {
+        kind: "unsupported",
+        reason: "unsupported_installation",
+        detail: `rowrow can't sign ${runtime.brand.name} in: use its own CLI.`,
+      };
+    }
+    const progress = (change: (now: LoginProgress) => LoginProgress): void => {
+      const now = known.info.login;
+      if (now === null) return;
+      known.info = { ...known.info, login: change(now) };
+      this.changed();
+    };
+    known.info = { ...known.info, login: { id: randomUUID(), events: [], prompt: null } };
+    this.changed();
+    const started = Date.now();
+    log.info("runtime.login_started", { runtime: runtime.id });
+    let result: LoginResult;
+    try {
+      result = await runtime.login(installation, {
+        signal: login.abort.signal,
+        onEvent: (event) => {
+          // A device code's poll interval is the runtime's business, not the person's.
+          const shown =
+            event.kind === "device_code"
+              ? {
+                  kind: event.kind,
+                  userCode: event.userCode,
+                  verificationUri: event.verificationUri,
+                  ...(event.expiresInSeconds === undefined
+                    ? {}
+                    : { expiresInSeconds: event.expiresInSeconds }),
+                }
+              : event;
+          progress((now) => ({ ...now, events: [...now.events, shown] }));
+        },
+        prompt: (prompt) =>
+          new Promise<string>((resolve, reject) => {
+            const promptId = randomUUID();
+            if (login.abort.signal.aborted) {
+              reject(new Error("sign-in cancelled"));
+              return;
+            }
+            login.abort.signal.addEventListener("abort", () => reject(new Error("sign-in cancelled")), {
+              once: true,
+            });
+            login.answer = {
+              promptId,
+              resolve: (text) => {
+                login.answer = null;
+                progress((now) => ({ ...now, prompt: null }));
+                resolve(text);
+              },
+            };
+            progress((now) => ({ ...now, prompt: loginPrompt(promptId, prompt) }));
+          }),
+      });
+    } catch (error) {
+      result = {
+        kind: "failed",
+        reason: "process_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    log.info("runtime.login_finished", {
+      runtime: runtime.id,
+      kind: result.kind,
+      ...(result.kind === "failed" || result.kind === "unsupported"
+        ? { reason: result.reason, detail: result.detail }
+        : {}),
+      ms: Date.now() - started,
+    });
+    // A question still open is moot now (oar: the caller closes it).
+    login.answer = null;
+    known.info = { ...known.info, login: null };
+    await this.probe(known);
+    this.changed();
     return result;
   }
 
@@ -341,6 +489,43 @@ export class Runtimes {
     this.skillsCache.set(key, { at: Date.now(), ...result });
     return result;
   }
+}
+
+/** Whether it is signed in, by its own status query; null when it has none. */
+async function readAuth(runtime: Runtime, installation: AvailableInstallation): Promise<AuthState | null> {
+  if (runtime.authStatus === undefined) return null;
+  try {
+    const status = await withTimeout(
+      runtime.authStatus(installation, { timeoutMs: PROBE_TIMEOUT_MS }),
+      PROBE_TIMEOUT_MS,
+      `asking ${runtime.id} whether it is signed in took too long`,
+    );
+    switch (status.kind) {
+      case "logged_in":
+        return status.account === undefined
+          ? { kind: status.kind }
+          : { kind: status.kind, account: status.account };
+      case "logged_out":
+        return { kind: status.kind };
+      case "unknown":
+        return status.detail === undefined
+          ? { kind: status.kind }
+          : { kind: status.kind, detail: status.detail };
+    }
+  } catch (error) {
+    return { kind: "unknown", detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function loginPrompt(id: string, prompt: ProviderLoginPrompt): LoginProgress["prompt"] {
+  return prompt.kind === "select"
+    ? { id, kind: prompt.kind, message: prompt.message, options: [...prompt.options] }
+    : {
+        id,
+        kind: prompt.kind,
+        message: prompt.message,
+        ...(prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder }),
+      };
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

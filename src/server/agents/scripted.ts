@@ -14,6 +14,9 @@
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
 // attachments, commands are read from the request after the list of files, and the answer
 // says which files and images arrived.
+//
+// It starts signed out. Its sign-in shows a page to open and asks for the code on it, which
+// is always "rowrow".
 import type { Runtime, SkillEntry } from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
 import fs from "node:fs/promises";
@@ -32,6 +35,7 @@ const COMMANDS: readonly SkillEntry[] = [
 ];
 
 export function scriptedDemoRuntime(): Runtime {
+  let signedIn = false;
   const runtime = scriptedRuntime({
     id: "scripted",
     brand: { name: "Scripted demo", icon: null },
@@ -105,8 +109,35 @@ export function scriptedDemoRuntime(): Runtime {
       items: COMMANDS.map((command) => ({ ...command, source: "scripted" })),
       partial: false,
     }),
+    authStatus: async () =>
+      signedIn
+        ? { kind: "logged_in", account: ACCOUNT, source: "script" }
+        : { kind: "logged_out", source: "script" },
+    login: async (_installation, interaction) => {
+      interaction.onEvent({
+        kind: "auth_url",
+        url: "https://example.com/scripted-sign-in",
+        instructions: "Sign in there, then paste the code it shows.",
+      });
+      let code: string;
+      try {
+        code = await interaction.prompt({
+          kind: "manual_code",
+          message: "Code from the sign-in page",
+        });
+      } catch (error) {
+        if (interaction.signal?.aborted === true) return { kind: "cancelled" };
+        return { kind: "failed", reason: "interaction_failed", detail: String(error) };
+      }
+      if (code.trim() !== "rowrow")
+        return { kind: "failed", reason: "rejected", detail: "That code didn't work." };
+      signedIn = true;
+      return { kind: "logged_in", account: ACCOUNT };
+    },
   };
 }
+
+const ACCOUNT = { email: "demo@example.com", plan: "demo", method: "script" };
 
 /** The person's own text: with attachments the runtime reads a list of files first (agents/input.ts). */
 function requestOf(input: string): string {

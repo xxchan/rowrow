@@ -1,6 +1,7 @@
 // Runtime probing: every runtime is published as soon as its own probe answers, so one slow
 // CLI (kimi can take seconds) never hides the others, the scripted one included. Update checks
 // are cached; an upgrade runs once however often it's asked for, and the new version shows.
+// A sign-in shows its progress in the runtime's info, takes its answer, and can be cancelled.
 import type { AvailableInstallation, SessionOptions } from "@botiverse/oar";
 import { scriptedRuntime } from "@botiverse/oar/testing";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -103,5 +104,50 @@ describe("runtimes", () => {
     for (const id of ["cursor", "other"]) await (await runtimes.start(id, options)).dispose();
     expect(seen["cursor"]?.env).toBeUndefined();
     expect(seen["other"]?.env).toEqual(options.env);
+  });
+
+  it("signs a runtime in: progress in its info, the answer to its question, then who it is", async () => {
+    let changes = 0;
+    const runtimes = new Runtimes({ testRuntime: true, probe: false, changed: () => changes++ });
+    await runtimes.refresh();
+    expect(runtimes.info("scripted")).toMatchObject({
+      auth: { kind: "logged_out" },
+      canLogin: true,
+      login: null,
+    });
+
+    const done = runtimes.login("scripted");
+    // Asking again while it runs waits for the same sign-in.
+    const again = runtimes.login("scripted");
+    await expect.poll(() => runtimes.info("scripted")?.login?.prompt).not.toBeNull();
+    const progress = runtimes.info("scripted")?.login;
+    expect(progress?.events).toEqual([expect.objectContaining({ kind: "auth_url" })]);
+    expect(progress?.prompt).toMatchObject({ kind: "manual_code" });
+    expect(() => runtimes.answerLogin("scripted", "not-this-one", "rowrow")).toThrow(/isn't waiting/);
+    runtimes.answerLogin("scripted", progress?.prompt?.id ?? "", "rowrow");
+
+    const result = await done;
+    expect(result).toEqual({
+      kind: "logged_in",
+      account: expect.objectContaining({ email: "demo@example.com" }),
+    });
+    expect(await again).toBe(result);
+    expect(runtimes.info("scripted")).toMatchObject({ auth: { kind: "logged_in" }, login: null });
+    expect(changes).toBeGreaterThan(2);
+  });
+
+  it("cancels a sign-in waiting on its question, and reports a rejected code", async () => {
+    const runtimes = new Runtimes({ testRuntime: true, probe: false });
+    await runtimes.refresh();
+    const cancelled = runtimes.login("scripted");
+    await expect.poll(() => runtimes.info("scripted")?.login?.prompt).not.toBeNull();
+    runtimes.cancelLogin("scripted");
+    expect(await cancelled).toEqual({ kind: "cancelled" });
+    expect(runtimes.info("scripted")).toMatchObject({ auth: { kind: "logged_out" }, login: null });
+
+    const rejected = runtimes.login("scripted");
+    await expect.poll(() => runtimes.info("scripted")?.login?.prompt).not.toBeNull();
+    runtimes.answerLogin("scripted", runtimes.info("scripted")?.login?.prompt?.id ?? "", "wrong");
+    expect(await rejected).toMatchObject({ kind: "failed", reason: "rejected" });
   });
 });

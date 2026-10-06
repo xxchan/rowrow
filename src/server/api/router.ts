@@ -382,6 +382,15 @@ export function createRouter(s: Services) {
         if (result.kind === "upgraded" || result.kind === "unchanged") await s.refreshRuntimes();
         return result;
       }),
+      login: os.runtimes.login.handler(async ({ input }) => s.runtimes.login(input.runtime)),
+      loginAnswer: os.runtimes.loginAnswer.handler(({ input }) => {
+        s.runtimes.answerLogin(input.runtime, input.promptId, input.answer);
+        return { ok: true as const };
+      }),
+      loginCancel: os.runtimes.loginCancel.handler(({ input }) => {
+        s.runtimes.cancelLogin(input.runtime);
+        return { ok: true as const };
+      }),
     },
 
     git: {

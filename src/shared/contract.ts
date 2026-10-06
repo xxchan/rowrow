@@ -27,6 +27,7 @@ import {
   LogEntry,
   LogFilter,
   LoginLink,
+  LoginResult,
   ModelInfo,
   Notice,
   PullRequestStatus,
@@ -354,6 +355,23 @@ const runtimes = {
     })
     .input(z.object({ runtime: z.string() }))
     .output(UpgradeResult),
+  login: oc
+    .route({
+      summary:
+        "Sign a runtime in through its own login, without a terminal; returns when it ends (up to the runtime's own deadline). While it runs, the runtime's `login` in state says what to open or type and the question it waits on (runtimes.loginAnswer). One at a time per runtime: asking again waits for the same one. A failed or cancelled sign-in leaves the previous one as it was.",
+    })
+    .input(z.object({ runtime: z.string() }))
+    .output(LoginResult),
+  loginAnswer: oc
+    .route({
+      summary: "Answer the question a running sign-in waits on, such as the code its sign-in page shows.",
+    })
+    .input(z.object({ runtime: z.string(), promptId: z.string(), answer: z.string() }))
+    .output(ok),
+  loginCancel: oc
+    .route({ summary: "Stop a running sign-in; the previous login stays as it was." })
+    .input(z.object({ runtime: z.string() }))
+    .output(ok),
 };
 
 const git = {

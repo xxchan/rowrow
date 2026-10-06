@@ -16,6 +16,7 @@ import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
 import { connect, resolveTarget, type Client } from "./client.ts";
+import { formatLogin, login } from "./login.ts";
 
 const HELP = `rowrow: run a crew of coding agents and steer them from any browser.
 
@@ -34,9 +35,12 @@ Push notifications
   rowrow push apns --off           forget the APNs key
 
 Runtimes
-  rowrow runtimes [--check]        what's installed; --check: whether a newer version is out
+  rowrow runtimes [--check]        what's installed and signed in; --check: whether a newer
+                                   version is out
   rowrow runtimes upgrade <runtime>   run that runtime's own updater (agents running now keep
                                    the old version until their next run)
+  rowrow runtimes login <runtime>  sign it in with its own login, without its CLI: prints what
+                                   to open, reads the code it asks for (Ctrl-C cancels)
 
 Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service install [serve flags…] [--if-idle]   launchd on macOS, systemd --user on Linux;
@@ -336,7 +340,13 @@ async function main(argv: string[]): Promise<void> {
           out(result, () => formatUpgrade(result));
           return;
         }
-        if (rest[0] !== undefined) throw new Error(`unknown runtimes command "${rest[0]}" (upgrade)`);
+        if (rest[0] === "login") {
+          if (rest[1] === undefined) throw new Error("usage: rowrow runtimes login <runtime>");
+          const result = await login(client, rest[1]);
+          out(result, () => formatLogin(result));
+          return;
+        }
+        if (rest[0] !== undefined) throw new Error(`unknown runtimes command "${rest[0]}" (upgrade, login)`);
         const list = await client.runtimes.list({ refresh: true });
         const updates = bool("check") ? await client.runtimes.updates({ refresh: true }) : [];
         out({ runtimes: list, updates }, () =>
@@ -358,7 +368,13 @@ async function main(argv: string[]): Promise<void> {
                       : check.reason === "no_updater"
                         ? `  (${check.detail ?? "updates with rowrow"})`
                         : `  (can't check: ${check.detail ?? check.reason})`;
-              return `${runtime.installed ? "●" : "○"} ${runtime.id.padEnd(12)} ${version}${news}`;
+              const auth =
+                runtime.auth?.kind === "logged_in"
+                  ? `  · signed in${runtime.auth.account?.email === undefined ? "" : ` as ${runtime.auth.account.email}`}`
+                  : runtime.auth?.kind === "logged_out"
+                    ? `  · not signed in${runtime.canLogin ? ` (rowrow runtimes login ${runtime.id})` : ""}`
+                    : "";
+              return `${runtime.installed ? "●" : "○"} ${runtime.id.padEnd(12)} ${version}${auth}${news}`;
             })
             .join("\n"),
         );

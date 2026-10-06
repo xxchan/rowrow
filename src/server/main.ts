@@ -156,6 +156,7 @@ export async function startServer(
     testRuntime: options.testRuntime,
     probe: options.probeRuntimes,
     ...(options.extraRuntimes === undefined ? {} : { extra: options.extraRuntimes }),
+    changed: () => syncRuntimes(),
   });
   const syncRuntimes = (): void => {
     state.update("runtimes", (draft) => {

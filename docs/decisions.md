@@ -962,3 +962,32 @@ gives a server's page nothing but the app's own updater, which only installs sig
 
 **Revisit when** the web app can update an npm install itself (`rowrow update`, roadmap), or a
 server page needs more of the app than its updater.
+
+## D-038 Sign runtimes in from Settings, through their own login (2026-10-06)
+
+**Context.** When a runtime's login runs out (oar's failure class `auth`), the fix was a
+terminal on the server's machine: `claude` then `/login`, or `codex login`. That is the one
+thing someone steering from a phone, or from the Mac app, can't easily do. oar 0.22 can ask
+Claude Code and Codex whether they are signed in (`authStatus`, read only) and drive their own
+login without a terminal (`login`): it hands over the page to open or the device code to type,
+asks for the code the page shows, and never touches the old login unless the new one succeeds.
+
+**Decision.** Every probe reads each runtime's sign-in, so Settings → Agent runtimes and
+`rowrow runtimes` say who it is signed in as (Settings probes again when it opens: a terminal
+may have changed it). Sign in (or "Sign in again") calls `runtimes.login`, which runs the
+runtime's login on the server's machine, one at a time per runtime. Its progress (the page,
+the code, the question it waits on) lives in that runtime's `login` in app state, not in the
+request: any window can see it, answer it (`runtimes.loginAnswer`) or cancel it
+(`runtimes.loginCancel`), and a reload loses nothing. Answers are never logged or kept. The
+transcript's "sign in again" hint links to Settings for runtimes rowrow can sign in.
+`rowrow runtimes login <runtime>` does the same from a terminal. The scripted runtime has a
+login too (its code is always `rowrow`), so the flow is tested end to end.
+
+**Why.** Signing in is a property of the machine, like an update (D-036): it is done only when
+someone asks, and the person still signs in on the provider's own page, so rowrow never sees a
+password or a token. Keeping progress in state rather than in one long request means a dropped
+connection or a second device doesn't strand a half-finished sign-in.
+
+**Revisit when** more runtimes get a login in oar (they appear here by themselves), the iOS app
+needs it natively (today it shows neither: sign in from the web app), or people
+want to sign out or switch accounts from rowrow.

@@ -287,6 +287,31 @@ test("a quick reply added in Settings is one tap away in the composer", async ({
   await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
 });
 
+test("sign a runtime in from Settings, pasting the code its sign-in page shows", async ({ page, rowrow }) => {
+  await rowrow.open(page, "/settings");
+  const row = page
+    .getByRole("region", { name: "Agent runtimes" })
+    .getByRole("listitem")
+    .filter({ hasText: "Scripted demo" });
+  await expect(row).toContainText("Not signed in");
+  await row.getByRole("button", { name: "Sign in" }).click();
+  const signIn = row.getByLabel("Signing Scripted demo in");
+  await expect(signIn.getByRole("link", { name: "Open the sign-in page" })).toHaveAttribute(
+    "href",
+    "https://example.com/scripted-sign-in",
+  );
+  await signIn.getByLabel("Code from the sign-in page").fill("wrong");
+  await signIn.getByRole("button", { name: "Continue" }).click();
+  await expect(row).toContainText("Sign-in failed: That code didn't work.");
+
+  await row.getByRole("button", { name: "Sign in" }).click();
+  await signIn.getByLabel("Code from the sign-in page").fill("rowrow");
+  await signIn.getByRole("button", { name: "Continue" }).click();
+  await expect(row).toContainText("Signed in as demo@example.com (demo)");
+  await expect(signIn).toBeHidden();
+  await expect(row.getByRole("button", { name: "Sign in again" })).toBeVisible();
+});
+
 test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({

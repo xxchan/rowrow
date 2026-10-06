@@ -1,6 +1,7 @@
-// Settings → Agent runtimes: what's installed here, and whether a newer version is out (each
-// runtime's own updater says, through oar). Update runs that updater, only when you press it;
-// an agent running now keeps the old version until its next run.
+// Settings → Agent runtimes: what's installed here, whether it is signed in, and whether a
+// newer version is out (each runtime's own updater says, through oar). Update runs that
+// updater, only when you press it; an agent running now keeps the old version until its next
+// run. Sign in runs the runtime's own login (RuntimeLogin.tsx).
 import { Button } from "@/components/ui/button";
 import { LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +10,7 @@ import type { RuntimeInfo, RuntimeUpdate, UpdateCheck, UpgradeResult } from "../
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { AgentIcon } from "./AgentIcon.tsx";
+import { authNote, LoginPanel, loginResultNote, useRuntimeLogins } from "./RuntimeLogin.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
 /** Why there's nothing to update, when that is worth saying. */
@@ -49,6 +51,10 @@ export function useRuntimeUpdates() {
   );
   useEffect(() => {
     let cancelled = false;
+    // Probe again, so who each runtime is signed in as is current (a terminal may have changed it).
+    client?.runtimes.list({ refresh: true }).catch((error: unknown) => {
+      report("warn", "settings.runtime_probe_failed", error);
+    });
     void (async () => {
       try {
         const list = client === null ? null : await client.runtimes.updates({});
@@ -96,6 +102,7 @@ export function RuntimeList({
   runtimes: readonly RuntimeInfo[];
   updates: RuntimeUpdates;
 }) {
+  const logins = useRuntimeLogins();
   return (
     <ul className="divide-y overflow-hidden rounded-lg border bg-card">
       {runtimes.map((runtime) => {
@@ -105,42 +112,72 @@ export function RuntimeList({
         const newer = update?.check.kind === "ok" && update.check.updateAvailable ? update.check : null;
         const note =
           result !== undefined ? resultNote(result) : update === undefined ? null : checkNote(update.check);
+        const signedIn = runtime.auth?.kind === "logged_in";
+        const loginResult = logins.results[runtime.id];
+        const loginNote =
+          loginResult === undefined || runtime.login !== null ? null : loginResultNote(loginResult);
+        const auth = authNote(runtime.auth);
         return (
-          <li key={runtime.id} className="flex items-center gap-3 px-3 py-2.5">
-            <StatusDot
-              tone={runtime.installed ? "success" : "neutral"}
-              label={runtime.installed ? "Installed" : "Not installed"}
-            />
-            <AgentIcon runtime={runtime.id} label={runtime.name} />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-3">
-                <span className="text-sm font-medium">{runtime.name}</span>
-                <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
-                  {runtime.installed ? (runtime.version ?? "installed") : (runtime.reason ?? "not installed")}
-                </span>
+          <li key={runtime.id} className="px-3 py-2.5">
+            <div className="flex items-center gap-3">
+              <StatusDot
+                tone={runtime.installed ? "success" : "neutral"}
+                label={runtime.installed ? "Installed" : "Not installed"}
+              />
+              <AgentIcon runtime={runtime.id} label={runtime.name} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-3">
+                  <span className="text-sm font-medium">{runtime.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
+                    {runtime.installed
+                      ? (runtime.version ?? "installed")
+                      : (runtime.reason ?? "not installed")}
+                  </span>
+                </div>
+                {auth !== null && (
+                  <p className="flex gap-2 text-xs text-muted-foreground">
+                    <span className="min-w-0 truncate">{auth}</span>
+                    {signedIn && runtime.canLogin && runtime.login === null && (
+                      <button
+                        type="button"
+                        className="shrink-0 underline-offset-2 hover:text-foreground hover:underline"
+                        onClick={() => void logins.start(runtime)}
+                      >
+                        Sign in again
+                      </button>
+                    )}
+                  </p>
+                )}
+                {loginNote !== null && <p className="text-xs text-muted-foreground">{loginNote}</p>}
+                {newer !== null && !busy && result === undefined && (
+                  <p className="text-xs text-muted-foreground">{`${newer.latest} is out`}</p>
+                )}
+                {busy && (
+                  <p className="text-xs text-muted-foreground">Updating… this can take a few minutes.</p>
+                )}
+                {note !== null && !busy && <p className="text-xs text-muted-foreground">{note}</p>}
+                {result?.kind === "failed" && result.output !== "" && (
+                  <details className="mt-1 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground">What it printed</summary>
+                    <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
+                      {result.output}
+                    </pre>
+                  </details>
+                )}
               </div>
-              {newer !== null && !busy && result === undefined && (
-                <p className="text-xs text-muted-foreground">{`${newer.latest} is out`}</p>
+              {(newer !== null || busy) && update?.canUpgrade === true && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void upgrade(runtime)}>
+                  {busy && <LoaderCircle className="animate-spin" />}
+                  Update
+                </Button>
               )}
-              {busy && (
-                <p className="text-xs text-muted-foreground">Updating… this can take a few minutes.</p>
-              )}
-              {note !== null && !busy && <p className="text-xs text-muted-foreground">{note}</p>}
-              {result?.kind === "failed" && result.output !== "" && (
-                <details className="mt-1 text-xs">
-                  <summary className="cursor-pointer text-muted-foreground">What it printed</summary>
-                  <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
-                    {result.output}
-                  </pre>
-                </details>
+              {runtime.canLogin && runtime.login === null && !signedIn && (
+                <Button size="sm" variant="outline" onClick={() => void logins.start(runtime)}>
+                  Sign in
+                </Button>
               )}
             </div>
-            {(newer !== null || busy) && update?.canUpgrade === true && (
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => void upgrade(runtime)}>
-                {busy && <LoaderCircle className="animate-spin" />}
-                Update
-              </Button>
-            )}
+            {runtime.login !== null && <LoginPanel runtime={runtime} login={runtime.login} logins={logins} />}
           </li>
         );
       })}

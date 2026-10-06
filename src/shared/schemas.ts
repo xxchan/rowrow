@@ -140,6 +140,72 @@ export type EntryPage = z.infer<typeof EntryPage>;
 
 // ─── Runtimes ────────────────────────────────────────────────────────────────
 
+/** The account a runtime says it is signed in to, in its own words (oar's LoginAccount). */
+export const LoginAccount = z.object({
+  email: z.string().optional(),
+  plan: z.string().optional().describe("Its plan or subscription (max, pro…)."),
+  method: z.string().optional().describe("How it is signed in (claude.ai, chatgpt, apiKey…)."),
+});
+export type LoginAccount = z.infer<typeof LoginAccount>;
+
+/** Whether a runtime is signed in, by its own local status query (oar's AuthStatus). */
+export const AuthState = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("logged_in"), account: LoginAccount.optional() }),
+  z.object({ kind: z.literal("logged_out") }),
+  z.object({ kind: z.literal("unknown"), detail: z.string().optional() }),
+]);
+export type AuthState = z.infer<typeof AuthState>;
+
+/** Something a sign-in shows the person: a page to open, a code to type, or the runtime's guidance. */
+export const LoginEvent = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("auth_url"), url: z.string(), instructions: z.string().optional() }),
+  z.object({
+    kind: z.literal("device_code"),
+    userCode: z.string(),
+    verificationUri: z.string(),
+    expiresInSeconds: z.number().optional(),
+  }),
+  z.object({ kind: z.literal("info"), message: z.string() }),
+]);
+export type LoginEvent = z.infer<typeof LoginEvent>;
+
+/** A question a sign-in waits on (runtimes.loginAnswer), such as the code the sign-in page shows. */
+export const LoginPrompt = z.object({
+  id: z.string(),
+  kind: z.enum(["text", "secret", "manual_code", "select"]),
+  message: z.string(),
+  placeholder: z.string().optional(),
+  options: z
+    .array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() }))
+    .optional()
+    .describe("For select: answer with an option's id."),
+});
+export type LoginPrompt = z.infer<typeof LoginPrompt>;
+
+export const LoginProgress = z.object({
+  id: z.string(),
+  events: z.array(LoginEvent),
+  prompt: LoginPrompt.nullable(),
+});
+export type LoginProgress = z.infer<typeof LoginProgress>;
+
+/** How a sign-in ended (oar's LoginResult). Details never carry a pasted code or a token. */
+export const LoginResult = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("logged_in"), account: LoginAccount.optional() }),
+  z.object({
+    kind: z.literal("failed"),
+    reason: z.string().describe("timed_out, rejected, not_logged_in, interaction_failed, process_failed."),
+    detail: z.string().optional(),
+  }),
+  z.object({ kind: z.literal("cancelled") }),
+  z.object({
+    kind: z.literal("unsupported"),
+    reason: z.string().describe("unsupported_installation, version_unsupported, or rowrow's: not_installed."),
+    detail: z.string().optional(),
+  }),
+]);
+export type LoginResult = z.infer<typeof LoginResult>;
+
 export const RuntimeInfo = z.object({
   id: z.string(),
   name: z.string(),
@@ -147,6 +213,13 @@ export const RuntimeInfo = z.object({
   version: z.string().nullable(),
   reason: z.string().nullable().describe("Why it is unavailable."),
   test: z.boolean().describe("A scripted runtime for tests and demos: no model, no tokens."),
+  auth: AuthState.nullable().describe(
+    "Whether it is signed in, by its own status query; null when rowrow can't ask (not installed, or no status query).",
+  ),
+  canLogin: z.boolean().describe("rowrow can sign it in (runtimes.login)."),
+  login: LoginProgress.nullable().describe(
+    "A sign-in running now (runtimes.login): what to open or type, and the question it waits on.",
+  ),
 });
 export type RuntimeInfo = z.infer<typeof RuntimeInfo>;
 

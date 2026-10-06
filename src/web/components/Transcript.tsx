@@ -21,6 +21,7 @@ import { actorLabel } from "../../shared/render-text.ts";
 import { duration } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
+import { navigate } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import {
   held,
@@ -171,10 +172,28 @@ const Message = memo(function Message({
 function SignInAgain({ runtime }: { runtime: string }) {
   const name = useApp((s) => s.state?.runtimes[runtime]?.name ?? runtime);
   const machine = useApp((s) => s.state?.host.name ?? "the server's machine");
+  const canLogin = useApp((s) => s.state?.runtimes[runtime]?.canLogin === true);
   const steps = signInSteps(runtime);
   const literal = (text: string) => (
     <code className="rounded bg-muted px-1 font-mono text-xs text-foreground">{text}</code>
   );
+  if (canLogin)
+    return (
+      <p className="pl-6 text-sm text-muted-foreground">
+        {`${name} needs you to sign in again: `}
+        <a
+          className="text-foreground underline underline-offset-2"
+          href="/settings"
+          onClick={(event) => {
+            event.preventDefault();
+            navigate("/settings");
+          }}
+        >
+          sign it in from Settings
+        </a>
+        {", then send your message again."}
+      </p>
+    );
   if (steps !== null && "env" in steps)
     return (
       <p className="pl-6 text-sm text-muted-foreground">
