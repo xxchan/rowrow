@@ -43,9 +43,10 @@ interface Login {
 
 /**
  * A safety net around a whole installation probe, not a limit of our own: oar bounds each
- * command a probe runs (15 s by default, 30 s where a runtime says so), and Codex runs two.
+ * command a probe runs (15 s by default, 30 s where a runtime says so), and a probe may run
+ * two (Codex; Kimi, at 30 s each). Past it, the reason says rowrow stopped waiting.
  */
-const PROBE_TIMEOUT_MS = 60_000;
+const PROBE_TIMEOUT_MS = 90_000;
 /** Asking whether a runtime is signed in runs one local status command. */
 const AUTH_TIMEOUT_MS = 10_000;
 const MODELS_TTL_MS = 10 * 60_000;
@@ -134,7 +135,7 @@ export class Runtimes {
           : await withTimeout(
               runtime.installation(),
               PROBE_TIMEOUT_MS,
-              `probing ${runtime.id} took too long`,
+              `rowrow stopped waiting for ${runtime.brand.name} to answer after ${PROBE_TIMEOUT_MS / 1000} s`,
             );
       if (snapshot.kind === "available") {
         // Read before the update below, which must not spread an info from before this await
