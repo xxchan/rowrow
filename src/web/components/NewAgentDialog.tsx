@@ -401,7 +401,7 @@ export function NewAgentForm({
             <CommandList>
               <CommandEmpty>
                 No agent runtime is installed on this machine. Install Claude Code, Codex, Cursor,
-                Antigravity, Grok, Kimi or Pi, then refresh in Settings.
+                Antigravity, Grok, Kimi, OpenCode or Pi, then refresh in Settings.
               </CommandEmpty>
               <CommandGroup>
                 {runtimes.map((r) => (

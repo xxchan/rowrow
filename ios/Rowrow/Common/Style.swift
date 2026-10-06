@@ -31,7 +31,7 @@ struct RuntimeMark: View {
   var body: some View {
     Group {
       switch runtime {
-      case "claude", "codex", "cursor", "grok", "kimi", "pi", "antigravity":
+      case "claude", "codex", "cursor", "grok", "kimi", "opencode", "pi", "antigravity":
         Image("runtime-\(runtime)").resizable().scaledToFit()
       case "scripted":
         Image(systemName: "flask").resizable().scaledToFit().foregroundStyle(.secondary)

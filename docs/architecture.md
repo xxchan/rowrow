@@ -6,7 +6,7 @@ are in [decisions.md](decisions.md).
 
 ## What it is
 
-rowrow runs many coding agents (Claude Code, Codex, Cursor, Antigravity, Grok, Kimi, Pi) in
+rowrow runs many coding agents (Claude Code, Codex, Cursor, Antigravity, Grok, Kimi, OpenCode, Pi) in
 parallel on your machine and lets you steer them from any browser, including your phone, or
 from the iOS app (docs/ios.md) and the Mac app (docs/desktop.md). It borrows
 [herdr](https://herdr.dev)'s model of a long-lived server that owns the agents,
@@ -30,7 +30,7 @@ exact, transcripts are structured, and the whole thing works over a phone's netw
  │  telemetry/  JSONL logs, trace context, ring buffer, client error intake      │
  └──────────────────────────────┬────────────────────────────────────────────────┘
                                 ▼
-                  oar → claude · codex · cursor · antigravity · grok · kimi · pi (child processes)
+                  oar → claude · codex · cursor · antigravity · grok · kimi · opencode · pi (child processes)
 ```
 
 The Mac app is a client like the others (each window shows a server's own web app, and it
