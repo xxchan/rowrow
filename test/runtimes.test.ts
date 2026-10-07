@@ -150,4 +150,25 @@ describe("runtimes", () => {
     runtimes.answerLogin("scripted", runtimes.info("scripted")?.login?.prompt?.id ?? "", "wrong");
     expect(await rejected).toMatchObject({ kind: "failed", reason: "rejected" });
   });
+
+  it("says which executable it runs, and the copies later on PATH that never run", async () => {
+    const twice = {
+      ...scriptedRuntime({ id: "twice", turn: () => {} }),
+      installation: async () =>
+        ({
+          kind: "available",
+          via: "executable",
+          command: "/usr/local/bin/twice",
+          version: "1.0.0",
+          shadowed: ["/home/me/.local/bin/twice"],
+        }) as const,
+    };
+    const runtimes = new Runtimes({ testRuntime: false, probe: false, extra: [twice] });
+    await runtimes.refresh();
+    expect(runtimes.info("twice")).toMatchObject({
+      version: "1.0.0",
+      command: "/usr/local/bin/twice",
+      shadowed: ["/home/me/.local/bin/twice"],
+    });
+  });
 });

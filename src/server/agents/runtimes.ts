@@ -98,6 +98,8 @@ export class Runtimes {
           installed: false,
           version: null,
           reason: "not probed yet",
+          command: null,
+          shadowed: [],
           test,
           auth: null,
           canLogin: false,
@@ -147,6 +149,8 @@ export class Runtimes {
           installed: true,
           version: snapshot.via === "executable" ? (snapshot.version ?? null) : null,
           reason: null,
+          command: snapshot.via === "executable" ? snapshot.command : null,
+          shadowed: snapshot.via === "executable" ? [...(snapshot.shadowed ?? [])] : [],
           auth,
           canLogin: runtime.login !== undefined,
         };
@@ -156,6 +160,8 @@ export class Runtimes {
           ...known.info,
           installed: false,
           version: null,
+          command: null,
+          shadowed: [],
           reason:
             snapshot.kind === "not_found"
               ? `${runtime.brand.name} is not installed (not found on PATH)`
@@ -168,6 +174,8 @@ export class Runtimes {
         runtime: runtime.id,
         installed: known.info.installed,
         version: known.info.version,
+        command: known.info.command,
+        ...(known.info.shadowed.length === 0 ? {} : { shadowed: known.info.shadowed }),
         auth: known.info.auth?.kind ?? null,
         ms: Date.now() - started,
       });
@@ -177,6 +185,8 @@ export class Runtimes {
         ...known.info,
         installed: false,
         reason: error instanceof Error ? error.message : String(error),
+        command: null,
+        shadowed: [],
         auth: null,
         canLogin: false,
       };

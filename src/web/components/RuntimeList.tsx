@@ -113,7 +113,11 @@ export function RuntimeList({
         const busy = upgrading[runtime.id] === true;
         const newer = update?.check.kind === "ok" && update.check.updateAvailable ? update.check : null;
         const note =
-          result !== undefined ? resultNote(result) : update === undefined ? null : checkNote(update.check);
+          result !== undefined
+            ? resultNote(result, runtime)
+            : update === undefined
+              ? null
+              : checkNote(update.check);
         const signedIn = runtime.auth?.kind === "logged_in";
         const loginResult = logins.results[runtime.id];
         const loginNote =
@@ -131,7 +135,10 @@ export function RuntimeList({
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-3">
                   <span className="text-sm font-medium">{runtime.name}</span>
-                  <span className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground">
+                  <span
+                    className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground"
+                    title={runtime.command ?? undefined}
+                  >
                     {runtime.installed
                       ? (runtime.version ?? "installed")
                       : (runtime.reason ?? "not installed")}
@@ -149,6 +156,11 @@ export function RuntimeList({
                         Sign in again
                       </button>
                     )}
+                  </p>
+                )}
+                {runtime.shadowed.length > 0 && (
+                  <p className="text-xs break-words text-muted-foreground">
+                    {`rowrow runs ${runtime.command ?? runtime.id}. Also on PATH, never run: ${runtime.shadowed.join(", ")}`}
                   </p>
                 )}
                 {expiry !== null && (
@@ -201,14 +213,17 @@ function checkNote(check: UpdateCheck): string | null {
   return UNAVAILABLE[check.reason] ?? null;
 }
 
-function resultNote(result: UpgradeResult): string {
+function resultNote(result: UpgradeResult, runtime: RuntimeInfo): string {
   switch (result.kind) {
     case "upgraded":
       return `Updated from ${result.from}. Agents running now keep the old version until their next run.`;
     case "current":
       return "Already the latest version.";
     case "unchanged":
-      return `The updater finished, but it's still ${result.version}.`;
+      // With other copies on PATH, the updater may well have updated one rowrow never runs.
+      return runtime.shadowed.length > 0 && runtime.command !== null
+        ? `The updater finished, but ${runtime.command} is still ${result.version}: it may have updated another copy.`
+        : `The updater finished, but it's still ${result.version}.`;
     case "failed":
       return `The update failed${result.exitCode === null ? " (it took too long)" : ` (exit code ${result.exitCode})`}.`;
     case "unsupported":

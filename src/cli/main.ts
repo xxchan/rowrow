@@ -374,7 +374,11 @@ async function main(argv: string[]): Promise<void> {
                   : runtime.auth?.kind === "logged_out"
                     ? `  · not signed in${runtime.canLogin ? ` (rowrow runtimes login ${runtime.id})` : ""}`
                     : "";
-              return `${runtime.installed ? "●" : "○"} ${runtime.id.padEnd(12)} ${version}${auth}${news}`;
+              const shadowed =
+                runtime.shadowed.length === 0
+                  ? ""
+                  : `\n  runs ${runtime.command ?? runtime.id}; also on PATH, never run: ${runtime.shadowed.join(", ")}`;
+              return `${runtime.installed ? "●" : "○"} ${runtime.id.padEnd(12)} ${version}${auth}${news}${shadowed}`;
             })
             .join("\n"),
         );

@@ -216,6 +216,15 @@ export const RuntimeInfo = z.object({
   installed: z.boolean(),
   version: z.string().nullable(),
   reason: z.string().nullable().describe("Why it is unavailable."),
+  command: z
+    .string()
+    .nullable()
+    .describe("The executable rowrow runs, a full path (null when oar carries it, or it isn't installed)."),
+  shadowed: z
+    .array(z.string())
+    .describe(
+      "Other copies of that command later on PATH, which never run (an update may have gone to one).",
+    ),
   test: z.boolean().describe("A scripted runtime for tests and demos: no model, no tokens."),
   auth: AuthState.nullable().describe(
     "Whether it is signed in, by its own status query; null when rowrow can't ask (not installed, or no status query).",
