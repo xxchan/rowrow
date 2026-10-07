@@ -4,13 +4,14 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
 import type { StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
-import type { Runtime } from "@botiverse/oar";
+import type { ControlOutcome, RawEventObserver, Runtime, Session } from "@botiverse/oar";
 import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { describe as describeAlert } from "../src/server/notify/notifier.ts";
 import { eventually, input, startTestServer, type TestServer } from "./helpers.ts";
@@ -161,6 +162,65 @@ describe("agents", () => {
     expect(runs).toHaveLength(2);
     expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
     expect(entries.some((e) => e.kind === "run.ended" && e.reason === "idle")).toBe(true);
+  });
+
+  it("counts a stop done when the runtime's process ended to stop it, and resumes after", async () => {
+    t = await startTestServer({ extraRuntimes: [exitsOnAbort()] });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "exits",
+      input: input("/sleep 10000"),
+    });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.attention === "working" ? true : undefined,
+    );
+    expect(await t.client.agents.abort({ agentId: agent.id })).toEqual({ accepted: true });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.summary.run === null ? true : undefined,
+    );
+    const next = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/echo again",
+      mode: "auto",
+    });
+    await t.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 5000 });
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    const runs = entries.filter(
+      (e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started",
+    );
+    expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
+  });
+
+  it("sends an interrupting input to the resumed conversation when stopping ended the process", async () => {
+    t = await startTestServer({ extraRuntimes: [exitsOnAbort()] });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "exits",
+      input: input("/sleep 10000"),
+    });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.attention === "working" ? true : undefined,
+    );
+    const sent = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/echo instead",
+      mode: "interrupt",
+    });
+    expect(sent.landed).toBe("prompted");
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.summary.preview === "instead" ? true : undefined,
+    );
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(entries.some((e) => e.kind === "run.ended" && e.reason === "exited")).toBe(true);
+    const runs = entries.filter(
+      (e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started",
+    );
+    expect(runs).toHaveLength(2);
+    expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
   });
 
   it("closes a run the previous server left open as crashed", async () => {
@@ -746,6 +806,55 @@ function withoutSteer(): Runtime {
       return new Proxy(session, {
         get: (target, key) => {
           if (key === "steer") return undefined;
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === "function"
+            ? (value as (...args: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+    },
+  };
+}
+
+/**
+ * Claude Code and Codex when a turn doesn't stop in time (oar 0.36): the process is ended, and
+ * the abort is answered `runtime_exited`. Here the turn stops, then the process "exits".
+ */
+function exitsOnAbort(): Runtime {
+  const base = scriptedDemoRuntime();
+  return {
+    ...base,
+    id: "exits",
+    session: async (installation, options) => {
+      const session = await base.session(installation, options);
+      let observe: RawEventObserver = () => undefined;
+      let lastSeq = -1;
+      const abort = async (): Promise<ControlOutcome> => {
+        const outcome = await session.abort();
+        while (session.status().value.kind === "running") await sleep(10);
+        lastSeq += 1;
+        observe({
+          kind: "response",
+          requestId: "",
+          body: { kind: "exited", code: null },
+          sessionId: session.id,
+          agentPath: [],
+          seq: lastSeq,
+          receivedAt: Date.now(),
+        });
+        return { ...outcome, kind: "rejected", code: "runtime_exited", reason: "runtime exited" };
+      };
+      const rawEvents: Session["rawEvents"] = (observer, cursor) => {
+        observe = observer;
+        return session.rawEvents((record) => {
+          lastSeq = Math.max(lastSeq, record.seq);
+          observer(record);
+        }, cursor);
+      };
+      return new Proxy(session, {
+        get: (target, key) => {
+          if (key === "abort") return abort;
+          if (key === "rawEvents") return rawEvents;
           const value: unknown = Reflect.get(target, key, target);
           return typeof value === "function"
             ? (value as (...args: unknown[]) => unknown).bind(target)

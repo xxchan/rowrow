@@ -40,6 +40,8 @@ interface LiveRun {
   readonly session: Session;
   unsubscribe: () => void;
   stopping: boolean;
+  /** Its process exited (the code it exited with); the session takes nothing more. */
+  exited: { readonly code: number | null } | null;
 }
 
 export interface SendInput {
@@ -221,6 +223,12 @@ export class AgentActor {
       } else if (how === "interrupt") {
         await session.abort();
         await awaitIdleFor(session, 30_000);
+        // A runtime that doesn't stop in time is ended (oar 0.36: Claude Code and Codex after
+        // 10 s): end this run, and the input goes to the conversation resumed.
+        if (run.exited !== null) {
+          await this.finishRun(run, "exited", run.exited.code);
+          return this.dispatch(inputId, body, attachments, "prompt", by);
+        }
       }
     }
     await this.deps.beforeTurn?.(this.id);
@@ -402,13 +410,14 @@ export class AgentActor {
       resumed: resumed !== undefined,
       ms: Date.now() - started,
     });
-    const run: LiveRun = { runId, session, stopping: false, unsubscribe: () => undefined };
+    const run: LiveRun = { runId, session, stopping: false, exited: null, unsubscribe: () => undefined };
     // From seq -1: records the runtime produced while starting are replayed, not lost.
     run.unsubscribe = session.rawEvents(
       (record) => {
         this.append({ kind: "oar", runId, record });
         if (record.kind === "response" && record.body.kind === "exited" && !run.stopping) {
           const code = record.body.code;
+          run.exited = { code };
           void this.enqueue("exited", async () => this.finishRun(run, "exited", code));
         }
       },
@@ -455,7 +464,10 @@ export class AgentActor {
     const run = this.run;
     if (run === null) return { accepted: false, reason: "no live run" };
     const outcome = await run.session.abort();
-    return outcome.kind === "accepted" ? { accepted: true } : { accepted: false, reason: outcome.reason };
+    // Its process ended before it answered (oar ends one that doesn't stop in time): the turn
+    // is over all the same.
+    if (outcome.kind === "accepted" || outcome.code === "runtime_exited") return { accepted: true };
+    return { accepted: false, reason: outcome.reason };
   }
 
   // ─── Idle timeout ─────────────────────────────────────────────────────────
