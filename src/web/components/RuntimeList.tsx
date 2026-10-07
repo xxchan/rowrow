@@ -220,10 +220,8 @@ function resultNote(result: UpgradeResult, runtime: RuntimeInfo): string {
     case "current":
       return "Already the latest version.";
     case "unchanged":
-      // With other copies on PATH, the updater may well have updated one rowrow never runs.
-      return runtime.shadowed.length > 0 && runtime.command !== null
-        ? `The updater finished, but ${runtime.command} is still ${result.version}: it may have updated another copy.`
-        : `The updater finished, but it's still ${result.version}.`;
+      // Not necessarily one of the copies on PATH: it may have installed where PATH never looks.
+      return `The updater finished, but ${runtime.command ?? "it"} is still ${result.version}: it may have installed the new version somewhere else.`;
     case "failed":
       return `The update failed${result.exitCode === null ? " (it took too long)" : ` (exit code ${result.exitCode})`}.`;
     case "unsupported":

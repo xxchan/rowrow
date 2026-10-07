@@ -881,7 +881,7 @@ function formatUpgrade(result: UpgradeResult): string {
     case "current":
       return `already the latest (${result.version})`;
     case "unchanged":
-      return `the updater finished, but it's still ${result.version}\n${result.output}`;
+      return `the updater finished, but it's still ${result.version}: it may have installed the new version somewhere else\n${result.output}`;
     case "failed":
       return `the update failed (exit code ${result.exitCode ?? "none: it took too long"})\n${result.output}`;
     case "unsupported":
