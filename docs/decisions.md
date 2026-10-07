@@ -991,3 +991,25 @@ connection or a second device doesn't strand a half-finished sign-in.
 **Revisit when** more runtimes get a login in oar (they appear here by themselves), the iOS app
 needs it natively (today it shows neither: sign in from the web app), or people
 want to sign out or switch accounts from rowrow.
+
+## D-039 The log is rewritten for one reason: a credential got into it (2026-10-07)
+
+**Context.** Until oar 0.32.1, Grok's MCP notifications were recorded as they came, and they
+carry the `env` values of the user's own Grok MCP servers. rowrow stores every record in the
+agent's log and sends it to every client that opens the agent, so those values sat in
+`rowrow.db` and went to every browser and phone that showed a Grok agent.
+
+**Decision.** At every start the server runs stored oar records through oar's `redactRecord`
+(its current credential rules) and writes back the ones it changes, in the background, a page
+at a time. Only records whose JSON contains a native method oar redacts (`_x.ai/mcp` today)
+are read, so the pass costs little when there is nothing to do. Clients keep no copies of
+records (the web app caches nothing; the iOS app keeps app state and the kit, not records), so
+the server's copy is the only one to fix.
+
+**Why.** Everything else about the log stays true: entries are never reordered, dropped or
+reinterpreted. Replacing a secret with `[redacted]` changes no fold rowrow or a client makes.
+The rules live in oar, next to the adapters that know what each runtime sends, so rowrow never
+copies them.
+
+**Revisit when** oar redacts another runtime's native method (add its marker to the filter),
+or a client starts keeping records offline.

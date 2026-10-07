@@ -3,6 +3,8 @@
 // entry is in the database before any listener hears of it. Listeners are called in
 // append order; a subscription that replays from a cursor reads the database and starts
 // listening in the same tick, so nothing falls between the two.
+import type { RawEvent } from "@botiverse/oar";
+import { setImmediate as nextTick } from "node:timers/promises";
 import type { Entry, EntryBody } from "../../shared/entries.ts";
 import type { Db } from "../store/db.ts";
 
@@ -24,6 +26,9 @@ export interface ReadOptions {
 }
 
 type Listener = (entry: Entry) => void;
+
+/** Records rewritten per transaction; the server answers between pages. */
+const REWRITE_PAGE = 200;
 
 export class AgentLog {
   private readonly heads = new Map<string, number>();
@@ -152,6 +157,46 @@ export class AgentLog {
   onAppend(listener: (agentId: string, entry: Entry) => void): () => void {
     this.anyListeners.add(listener);
     return () => this.anyListeners.delete(listener);
+  }
+
+  /**
+   * Run stored oar records through `rewrite` and write back the ones it changes: oar's
+   * redactRecord, for credentials a runtime reported that oar recorded as they came before it
+   * knew better. Only records whose JSON contains `needle` are read, so this is cheap enough
+   * for every start; a page at a time, so the server keeps answering. Returns how many changed.
+   */
+  async rewriteRecords(needle: string, rewrite: (record: RawEvent) => RawEvent): Promise<number> {
+    let agentId = "";
+    let seq = -1;
+    let changed = 0;
+    for (;;) {
+      const rows = this.db.all<{ agent_id: string; seq: number; body: string }>(
+        "select agent_id, seq, body from entries where kind = 'oar' and (agent_id, seq) > (?, ?) and instr(body, ?) > 0 order by agent_id, seq limit ?",
+        agentId,
+        seq,
+        needle,
+        REWRITE_PAGE,
+      );
+      const last = rows.at(-1);
+      if (last === undefined) return changed;
+      this.db.transaction(() => {
+        for (const row of rows) {
+          const entry = JSON.parse(row.body) as Extract<Entry, { kind: "oar" }>;
+          const record = rewrite(entry.record);
+          if (record === entry.record) continue;
+          this.db.run(
+            "update entries set body = ? where agent_id = ? and seq = ?",
+            JSON.stringify({ ...entry, record }),
+            row.agent_id,
+            row.seq,
+          );
+          changed++;
+        }
+      });
+      agentId = last.agent_id;
+      seq = last.seq;
+      await nextTick();
+    }
   }
 
   count(): number {
