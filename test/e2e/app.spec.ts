@@ -287,7 +287,10 @@ test("a quick reply added in Settings is one tap away in the composer", async ({
   await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
 });
 
-test("sign a runtime in from Settings, pasting the code its sign-in page shows", async ({ page, rowrow }) => {
+test("sign a runtime in from Settings, pasting the code its sign-in page shows, then out", async ({
+  page,
+  rowrow,
+}) => {
   await rowrow.open(page, "/settings");
   const row = page
     .getByRole("region", { name: "Agent runtimes" })
@@ -310,6 +313,13 @@ test("sign a runtime in from Settings, pasting the code its sign-in page shows",
   await expect(row).toContainText("Signed in as demo@example.com (demo)");
   await expect(signIn).toBeHidden();
   await expect(row.getByRole("button", { name: "Sign in again" })).toBeVisible();
+
+  await row.getByRole("button", { name: "Sign out" }).click();
+  const question = page.getByRole("alertdialog", { name: "Sign Scripted demo out?" });
+  await expect(question).toContainText("signed out there for everything, not just rowrow");
+  await question.getByRole("button", { name: "Sign out" }).click();
+  await expect(row).toContainText("Not signed in");
+  await expect(row.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 });
 
 test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {

@@ -210,6 +210,26 @@ export const LoginResult = z.discriminatedUnion("kind", [
 ]);
 export type LoginResult = z.infer<typeof LoginResult>;
 
+/** How a sign-out ended (oar's LogoutResult): `logged_out` once its own status reads so. */
+export const LogoutResult = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("logged_out") }),
+  z.object({
+    kind: z.literal("failed"),
+    reason: z
+      .string()
+      .describe(
+        "timed_out, rejected, process_failed, or still_logged_in: it still reads signed in, as from an API key in its environment, which a sign-out doesn't touch.",
+      ),
+    detail: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("unsupported"),
+    reason: z.string().describe("unsupported_installation, version_unsupported, or rowrow's: not_installed."),
+    detail: z.string().optional(),
+  }),
+]);
+export type LogoutResult = z.infer<typeof LogoutResult>;
+
 export const RuntimeInfo = z.object({
   id: z.string(),
   name: z.string(),
@@ -230,6 +250,7 @@ export const RuntimeInfo = z.object({
     "Whether it is signed in, by its own status query; null when rowrow can't ask (not installed, or no status query).",
   ),
   canLogin: z.boolean().describe("rowrow can sign it in (runtimes.login)."),
+  canLogout: z.boolean().describe("rowrow can sign it out (runtimes.logout)."),
   login: LoginProgress.nullable().describe(
     "A sign-in running now (runtimes.login): what to open or type, and the question it waits on.",
   ),

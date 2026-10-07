@@ -387,6 +387,7 @@ export function createRouter(s: Services) {
         s.runtimes.answerLogin(input.runtime, input.promptId, input.answer);
         return { ok: true as const };
       }),
+      logout: os.runtimes.logout.handler(async ({ input }) => s.runtimes.logout(input.runtime)),
       loginCancel: os.runtimes.loginCancel.handler(({ input }) => {
         s.runtimes.cancelLogin(input.runtime);
         return { ok: true as const };

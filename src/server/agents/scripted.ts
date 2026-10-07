@@ -134,6 +134,10 @@ export function scriptedDemoRuntime(): Runtime {
       signedIn = true;
       return { kind: "logged_in", account: ACCOUNT };
     },
+    logout: async () => {
+      signedIn = false;
+      return { kind: "logged_out" };
+    },
   };
 }
 

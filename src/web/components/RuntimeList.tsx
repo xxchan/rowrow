@@ -1,7 +1,17 @@
 // Settings → Agent runtimes: what's installed here, whether it is signed in, and whether a
 // newer version is out (each runtime's own updater says, through oar). Update runs that
 // updater, only when you press it; an agent running now keeps the old version until its next
-// run. Sign in runs the runtime's own login (RuntimeLogin.tsx).
+// run. Sign in runs the runtime's own login, Sign out its logout (RuntimeLogin.tsx).
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LoaderCircle } from "lucide-react";
@@ -12,7 +22,14 @@ import { expiryNote } from "../lib/format.ts";
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { AgentIcon } from "./AgentIcon.tsx";
-import { authNote, LoginPanel, loginResultNote, useRuntimeLogins } from "./RuntimeLogin.tsx";
+import {
+  authNote,
+  LoginPanel,
+  loginResultNote,
+  logoutQuestion,
+  logoutResultNote,
+  useRuntimeLogins,
+} from "./RuntimeLogin.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
 /** Why there's nothing to update, when that is worth saying. */
@@ -105,103 +122,155 @@ export function RuntimeList({
   updates: RuntimeUpdates;
 }) {
   const logins = useRuntimeLogins();
+  const [signingOut, setSigningOut] = useState<RuntimeInfo | null>(null);
   return (
-    <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-      {runtimes.map((runtime) => {
-        const update = updates[runtime.id];
-        const result = results[runtime.id];
-        const busy = upgrading[runtime.id] === true;
-        const newer = update?.check.kind === "ok" && update.check.updateAvailable ? update.check : null;
-        const note =
-          result !== undefined
-            ? resultNote(result, runtime)
-            : update === undefined
-              ? null
-              : checkNote(update.check);
-        const signedIn = runtime.auth?.kind === "logged_in";
-        const loginResult = logins.results[runtime.id];
-        const loginNote =
-          loginResult === undefined || runtime.login !== null ? null : loginResultNote(loginResult);
-        const auth = authNote(runtime.auth);
-        const expiry = expiryNote(runtime.auth);
-        return (
-          <li key={runtime.id} className="px-3 py-2.5">
-            <div className="flex items-center gap-3">
-              <StatusDot
-                tone={runtime.installed ? "success" : "neutral"}
-                label={runtime.installed ? "Installed" : "Not installed"}
-              />
-              <AgentIcon runtime={runtime.id} label={runtime.name} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-3">
-                  <span className="text-sm font-medium">{runtime.name}</span>
-                  <span
-                    className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground"
-                    title={runtime.command ?? undefined}
-                  >
-                    {runtime.installed
-                      ? (runtime.version ?? "installed")
-                      : (runtime.reason ?? "not installed")}
-                  </span>
+    <>
+      <ul className="divide-y overflow-hidden rounded-lg border bg-card">
+        {runtimes.map((runtime) => {
+          const update = updates[runtime.id];
+          const result = results[runtime.id];
+          const busy = upgrading[runtime.id] === true;
+          const newer = update?.check.kind === "ok" && update.check.updateAvailable ? update.check : null;
+          const note =
+            result !== undefined
+              ? resultNote(result, runtime)
+              : update === undefined
+                ? null
+                : checkNote(update.check);
+          const signedIn = runtime.auth?.kind === "logged_in";
+          const loginResult = logins.results[runtime.id];
+          const loginNote =
+            loginResult === undefined || runtime.login !== null ? null : loginResultNote(loginResult);
+          const logoutResult = logins.logouts[runtime.id];
+          const logoutNote = logoutResult === undefined ? null : logoutResultNote(logoutResult);
+          const leaving = logins.signingOut[runtime.id] === true;
+          const auth = authNote(runtime.auth);
+          const expiry = expiryNote(runtime.auth);
+          return (
+            <li key={runtime.id} className="px-3 py-2.5">
+              <div className="flex items-center gap-3">
+                <StatusDot
+                  tone={runtime.installed ? "success" : "neutral"}
+                  label={runtime.installed ? "Installed" : "Not installed"}
+                />
+                <AgentIcon runtime={runtime.id} label={runtime.name} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-sm font-medium">{runtime.name}</span>
+                    <span
+                      className="min-w-0 flex-1 truncate text-right text-xs text-muted-foreground"
+                      title={runtime.command ?? undefined}
+                    >
+                      {runtime.installed
+                        ? (runtime.version ?? "installed")
+                        : (runtime.reason ?? "not installed")}
+                    </span>
+                  </div>
+                  {auth !== null && (
+                    <p className="flex gap-2 text-xs text-muted-foreground">
+                      <span className="min-w-0 truncate">{auth}</span>
+                      {signedIn && runtime.canLogin && runtime.login === null && !leaving && (
+                        <button
+                          type="button"
+                          className="shrink-0 underline-offset-2 hover:text-foreground hover:underline"
+                          onClick={() => void logins.start(runtime)}
+                        >
+                          Sign in again
+                        </button>
+                      )}
+                      {signedIn && runtime.canLogout && runtime.login === null && !leaving && (
+                        <button
+                          type="button"
+                          className="shrink-0 underline-offset-2 hover:text-foreground hover:underline"
+                          onClick={() => setSigningOut(runtime)}
+                        >
+                          Sign out
+                        </button>
+                      )}
+                      {leaving && <span className="shrink-0">Signing out…</span>}
+                    </p>
+                  )}
+                  {runtime.shadowed.length > 0 && (
+                    <p className="text-xs break-words text-muted-foreground">
+                      {`rowrow runs ${runtime.command ?? runtime.id}. Also on PATH, never run: ${runtime.shadowed.join(", ")}`}
+                    </p>
+                  )}
+                  {expiry !== null && (
+                    <p className={cn("text-xs", expiry.soon ? "text-warning" : "text-muted-foreground")}>
+                      {expiry.text}
+                    </p>
+                  )}
+                  {loginNote !== null && <p className="text-xs text-muted-foreground">{loginNote}</p>}
+                  {logoutNote !== null && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      title={logoutResult?.kind === "logged_out" ? undefined : logoutResult?.detail}
+                    >
+                      {logoutNote}
+                    </p>
+                  )}
+                  {newer !== null && !busy && result === undefined && (
+                    <p className="text-xs text-muted-foreground">{`${newer.latest} is out`}</p>
+                  )}
+                  {busy && (
+                    <p className="text-xs text-muted-foreground">Updating… this can take a few minutes.</p>
+                  )}
+                  {note !== null && !busy && <p className="text-xs text-muted-foreground">{note}</p>}
+                  {result?.kind === "failed" && result.output !== "" && (
+                    <details className="mt-1 text-xs">
+                      <summary className="cursor-pointer text-muted-foreground">What it printed</summary>
+                      <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
+                        {result.output}
+                      </pre>
+                    </details>
+                  )}
                 </div>
-                {auth !== null && (
-                  <p className="flex gap-2 text-xs text-muted-foreground">
-                    <span className="min-w-0 truncate">{auth}</span>
-                    {signedIn && runtime.canLogin && runtime.login === null && (
-                      <button
-                        type="button"
-                        className="shrink-0 underline-offset-2 hover:text-foreground hover:underline"
-                        onClick={() => void logins.start(runtime)}
-                      >
-                        Sign in again
-                      </button>
-                    )}
-                  </p>
+                {(newer !== null || busy) && update?.canUpgrade === true && (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void upgrade(runtime)}>
+                    {busy && <LoaderCircle className="animate-spin" />}
+                    Update
+                  </Button>
                 )}
-                {runtime.shadowed.length > 0 && (
-                  <p className="text-xs break-words text-muted-foreground">
-                    {`rowrow runs ${runtime.command ?? runtime.id}. Also on PATH, never run: ${runtime.shadowed.join(", ")}`}
-                  </p>
-                )}
-                {expiry !== null && (
-                  <p className={cn("text-xs", expiry.soon ? "text-warning" : "text-muted-foreground")}>
-                    {expiry.text}
-                  </p>
-                )}
-                {loginNote !== null && <p className="text-xs text-muted-foreground">{loginNote}</p>}
-                {newer !== null && !busy && result === undefined && (
-                  <p className="text-xs text-muted-foreground">{`${newer.latest} is out`}</p>
-                )}
-                {busy && (
-                  <p className="text-xs text-muted-foreground">Updating… this can take a few minutes.</p>
-                )}
-                {note !== null && !busy && <p className="text-xs text-muted-foreground">{note}</p>}
-                {result?.kind === "failed" && result.output !== "" && (
-                  <details className="mt-1 text-xs">
-                    <summary className="cursor-pointer text-muted-foreground">What it printed</summary>
-                    <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
-                      {result.output}
-                    </pre>
-                  </details>
+                {runtime.canLogin && runtime.login === null && !signedIn && (
+                  <Button size="sm" variant="outline" onClick={() => void logins.start(runtime)}>
+                    Sign in
+                  </Button>
                 )}
               </div>
-              {(newer !== null || busy) && update?.canUpgrade === true && (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => void upgrade(runtime)}>
-                  {busy && <LoaderCircle className="animate-spin" />}
-                  Update
-                </Button>
+              {runtime.login !== null && (
+                <LoginPanel runtime={runtime} login={runtime.login} logins={logins} />
               )}
-              {runtime.canLogin && runtime.login === null && !signedIn && (
-                <Button size="sm" variant="outline" onClick={() => void logins.start(runtime)}>
-                  Sign in
-                </Button>
-              )}
-            </div>
-            {runtime.login !== null && <LoginPanel runtime={runtime} login={runtime.login} logins={logins} />}
-          </li>
-        );
-      })}
-    </ul>
+            </li>
+          );
+        })}
+      </ul>
+      <AlertDialog
+        open={signingOut !== null}
+        onOpenChange={(open) => (open ? undefined : setSigningOut(null))}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{`Sign ${signingOut?.name ?? ""} out?`}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {signingOut === null ? null : logoutQuestion(signingOut)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                const runtime = signingOut;
+                setSigningOut(null);
+                if (runtime !== null) void logins.logout(runtime);
+              }}
+            >
+              Sign out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

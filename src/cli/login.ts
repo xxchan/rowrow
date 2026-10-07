@@ -1,9 +1,10 @@
 // `rowrow runtimes login <runtime>`: sign a runtime in through the server (runtimes.login),
 // printing what to open or type to stderr and reading the code it asks for from stdin.
-// Ctrl-C cancels it; the previous login stays as it was.
+// Ctrl-C cancels it; the previous login stays as it was. `rowrow runtimes logout` prints how its
+// sign-out ended.
 import readline from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { LoginEvent, LoginResult } from "../shared/schemas.ts";
+import type { LoginEvent, LoginResult, LogoutResult } from "../shared/schemas.ts";
 import type { Client } from "./client.ts";
 
 const POLL_MS = 500;
@@ -19,6 +20,11 @@ export async function login(client: Client, runtime: string): Promise<LoginResul
     });
   };
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  // Lines piped in before the question shows up answer it; once stdin ends, nothing can.
+  const early: string[] = [];
+  let ended = false;
+  rl.on("line", (line) => early.push(line));
+  rl.on("close", () => (ended = true));
   rl.on("SIGINT", cancel);
   process.on("SIGINT", cancel);
   let shown = 0;
@@ -36,9 +42,17 @@ export async function login(client: Client, runtime: string): Promise<LoginResul
             prompt.options === undefined
               ? ""
               : ` (${prompt.options.map((option) => `${option.id}: ${option.label}`).join(", ")})`;
-          const answer = await rl
-            .question(`${prompt.message}${choices}: `, { signal: settled.signal })
-            .catch(() => null);
+          const answer =
+            early.shift() ??
+            (ended
+              ? null
+              : await rl
+                  .question(`${prompt.message}${choices}: `, { signal: settled.signal })
+                  .catch(() => null));
+          if (answer === null && ended && !settled.signal.aborted) {
+            process.stderr.write("stdin ended before an answer: cancelling\n");
+            cancel();
+          }
           if (answer !== null) {
             await client.runtimes
               .loginAnswer({ runtime, promptId: prompt.id, answer: answer.trim() })
@@ -81,5 +95,18 @@ export function formatLogin(result: LoginResult): string {
       return "cancelled: the previous login is unchanged";
     case "unsupported":
       return `can't sign it in here: ${result.detail ?? result.reason}`;
+  }
+}
+
+export function formatLogout(result: LogoutResult): string {
+  switch (result.kind) {
+    case "logged_out":
+      return "signed out";
+    case "failed":
+      return result.reason === "still_logged_in"
+        ? `still signed in: something besides its login signs it in, such as an API key in its environment, which rowrow leaves alone${result.detail === undefined ? "" : ` (${result.detail})`}`
+        : `sign-out failed (${result.reason})${result.detail === undefined ? "" : `: ${result.detail}`}`;
+    case "unsupported":
+      return `can't sign it out here: ${result.detail ?? result.reason}`;
   }
 }

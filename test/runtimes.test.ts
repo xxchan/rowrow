@@ -151,6 +151,24 @@ describe("runtimes", () => {
     expect(await rejected).toMatchObject({ kind: "failed", reason: "rejected" });
   });
 
+  it("signs a runtime out, not while a sign-in runs, and once however often it's asked", async () => {
+    const runtimes = new Runtimes({ testRuntime: true, probe: false });
+    await runtimes.refresh();
+    expect(runtimes.info("scripted")).toMatchObject({ canLogout: true });
+    const login = runtimes.login("scripted");
+    await expect.poll(() => runtimes.info("scripted")?.login?.prompt).not.toBeNull();
+    expect(() => runtimes.logout("scripted")).toThrow(/signing in/);
+    runtimes.answerLogin("scripted", runtimes.info("scripted")?.login?.prompt?.id ?? "", "rowrow");
+    await login;
+    expect(runtimes.info("scripted")).toMatchObject({ auth: { kind: "logged_in" } });
+
+    const done = runtimes.logout("scripted");
+    expect(runtimes.logout("scripted")).toBe(done);
+    expect(() => runtimes.login("scripted")).toThrow(/signing out/);
+    expect(await done).toEqual({ kind: "logged_out" });
+    expect(runtimes.info("scripted")).toMatchObject({ auth: { kind: "logged_out" } });
+  });
+
   it("says which executable it runs, and the copies later on PATH that never run", async () => {
     const twice = {
       ...scriptedRuntime({ id: "twice", turn: () => {} }),

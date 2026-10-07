@@ -1,25 +1,36 @@
 // Signing a runtime in from Settings, without a terminal (D-038): the runtime's own login runs
 // on the server's machine; the page to open, the code to type and the code to paste back come
 // through the runtime's `login` in state, so any window can finish a sign-in another started.
+// Sign out runs its own logout there, which signs it out for everything on that machine.
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Copy, ExternalLink, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { AuthState, LoginEvent, LoginProgress, LoginResult, RuntimeInfo } from "../../shared/schemas.ts";
+import type {
+  AuthState,
+  LoginEvent,
+  LoginProgress,
+  LoginResult,
+  LogoutResult,
+  RuntimeInfo,
+} from "../../shared/schemas.ts";
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 
 export type RuntimeLogins = ReturnType<typeof useRuntimeLogins>;
 
-/** Sign-ins this window started, and how each ended (until the next one). */
+/** Sign-ins and sign-outs this window started, and how each ended (until the next one). */
 export function useRuntimeLogins() {
   const client = useClient();
   const [results, setResults] = useState<Record<string, LoginResult>>({});
+  const [logouts, setLogouts] = useState<Record<string, LogoutResult>>({});
+  const [signingOut, setSigningOut] = useState<Record<string, true>>({});
 
   const start = async (runtime: RuntimeInfo): Promise<void> => {
     if (client === null) return;
     setResults(({ [runtime.id]: _old, ...rest }) => rest);
+    setLogouts(({ [runtime.id]: _old, ...rest }) => rest);
     try {
       const result = await client.runtimes.login({ runtime: runtime.id });
       setResults((now) => ({ ...now, [runtime.id]: result }));
@@ -53,7 +64,24 @@ export function useRuntimeLogins() {
     }
   };
 
-  return { results, start, answer, cancel };
+  const logout = async (runtime: RuntimeInfo): Promise<void> => {
+    if (client === null) return;
+    setResults(({ [runtime.id]: _old, ...rest }) => rest);
+    setLogouts(({ [runtime.id]: _old, ...rest }) => rest);
+    setSigningOut((now) => ({ ...now, [runtime.id]: true }));
+    try {
+      const result = await client.runtimes.logout({ runtime: runtime.id });
+      setLogouts((now) => ({ ...now, [runtime.id]: result }));
+      if (result.kind === "logged_out") toast.success(`${runtime.name} is signed out`);
+    } catch (error) {
+      toast.error(`Signing ${runtime.name} out: ${message(error)}`);
+      report("warn", "settings.runtime_logout_failed", error, { runtime: runtime.id });
+    } finally {
+      setSigningOut(({ [runtime.id]: _done, ...rest }) => rest);
+    }
+  };
+
+  return { results, logouts, signingOut, start, answer, cancel, logout };
 }
 
 /** Who it is signed in as, or that it isn't; nothing when it can't say. */
@@ -78,9 +106,39 @@ export function loginResultNote(result: LoginResult): string | null {
   }
 }
 
+export function logoutResultNote(result: LogoutResult): string | null {
+  switch (result.kind) {
+    case "logged_out":
+      return null;
+    case "failed":
+      return result.reason === "still_logged_in"
+        ? "Still signed in: something besides its login signs it in, such as an API key in its environment, which rowrow leaves alone."
+        : `Sign-out failed: ${result.detail ?? FAILED[result.reason] ?? result.reason}`;
+    case "unsupported":
+      return result.detail ?? "rowrow can't sign this installation out: use its own CLI.";
+  }
+}
+
+/** What signing a runtime out means, for the question before it. */
+export function logoutQuestion(runtime: RuntimeInfo): string {
+  return [
+    `This runs ${runtime.name}'s own sign-out on the machine rowrow runs on, so it is signed out there for everything, not just rowrow. Agents that use it can't work until it's signed in again.`,
+    "An API key in its environment stays.",
+    LOGOUT_NOTE[runtime.id],
+  ]
+    .filter((part) => part !== undefined)
+    .join(" ");
+}
+
+/** What a runtime's sign-out leaves behind, past what it says itself. */
+const LOGOUT_NOTE: Record<string, string> = {
+  cursor: "Cursor keeps accepting its API key until you revoke it in your Cursor dashboard.",
+};
+
 const FAILED: Record<string, string> = {
   timed_out: "it took too long.",
   rejected: "the runtime didn't accept it.",
+  process_failed: "the runtime's command didn't run.",
   not_logged_in: "it finished, but it still isn't signed in.",
 };
 

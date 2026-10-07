@@ -2,7 +2,7 @@
 // Antigravity, Grok, Kimi, OpenCode, Pi), plus the scripted runtime in test and dev profiles. Installation probes are
 // local and cheap; model lists may ask the runtime's provider, so they are cached, and so are
 // update checks (each asks the runtime's release feed). An upgrade runs the runtime's own
-// updater, and a login its own sign-in, only when someone asks for it.
+// updater, and a login or logout its own sign-in or sign-out, only when someone asks for it.
 import {
   createCursorRuntime,
   defaultRuntimes as builtins,
@@ -17,6 +17,7 @@ import type {
   AuthState,
   LoginProgress,
   LoginResult,
+  LogoutResult,
   ModelInfo,
   RuntimeInfo,
   RuntimeUpdate,
@@ -71,6 +72,7 @@ export class Runtimes {
   private readonly checks = new Map<string, { at: number; check: UpdateCheck }>();
   private readonly upgrading = new Map<string, Promise<UpgradeResult>>();
   private readonly logins = new Map<string, { readonly login: Login; readonly done: Promise<LoginResult> }>();
+  private readonly logouts = new Map<string, Promise<LogoutResult>>();
   private readonly changed: () => void;
 
   constructor(options: {
@@ -103,6 +105,7 @@ export class Runtimes {
           test,
           auth: null,
           canLogin: false,
+          canLogout: false,
           login: null,
         },
       });
@@ -153,6 +156,7 @@ export class Runtimes {
           shadowed: snapshot.via === "executable" ? [...(snapshot.shadowed ?? [])] : [],
           auth,
           canLogin: runtime.login !== undefined,
+          canLogout: runtime.logout !== undefined,
         };
       } else {
         known.installation = null;
@@ -168,6 +172,7 @@ export class Runtimes {
               : snapshot.reason,
           auth: null,
           canLogin: false,
+          canLogout: false,
         };
       }
       log.info("runtime.probe", {
@@ -189,6 +194,7 @@ export class Runtimes {
         shadowed: [],
         auth: null,
         canLogin: false,
+        canLogout: false,
       };
       log.warn("runtime.probe_failed", { runtime: runtime.id, err: serializeError(error) });
     }
@@ -291,6 +297,8 @@ export class Runtimes {
     if (known === undefined) throw new UserError(`no runtime ${id}`, "NOT_FOUND");
     const running = this.logins.get(id);
     if (running !== undefined) return running.done;
+    if (this.logouts.has(id))
+      throw new UserError(`${known.runtime.brand.name} is signing out: try again in a moment.`, "CONFLICT");
     const login: Login = { abort: new AbortController(), answer: null };
     const done = this.runLogin(known, login).finally(() => this.logins.delete(id));
     this.logins.set(id, { login, done });
@@ -394,6 +402,62 @@ export class Runtimes {
     // A question still open is moot now (oar: the caller closes it).
     login.answer = null;
     known.info = { ...known.info, login: null };
+    await this.probe(known);
+    this.changed();
+    return result;
+  }
+
+  /**
+   * Sign a runtime out through its own logout (oar's `logout`), then probe it again. It changes
+   * the machine's credentials, so only when someone asks. Asking again while it runs waits for
+   * the same one; not while a sign-in runs.
+   */
+  logout(id: string): Promise<LogoutResult> {
+    const known = this.known.get(id);
+    if (known === undefined) throw new UserError(`no runtime ${id}`, "NOT_FOUND");
+    if (this.logins.has(id))
+      throw new UserError(`${known.runtime.brand.name} is signing in: cancel that first.`, "CONFLICT");
+    const running = this.logouts.get(id);
+    if (running !== undefined) return running;
+    const done = this.runLogout(known).finally(() => this.logouts.delete(id));
+    this.logouts.set(id, done);
+    return done;
+  }
+
+  private async runLogout(known: Known): Promise<LogoutResult> {
+    const { runtime, installation } = known;
+    if (installation === null) {
+      return {
+        kind: "unsupported",
+        reason: "not_installed",
+        detail: `${runtime.brand.name} is not installed.`,
+      };
+    }
+    if (runtime.logout === undefined) {
+      return {
+        kind: "unsupported",
+        reason: "unsupported_installation",
+        detail: `rowrow can't sign ${runtime.brand.name} out: use its own CLI.`,
+      };
+    }
+    const started = Date.now();
+    log.info("runtime.logout_started", { runtime: runtime.id });
+    let result: LogoutResult;
+    try {
+      result = await runtime.logout(installation);
+    } catch (error) {
+      result = {
+        kind: "failed",
+        reason: "process_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    log.info("runtime.logout_finished", {
+      runtime: runtime.id,
+      kind: result.kind,
+      ...(result.kind === "logged_out" ? {} : { reason: result.reason, detail: result.detail }),
+      ms: Date.now() - started,
+    });
     await this.probe(known);
     this.changed();
     return result;

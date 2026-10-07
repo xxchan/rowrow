@@ -988,9 +988,18 @@ someone asks, and the person still signs in on the provider's own page, so rowro
 password or a token. Keeping progress in state rather than in one long request means a dropped
 connection or a second device doesn't strand a half-finished sign-in.
 
+**Sign out (oar 0.34, 2026-10-07).** A runtime with oar's `logout` (Claude Code, Codex,
+Cursor) gets "Sign out" next to "Sign in again", behind a question that says what it does: it
+runs the runtime's own logout on the server's machine, so it is signed out there for
+everything, not just rowrow. It is `runtimes.logout` (and `rowrow runtimes logout <runtime>`),
+one at a time per runtime and not while a sign-in runs; then the runtime is probed again. An
+API key in its environment isn't touched: when its status still reads signed in, the row says
+so (`still_logged_in`). Cursor's key stays valid with Cursor after a sign-out; the question
+says that too.
+
 **Revisit when** more runtimes get a login in oar (they appear here by themselves), the iOS app
 needs it natively (today it shows neither: sign in from the web app), or people
-want to sign out or switch accounts from rowrow.
+want to switch accounts in one step.
 
 ## D-039 The log is rewritten for one reason: a credential got into it (2026-10-07)
 

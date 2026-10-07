@@ -28,6 +28,7 @@ import {
   LogFilter,
   LoginLink,
   LoginResult,
+  LogoutResult,
   ModelInfo,
   Notice,
   PullRequestStatus,
@@ -374,6 +375,13 @@ const runtimes = {
     .route({ summary: "Stop a running sign-in; the previous login stays as it was." })
     .input(z.object({ runtime: z.string() }))
     .output(ok),
+  logout: oc
+    .route({
+      summary:
+        "Sign a runtime out through its own logout, on the server's machine (its own CLI there is signed out too), then probe it again. An API key in its environment is not touched: when its status still reads signed in, that's `failed` / `still_logged_in`. Not while a sign-in runs.",
+    })
+    .input(z.object({ runtime: z.string() }))
+    .output(LogoutResult),
 };
 
 const git = {

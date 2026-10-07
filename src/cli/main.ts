@@ -16,7 +16,7 @@ import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
 import { connect, resolveTarget, type Client } from "./client.ts";
-import { formatLogin, login } from "./login.ts";
+import { formatLogin, formatLogout, login } from "./login.ts";
 
 const HELP = `rowrow: run a crew of coding agents and steer them from any browser.
 
@@ -41,6 +41,8 @@ Runtimes
                                    the old version until their next run)
   rowrow runtimes login <runtime>  sign it in with its own login, without its CLI: prints what
                                    to open, reads the code it asks for (Ctrl-C cancels)
+  rowrow runtimes logout <runtime> sign it out with its own logout (its CLI on that machine too;
+                                   an API key in its environment stays)
 
 Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service install [serve flags…] [--if-idle]   launchd on macOS, systemd --user on Linux;
@@ -346,7 +348,14 @@ async function main(argv: string[]): Promise<void> {
           out(result, () => formatLogin(result));
           return;
         }
-        if (rest[0] !== undefined) throw new Error(`unknown runtimes command "${rest[0]}" (upgrade, login)`);
+        if (rest[0] === "logout") {
+          if (rest[1] === undefined) throw new Error("usage: rowrow runtimes logout <runtime>");
+          const result = await client.runtimes.logout({ runtime: rest[1] });
+          out(result, () => formatLogout(result));
+          return;
+        }
+        if (rest[0] !== undefined)
+          throw new Error(`unknown runtimes command "${rest[0]}" (upgrade, login, logout)`);
         const list = await client.runtimes.list({ refresh: true });
         const updates = bool("check") ? await client.runtimes.updates({ refresh: true }) : [];
         out({ runtimes: list, updates }, () =>
