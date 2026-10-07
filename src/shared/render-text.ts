@@ -45,8 +45,12 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         for (const message of block.view.messages) out.push(...renderMessage(message, timeline, toolChars));
         if (block.ended !== undefined) {
           const { reason, code, error } = block.ended;
+          const exit = code === undefined || code === null ? "" : ` (code ${code})`;
+          // Its process exited to end a turn you stopped: that was the stop.
           out.push(
-            `── run ended: ${reason}${code === undefined || code === null ? "" : ` (code ${code})`}${error === undefined ? "" : `: ${error}`} ──`,
+            block.stoppedByExit === true
+              ? `── run ended: stopped (its process exited${exit === "" ? "" : `, code ${code}`}) ──`
+              : `── run ended: ${reason}${exit}${error === undefined ? "" : `: ${error}`} ──`,
           );
         }
         break;

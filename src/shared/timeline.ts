@@ -7,6 +7,7 @@
 // touches, so a renderer memoized on block identity redraws only what changed. The fold
 // may start at any entry (a window that begins mid-run gets a run block without its
 // start), because oar's view adopts a turn it joins midway.
+import type { RawEvent } from "@botiverse/oar";
 import { initialSessionView, reduceSessionView, type SessionView } from "@botiverse/oar/observe";
 import type { Entry, EntryOf } from "./entries.ts";
 import { echoesInput } from "./summary.ts";
@@ -20,6 +21,8 @@ export interface RunBlock {
   readonly view: SessionView;
   readonly firstSeq: number;
   readonly lastSeq: number;
+  /** Its process exited to end a turn you stopped (oar ends one that doesn't stop in time). */
+  readonly stoppedByExit?: true;
 }
 
 /** An input as rowrow received it. Rendered on its own only until a run takes it over. */
@@ -117,10 +120,12 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
               lastSeq: entry.seq,
             }
           : (t.blocks[index] as RunBlock);
+      const view = reduceSessionView(base.view, entry.record, entry.runId);
       const run: RunBlock = {
         ...base,
-        view: reduceSessionView(base.view, entry.record, entry.runId),
+        view,
         lastSeq: entry.seq,
+        ...(endsStoppedTurn(base.view, view, entry.record) ? { stoppedByExit: true } : {}),
       };
       const blocks = index === -1 ? [...t.blocks, run] : replaceAt(t.blocks, index, run);
       let next: Timeline = { ...t, blocks };
@@ -214,4 +219,15 @@ export function liveView(timeline: Timeline): SessionView | null {
     if (block?.kind === "run") return block.ended === undefined ? block.view : null;
   }
   return null;
+}
+
+/** The process exit that ended a running turn as stopped (oar 0.37: after an accepted abort or dispose). */
+export function endsStoppedTurn(before: SessionView, after: SessionView, record: RawEvent): boolean {
+  return (
+    record.kind === "response" &&
+    record.body.kind === "exited" &&
+    before.status.kind === "running" &&
+    after.status.kind === "idle" &&
+    after.status.lastTurnOutcome?.kind === "aborted"
+  );
 }

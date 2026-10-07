@@ -9,9 +9,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
+import { TranscriptProjector } from "../src/shared/transcript-model.ts";
 import type { StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
-import type { ControlOutcome, RawEventObserver, Runtime, Session } from "@botiverse/oar";
+import type {
+  ControlOutcome,
+  RawEventObserver,
+  RequestRecord,
+  ResponseRecord,
+  Runtime,
+  Session,
+} from "@botiverse/oar";
 import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { describe as describeAlert } from "../src/server/notify/notifier.ts";
 import { eventually, input, startTestServer, type TestServer } from "./helpers.ts";
@@ -164,8 +172,8 @@ describe("agents", () => {
     expect(entries.some((e) => e.kind === "run.ended" && e.reason === "idle")).toBe(true);
   });
 
-  it("counts a stop done when the runtime's process ended to stop it, and resumes after", async () => {
-    t = await startTestServer({ extraRuntimes: [exitsOnAbort()] });
+  it("counts a stop done when the process died before it answered, and resumes after", async () => {
+    t = await startTestServer({ extraRuntimes: [exitsOnAbort("runtime_exited")] });
     const ws = await t.client.workspaces.add({ path: t.repo() });
     const { agent } = await t.client.agents.create({
       workspaceId: ws.id,
@@ -191,6 +199,46 @@ describe("agents", () => {
       (e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started",
     );
     expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
+  });
+
+  it("shows a stop that ended the process as stopped, not failed", async () => {
+    t = await startTestServer({ extraRuntimes: [exitsOnAbort()] });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "exits",
+      input: input("/sleep 10000"),
+    });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.attention === "working" ? true : undefined,
+    );
+    const held = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/echo later",
+      mode: "queue",
+    });
+    expect(held.landed).toBe("queued");
+    expect(await t.client.agents.abort({ agentId: agent.id })).toEqual({ accepted: true });
+    const agentState = await eventually(async () => {
+      const now = (await t!.client.state.get()).state.agents[agent.id];
+      return now?.summary.run === null ? now : undefined;
+    });
+    expect(agentState.summary).toMatchObject({
+      lastError: null,
+      lastTurn: { outcome: { kind: "aborted" } },
+      queuePaused: "stopped",
+    });
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(entries.some((e) => e.kind === "run.ended" && e.reason === "exited")).toBe(true);
+    expect(renderText(timelineOf(entries))).toContain("run ended: stopped (its process exited, code 143)");
+    // The transcript every client shows: the stop, not an exit.
+    const items = new TranscriptProjector("exits")
+      .update(timelineOf(entries))
+      .items.map((json) => JSON.parse(json) as { kind: string; text?: string; tone?: string });
+    const notes = items.filter((item) => item.kind === "notice");
+    expect(notes.map((item) => item.text)).toContain("Stopped. The next message resumes the conversation.");
+    expect(notes.some((item) => item.text?.includes("exited") === true || item.tone === "error")).toBe(false);
   });
 
   it("sends an interrupting input to the resumed conversation when stopping ended the process", async () => {
@@ -817,10 +865,14 @@ function withoutSteer(): Runtime {
 }
 
 /**
- * Claude Code and Codex when a turn doesn't stop in time (oar 0.36): the process is ended, and
- * the abort is answered `runtime_exited`. Here the turn stops, then the process "exits".
+ * Claude Code and Codex when a turn doesn't stop in time (oar 0.37): oar ends the process and
+ * answers the abort `accepted`, and the turn reads aborted. `runtime_exited`: the process died
+ * on its own first, so the abort is refused that way and the turn reads failed. Here the
+ * records say so, and the scripted turn stops underneath, unseen.
  */
-function exitsOnAbort(): Runtime {
+type Stamp = "sessionId" | "agentPath" | "seq" | "receivedAt";
+
+function exitsOnAbort(answer: "accepted" | "runtime_exited" = "accepted"): Runtime {
   const base = scriptedDemoRuntime();
   return {
     ...base,
@@ -829,26 +881,43 @@ function exitsOnAbort(): Runtime {
       const session = await base.session(installation, options);
       let observe: RawEventObserver = () => undefined;
       let lastSeq = -1;
-      const abort = async (): Promise<ControlOutcome> => {
-        const outcome = await session.abort();
-        while (session.status().value.kind === "running") await sleep(10);
+      let dead = false;
+      const record = (body: Omit<RequestRecord, Stamp> | Omit<ResponseRecord, Stamp>): void => {
         lastSeq += 1;
         observe({
-          kind: "response",
-          requestId: "",
-          body: { kind: "exited", code: null },
+          ...body,
           sessionId: session.id,
           agentPath: [],
           seq: lastSeq,
           receivedAt: Date.now(),
         });
-        return { ...outcome, kind: "rejected", code: "runtime_exited", reason: "runtime exited" };
+      };
+      const abort = async (): Promise<ControlOutcome> => {
+        const id = `abort-${lastSeq}`;
+        record({ kind: "request", id, direction: "toRuntime", body: { kind: "abort" } });
+        record(
+          answer === "accepted"
+            ? { kind: "response", requestId: id, body: { kind: "accepted" } }
+            : {
+                kind: "response",
+                requestId: id,
+                body: { kind: "rejected", code: "runtime_exited", reason: "runtime exited" },
+              },
+        );
+        record({ kind: "response", requestId: "", body: { kind: "exited", code: 143 } });
+        dead = true;
+        const outcome = await session.abort();
+        while (session.status().value.kind === "running") await sleep(10);
+        return answer === "accepted"
+          ? outcome
+          : { ...outcome, kind: "rejected", code: "runtime_exited", reason: "runtime exited" };
       };
       const rawEvents: Session["rawEvents"] = (observer, cursor) => {
         observe = observer;
-        return session.rawEvents((record) => {
-          lastSeq = Math.max(lastSeq, record.seq);
-          observer(record);
+        return session.rawEvents((event) => {
+          if (dead) return;
+          lastSeq = Math.max(lastSeq, event.seq);
+          observer(event);
         }, cursor);
       };
       return new Proxy(session, {

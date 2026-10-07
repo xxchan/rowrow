@@ -101,7 +101,10 @@ export interface AgentSummary {
   readonly headSeq: number;
   /** Fold internals, derivable like the rest: the latest root event was text (so the next text joins the preview). */
   readonly textOpen: boolean;
-  /** Fold internals: the live run has been asked to stop, so its exit is not a surprise. */
+  /**
+   * Fold internals: the live run has been asked to stop, or its process exited to end a turn
+   * you stopped, so its exit is not a surprise.
+   */
   readonly stopping: boolean;
   /** Fold internals: the latest input, until its result says whether rowrow holds it. */
   readonly unanswered: QueuedInput | null;
@@ -352,6 +355,14 @@ function foldRecord(
         return { ...next, pending: next.pending.filter((p) => p.requestId !== record.requestId) };
       }
       if (record.body.kind === "exited" && s.status.kind === "running" && !s.stopping) {
+        // It ended a turn you stopped (oar ends one that doesn't stop in time): stopped, as if
+        // the turn had ended so.
+        if (next.status.kind === "idle" && next.status.lastTurnOutcome?.kind === "aborted")
+          return {
+            ...unreadSteering(next),
+            stopping: true,
+            lastTurn: { seq, at, outcome: next.status.lastTurnOutcome },
+          };
         // The process died mid-turn on its own; oar's status fold already calls it failed.
         return { ...next, lastCompletionSeq: seq, lastError: describeEnd("exited", record.body.code) };
       }

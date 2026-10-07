@@ -453,7 +453,8 @@ export class AgentActor {
     this.run = null;
     this.clearIdle();
     // Held inputs don't start a new run by themselves when you ended this one.
-    if (reason === "exited") this.pause("exited");
+    // An exit that ended a turn you stopped is that stop.
+    if (reason === "exited") this.pause(this.deps.summary(this.id).stopping ? "stopped" : "exited");
     else if (reason === "stopped" || reason === "archived" || reason === "restart") this.pause("stopped");
     this.append({ kind: "run.ended", runId: run.runId, reason, ...(reason === "exited" ? { code } : {}) });
     log.info("agent.run.ended", { run: run.runId, reason, code });

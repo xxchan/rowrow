@@ -241,6 +241,8 @@ function itemsOf(timeline: Timeline, runtime: string): Pending[] {
 
 function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pending[]): void {
   const { started, ended, view } = run;
+  // Its process exited to end a turn you stopped: that is the stop, not a failure.
+  const endReason = ended?.reason === "exited" && run.stoppedByExit === true ? "stopped" : ended?.reason;
   const at = (suffix: string): string => `${run.runId}:${suffix}`;
   if (started?.resume !== undefined) {
     out.push({
@@ -257,8 +259,7 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
     if (
       message.kind === "notice" &&
       message.notice.cause === "exited" &&
-      ended !== undefined &&
-      ended.reason !== "exited"
+      (run.stoppedByExit === true || (ended !== undefined && ended.reason !== "exited"))
     )
       return;
     const id = at(message.id);
@@ -278,13 +279,13 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
         break;
     }
   });
-  if (ended !== undefined && ended.reason !== "idle" && ended.reason !== "restart") {
+  if (ended !== undefined && endReason !== undefined && endReason !== "idle" && endReason !== "restart") {
     out.push({
       id: at("ended"),
-      deps: [ended],
+      deps: [ended, endReason],
       make: () =>
-        note(at("ended"), endText(ended.reason, ended.code), {
-          tone: ended.reason === "crashed" || ended.reason === "exited" ? "error" : "normal",
+        note(at("ended"), endText(endReason, ended.code), {
+          tone: endReason === "crashed" || endReason === "exited" ? "error" : "normal",
         }),
     });
   }
