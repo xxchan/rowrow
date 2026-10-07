@@ -354,6 +354,9 @@ function foldRecord(
       if (next.pending.some((p) => p.requestId === record.requestId)) {
         return { ...next, pending: next.pending.filter((p) => p.requestId !== record.requestId) };
       }
+      // Its processes ended with it: oar 0.38 ends every unfinished task at the root's exit
+      // (stopped or failed), and this list holds only those still running.
+      if (record.body.kind === "exited" && root) next = { ...next, tasks: [] };
       if (record.body.kind === "exited" && s.status.kind === "running" && !s.stopping) {
         // It ended a turn you stopped (oar ends one that doesn't stop in time): stopped, as if
         // the turn had ended so.
