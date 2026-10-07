@@ -271,6 +271,22 @@ describe("agents", () => {
     expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
   });
 
+  it("doesn't stop an idle run while work runs in the background, and stops it once that ends", async () => {
+    t = await startTestServer({ idleTimeoutMs: 200 });
+    const { agent } = await agentIn(t, "/background 1500 npm run dev");
+    await eventually(async () => {
+      const summary = (await t!.client.state.get()).state.agents[agent.id]?.summary;
+      return summary?.status.kind === "idle" && summary.tasks.length === 1 ? true : undefined;
+    });
+    await sleep(800);
+    expect((await t.client.state.get()).state.agents[agent.id]?.summary.run).not.toBeNull();
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.summary.run === null ? true : undefined,
+    );
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(entries.some((e) => e.kind === "run.ended" && e.reason === "idle")).toBe(true);
+  });
+
   it("closes a run the previous server left open as crashed", async () => {
     t = await startTestServer();
     const { agent } = await agentIn(t, "/sleep 10000");

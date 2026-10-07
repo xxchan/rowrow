@@ -171,7 +171,8 @@ password and never get reused elsewhere.
 ## D-010 Runs are lazy and idle out; a server restart ends them (2026-09-29)
 
 **Decision.** A run starts on the first input to an agent with no live run, resuming the
-runtime's conversation. After a turn it stays live for an idle timeout, then is disposed.
+runtime's conversation. After a turn it stays live for an idle timeout, then is disposed
+(not while its background tasks run: since oar 0.36.1 disposing ends them too).
 Stopping the server disposes all runs; on the next start, an unfinished run is recorded
 as `crashed`.
 

@@ -141,7 +141,8 @@ reason about: two clients sending at once become an ordered prompt, then a steer
   (`agents.resume`, `queue.resumed`). The summary folds all of this into `queued`,
   `queuePaused`, `steering` (steered, not read yet) and `unread` (the turn ended first).
 - **Runs.** A run starts lazily on the first input. It stays live after a turn for a
-  while (the idle timeout), then is disposed to free memory. `run.ended` says why. At
+  while (the idle timeout), then is disposed to free memory; not while work it started runs
+  in the background (a dev server, a build), which disposing would end. `run.ended` says why. At
   boot, a run with no end is closed as `crashed`.
 - **Environment.** Each run gets `ROWROW_URL`, `ROWROW_TOKEN`, `ROWROW_AGENT_ID` and
   `ROWROW_WORKSPACE_ID`, so an agent can use the `rowrow` CLI to start, prompt and wait on

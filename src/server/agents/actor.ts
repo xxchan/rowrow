@@ -476,7 +476,9 @@ export class AgentActor {
   /** Called by the service after each appended entry: arm the idle timer when the run goes idle. */
   noteActivity(summary: AgentSummary): void {
     if (this.closed) return;
-    if (summary.status.kind === "running" || summary.pending.length > 0) {
+    // Work still running in the background (a dev server, a build) isn't idle: stopping the
+    // run would end it too (oar 0.36.1 ends a runtime's processes with it).
+    if (summary.status.kind === "running" || summary.pending.length > 0 || summary.tasks.length > 0) {
       this.clearIdle();
       return;
     }
@@ -491,7 +493,12 @@ export class AgentActor {
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       const current = this.deps.summary(this.id);
-      if (current.status.kind === "idle" && current.pending.length === 0 && !waiting(current))
+      if (
+        current.status.kind === "idle" &&
+        current.pending.length === 0 &&
+        current.tasks.length === 0 &&
+        !waiting(current)
+      )
         void this.stop("idle");
     }, this.deps.idleTimeoutMs);
     this.idleTimer.unref();
