@@ -467,8 +467,13 @@ function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>
       {status}
       <span className="shrink-0 font-mono text-[12px] text-foreground/90">{part.tool}</span>
       {action.detail !== undefined && (
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground">
+        <span
+          className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground"
+          title={(action.paths?.length ?? 0) > 1 ? action.paths?.join("\n") : undefined}
+        >
           {action.detail}
+          {/* One call can touch several files (Codex's file changes): the rest are in the tooltip. */}
+          {(action.paths?.length ?? 0) > 1 && ` +${(action.paths?.length ?? 0) - 1} more`}
         </span>
       )}
       {took !== null && (
