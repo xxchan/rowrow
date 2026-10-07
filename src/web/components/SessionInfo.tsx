@@ -10,7 +10,7 @@ import { Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { AgentState } from "../../shared/schemas.ts";
-import { formatTokens } from "../lib/format.ts";
+import { cacheWords, formatTokens } from "../lib/format.ts";
 import { report } from "../lib/telemetry.ts";
 
 export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
@@ -112,6 +112,12 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
               ? "not reported yet"
               : `${formatTokens(summary.usage.input)} in · ${formatTokens(summary.usage.output)} out`}
           </dd>
+          {summary.usage !== null && cacheWords(summary.usage) !== null && (
+            <>
+              <dt>Cache</dt>
+              <dd className="tabular-nums">{cacheWords(summary.usage)}</dd>
+            </>
+          )}
           <dt>Session</dt>
           <dd className="flex min-w-0 items-center gap-1">
             {summary.sessionId === null ? (

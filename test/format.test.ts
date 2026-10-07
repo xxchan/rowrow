@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { expiryNote, versionNumber } from "../src/web/lib/format.ts";
+import { cacheWords, expiryNote, versionNumber } from "../src/web/lib/format.ts";
 
 test("a CLI's version number, without its name or build", () => {
   expect(versionNumber("2.1.284 (Claude Code)")).toBe("2.1.284");
@@ -30,4 +30,12 @@ test("when a login that runs out does, and a warning in its last two weeks", () 
     text: "Its key has expired: sign in again.",
     soon: true,
   });
+});
+
+test("how much of a session's input the prompt cache served, when the runtime says", () => {
+  expect(cacheWords({})).toBeNull();
+  expect(cacheWords({ cacheRead: 1_200_000, cacheWrite: 40_000 })).toBe(
+    "1.2M read · 40k written (part of what's in)",
+  );
+  expect(cacheWords({ cacheRead: 0 })).toBe("0 read (part of what's in)");
 });

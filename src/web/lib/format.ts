@@ -58,3 +58,15 @@ export function expiryNote(auth: AuthState | null, now = Date.now()): { text: st
   });
   return { text: `Its key expires on ${date}.`, soon: false };
 }
+
+/** How much of the input the prompt cache served, and how much was written to it, when reported. */
+export function cacheWords(usage: {
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+}): string | null {
+  const parts = [
+    usage.cacheRead === undefined ? null : `${formatTokens(usage.cacheRead)} read`,
+    usage.cacheWrite === undefined ? null : `${formatTokens(usage.cacheWrite)} written`,
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : `${parts.join(" · ")} (part of what's in)`;
+}
