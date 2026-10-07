@@ -44,8 +44,8 @@ describe("rewriting stored records", () => {
         ? record
         : ({ ...record, body: { ...body, native: { token: "[redacted]" } } } as unknown as RawEvent);
     };
-    expect(await log.rewriteRecords("_x.ai/mcp", redact)).toBe(450);
-    expect(await log.rewriteRecords("_x.ai/mcp", redact)).toBe(0);
+    expect(await log.rewriteRecords(["_x.ai/mcp/"], redact)).toBe(450);
+    expect(await log.rewriteRecords(["_x.ai/mcp/"], redact)).toBe(0);
 
     const tokens = (agentId: string) =>
       log
@@ -65,11 +65,11 @@ describe("rewriting stored records", () => {
       servers: [{ name: "github", command: "gh-mcp", env: [{ name: "GITHUB_TOKEN", value: "ghp_secret" }] }],
     };
     log.append("ag_g", { kind: "oar", runId: "r1", record: frame("_x.ai/mcp/servers_updated", servers) });
-    expect(await log.rewriteRecords("_x.ai/mcp", redactRecord)).toBe(1);
+    expect(await log.rewriteRecords(["_x.ai/mcp/"], redactRecord)).toBe(1);
     const [entry] = log.read("ag_g", { after: -1 }).entries;
     const stored = JSON.stringify(entry);
     expect(stored).not.toContain("ghp_secret");
     expect(stored).toContain("GITHUB_TOKEN");
-    expect(await log.rewriteRecords("_x.ai/mcp", redactRecord)).toBe(0);
+    expect(await log.rewriteRecords(["_x.ai/mcp/"], redactRecord)).toBe(0);
   });
 });

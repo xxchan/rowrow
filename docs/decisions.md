@@ -1001,8 +1001,9 @@ agent's log and sends it to every client that opens the agent, so those values s
 
 **Decision.** At every start the server runs stored oar records through oar's `redactRecord`
 (its current credential rules) and writes back the ones it changes, in the background, a page
-at a time. Only records whose JSON contains a native method oar redacts (`_x.ai/mcp` today)
-are read, so the pass costs little when there is nothing to do. Clients keep no copies of
+at a time. Only records whose JSON mentions a frame type the rules cover (oar's
+`REDACTION_RULES.frameTypePrefixes`, `_x.ai/mcp…` today) are read, so the pass costs little
+when there is nothing to do, and new rules apply with the next oar upgrade. Clients keep no copies of
 records (the web app caches nothing; the iOS app keeps app state and the kit, not records), so
 the server's copy is the only one to fix.
 
@@ -1011,5 +1012,5 @@ reinterpreted. Replacing a secret with `[redacted]` changes no fold rowrow or a 
 The rules live in oar, next to the adapters that know what each runtime sends, so rowrow never
 copies them.
 
-**Revisit when** oar redacts another runtime's native method (add its marker to the filter),
-or a client starts keeping records offline.
+**Revisit when** the pass gets slow on big logs (oar's `REDACTION_RULES.version` says when the
+rules changed, so the pass could run only then), or a client starts keeping records offline.

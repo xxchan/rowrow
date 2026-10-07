@@ -1,6 +1,6 @@
 // The composition root: the only place that constructs services and wires them together.
 // `startServer` is what `rowrow serve` runs, and what integration tests start in-process.
-import { redactRecord } from "@botiverse/oar/observe";
+import { REDACTION_RULES, redactRecord } from "@botiverse/oar/observe";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -286,7 +286,7 @@ export async function startServer(
   // Credentials oar recorded as they came before it redacted them (until oar 0.32.1, grok's MCP
   // notifications carried the env of the user's own MCP servers): rewrite the stored copies.
   void (async (): Promise<void> => {
-    const changed = await agentLog.rewriteRecords("_x.ai/mcp", redactRecord);
+    const changed = await agentLog.rewriteRecords(REDACTION_RULES.frameTypePrefixes, redactRecord);
     if (changed > 0) log.info("agent_log.records_redacted", { changed });
   })().catch((error: unknown) => log.error("agent_log.redact_failed", { err: serializeError(error) }));
 

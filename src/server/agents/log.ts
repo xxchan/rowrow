@@ -162,19 +162,22 @@ export class AgentLog {
   /**
    * Run stored oar records through `rewrite` and write back the ones it changes: oar's
    * redactRecord, for credentials a runtime reported that oar recorded as they came before it
-   * knew better. Only records whose JSON contains `needle` are read, so this is cheap enough
-   * for every start; a page at a time, so the server keeps answering. Returns how many changed.
+   * knew better. Only records whose JSON contains one of `needles` (oar's REDACTION_RULES frame
+   * type prefixes) are read, so this is cheap enough for every start; a page at a time, so the
+   * server keeps answering. Returns how many changed.
    */
-  async rewriteRecords(needle: string, rewrite: (record: RawEvent) => RawEvent): Promise<number> {
+  async rewriteRecords(needles: readonly string[], rewrite: (record: RawEvent) => RawEvent): Promise<number> {
+    if (needles.length === 0) return 0;
+    const mentions = needles.map(() => "instr(body, ?) > 0").join(" or ");
     let agentId = "";
     let seq = -1;
     let changed = 0;
     for (;;) {
       const rows = this.db.all<{ agent_id: string; seq: number; body: string }>(
-        "select agent_id, seq, body from entries where kind = 'oar' and (agent_id, seq) > (?, ?) and instr(body, ?) > 0 order by agent_id, seq limit ?",
+        `select agent_id, seq, body from entries where kind = 'oar' and (agent_id, seq) > (?, ?) and (${mentions}) order by agent_id, seq limit ?`,
         agentId,
         seq,
-        needle,
+        ...needles,
         REWRITE_PAGE,
       );
       const last = rows.at(-1);
