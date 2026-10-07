@@ -106,10 +106,10 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
           </div>
         </div>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 border-t px-4 py-2.5 text-xs text-muted-foreground">
-          <dt>Tokens</dt>
+          <dt title="Since the agent's session last opened: a resumed session counts from zero">Tokens</dt>
           <dd className="tabular-nums">
             {summary.usage === null
-              ? "not reported yet"
+              ? "none reported"
               : `${formatTokens(summary.usage.input)} in · ${formatTokens(summary.usage.output)} out`}
           </dd>
           {summary.usage !== null && cacheWords(summary.usage) !== null && (

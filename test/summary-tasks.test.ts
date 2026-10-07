@@ -44,4 +44,21 @@ describe("summary tasks", () => {
     const gone = summaryOf([...started, entry({ kind: "run.ended", runId: "r1", reason: "stopped" })]);
     expect(gone.tasks).toEqual([]);
   });
+
+  it("counts tokens from each run's start: a resumed session starts again", () => {
+    seq = 0;
+    const usage = (input: number) => frame([{ kind: "usage", usage: { tokens: { input, output: 10 } } }]);
+    const first = [
+      entry({ kind: "run.started", runId: "r1", runtime: "codex", cwd: "/w", sessionId: "s1" }),
+      usage(500),
+    ];
+    expect(summaryOf(first).usage).toEqual({ input: 500, output: 10 });
+    const resumed = [
+      ...first,
+      entry({ kind: "run.ended", runId: "r1", reason: "idle" }),
+      entry({ kind: "run.started", runId: "r1", runtime: "codex", cwd: "/w", sessionId: "s1" }),
+    ];
+    expect(summaryOf(resumed).usage).toBeNull();
+    expect(summaryOf([...resumed, usage(40)]).usage).toEqual({ input: 40, output: 10 });
+  });
 });

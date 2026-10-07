@@ -81,6 +81,11 @@ export interface AgentSummary {
   /** The tail of the agent's latest text, for list rows and notifications. */
   readonly preview: string | null;
   readonly lastError: string | null;
+  /**
+   * Tokens since the run's session opened (oar 0.30: every runtime counts from there, so a
+   * resumed session starts again); null until the run reports them, and some never do (Codex
+   * before 0.151 on a resumed session).
+   */
   readonly usage: TokenTotals | null;
   readonly context: ContextUsage | null;
   readonly inputs: number;
@@ -235,6 +240,8 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         lastError: null,
         textOpen: false,
         stopping: false,
+        // The last run's count isn't this one's.
+        usage: null,
       };
     case "run.failed":
       return { ...s, lastError: entry.error, lastCompletionSeq: entry.seq };
