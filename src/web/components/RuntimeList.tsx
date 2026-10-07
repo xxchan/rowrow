@@ -3,10 +3,12 @@
 // updater, only when you press it; an agent running now keeps the old version until its next
 // run. Sign in runs the runtime's own login (RuntimeLogin.tsx).
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { RuntimeInfo, RuntimeUpdate, UpdateCheck, UpgradeResult } from "../../shared/schemas.ts";
+import { expiryNote } from "../lib/format.ts";
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { AgentIcon } from "./AgentIcon.tsx";
@@ -117,6 +119,7 @@ export function RuntimeList({
         const loginNote =
           loginResult === undefined || runtime.login !== null ? null : loginResultNote(loginResult);
         const auth = authNote(runtime.auth);
+        const expiry = expiryNote(runtime.auth);
         return (
           <li key={runtime.id} className="px-3 py-2.5">
             <div className="flex items-center gap-3">
@@ -146,6 +149,11 @@ export function RuntimeList({
                         Sign in again
                       </button>
                     )}
+                  </p>
+                )}
+                {expiry !== null && (
+                  <p className={cn("text-xs", expiry.soon ? "text-warning" : "text-muted-foreground")}>
+                    {expiry.text}
                   </p>
                 )}
                 {loginNote !== null && <p className="text-xs text-muted-foreground">{loginNote}</p>}

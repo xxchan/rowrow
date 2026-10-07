@@ -145,6 +145,10 @@ export const LoginAccount = z.object({
   email: z.string().optional(),
   plan: z.string().optional().describe("Its plan or subscription (max, pro…)."),
   method: z.string().optional().describe("How it is signed in (claude.ai, chatgpt, apiKey…)."),
+  expiresAt: z
+    .string()
+    .optional()
+    .describe("When its login stops working, ISO 8601 UTC (Cursor's key: 90 days, not renewed)."),
 });
 export type LoginAccount = z.infer<typeof LoginAccount>;
 

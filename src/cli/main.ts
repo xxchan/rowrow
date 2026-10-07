@@ -370,7 +370,7 @@ async function main(argv: string[]): Promise<void> {
                         : `  (can't check: ${check.detail ?? check.reason})`;
               const auth =
                 runtime.auth?.kind === "logged_in"
-                  ? `  · signed in${runtime.auth.account?.email === undefined ? "" : ` as ${runtime.auth.account.email}`}`
+                  ? `  · signed in${runtime.auth.account?.email === undefined ? "" : ` as ${runtime.auth.account.email}`}${runtime.auth.account?.expiresAt === undefined ? "" : ` (key expires ${runtime.auth.account.expiresAt.slice(0, 10)})`}`
                   : runtime.auth?.kind === "logged_out"
                     ? `  · not signed in${runtime.canLogin ? ` (rowrow runtimes login ${runtime.id})` : ""}`
                     : "";

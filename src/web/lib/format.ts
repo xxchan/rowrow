@@ -1,5 +1,6 @@
 // Formatting for the web app. An agent's state words live in src/shared/describe.ts, shared
 // with the iOS app, and are re-exported here for the web's screens.
+import type { AuthState } from "../../shared/schemas.ts";
 export {
   STALL_MS,
   duration,
@@ -34,4 +35,26 @@ export function versionNumber(version: string): string {
 /** What "Default" means for a model or effort: rowrow passes none, so the CLI decides. */
 export function defaultNote(runtimeName: string): string {
   return `${runtimeName}'s own choice: its settings file, or its built-in default`;
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+/** Within this, a login that will run out is worth a warning. */
+const EXPIRES_SOON_MS = 14 * DAY_MS;
+
+/** When a login that runs out does (Cursor's key), and whether to sign in again soon. */
+export function expiryNote(auth: AuthState | null, now = Date.now()): { text: string; soon: boolean } | null {
+  const expiresAt = auth?.kind === "logged_in" ? auth.account?.expiresAt : undefined;
+  const at = expiresAt === undefined ? Number.NaN : Date.parse(expiresAt);
+  if (Number.isNaN(at)) return null;
+  if (at <= now) return { text: "Its key has expired: sign in again.", soon: true };
+  if (at - now <= EXPIRES_SOON_MS) {
+    const days = Math.ceil((at - now) / DAY_MS);
+    return { text: `Its key expires in ${days} ${days === 1 ? "day" : "days"}: sign in again.`, soon: true };
+  }
+  const date = new Date(at).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  return { text: `Its key expires on ${date}.`, soon: false };
 }
