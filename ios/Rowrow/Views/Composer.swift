@@ -124,35 +124,59 @@ struct Composer: View {
   private func sendButton(working: Bool, empty: Bool) -> some View {
     let icon = Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
     if working {
+      // Queue plus a visible arrow for the other two, like the web's split button (D-035):
+      // a long-press-only menu hid steering from people who didn't know to hold.
       let steer = SteerSupport(runtime: agent.summary.runtime)
-      Menu {
+      HStack(spacing: 0) {
         Button {
           Task { await send(.queue) }
         } label: {
-          Label("Queue", systemImage: "text.line.last.and.arrowtriangle.forward")
-          Text("After this turn · you can still edit it")
+          Text("Queue")
+            .font(.subheadline.weight(.semibold))
+            .padding(.leading, 14)
+            .padding(.trailing, 10)
+            .frame(height: 32)
+            .contentShape(Rectangle())
         }
-        if steer != .no {
+        .buttonStyle(.plain)
+        .accessibilityHint("Sends after this turn")
+        Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: 18)
+        Menu {
           Button {
-            Task { await send(.steer) }
+            Task { await send(.queue) }
           } label: {
-            Label("Steer Now", systemImage: "arrow.turn.down.right")
-            Text(steer == .redoes ? "Into this turn · it redoes the current step" : "Into this turn · can't be taken back")
+            Label("Queue", systemImage: "text.line.last.and.arrowtriangle.forward")
+            Text("After this turn · you can still edit it")
           }
-        }
-        Button(role: .destructive) {
-          Task { await send(.interrupt) }
+          if steer != .no {
+            Button {
+              Task { await send(.steer) }
+            } label: {
+              Label("Steer Now", systemImage: "arrow.turn.down.right")
+              Text(steer == .redoes ? "Into this turn · it redoes the current step" : "Into this turn · can't be taken back")
+            }
+          }
+          Button(role: .destructive) {
+            Task { await send(.interrupt) }
+          } label: {
+            Label("Stop and Send", systemImage: "stop.circle")
+            Text("Ends this turn first")
+          }
         } label: {
-          Label("Stop and Send", systemImage: "stop.circle")
-          Text("Ends this turn first")
+          Image(systemName: "chevron.up")
+            .font(.footnote.weight(.bold))
+            .padding(.leading, 9)
+            .padding(.trailing, 12)
+            .frame(height: 32)
+            .contentShape(Rectangle())
         }
-      } label: {
-        icon
-      } primaryAction: {
-        Task { await send(.queue) }
+        .buttonStyle(.plain)
+        .accessibilityLabel("More ways to send")
       }
+      .foregroundStyle(.white)
+      .background(Capsule().fill(Color.accentColor))
       .disabled(empty || sending)
-      .accessibilityLabel("Queue")
+      .opacity(empty || sending ? 0.5 : 1)
     } else {
       Button {
         Task { await send(.auto) }
