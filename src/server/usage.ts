@@ -34,6 +34,8 @@ export class UsageService {
   readonly #now: () => number;
   readonly #latest = new Map<string, Latest>();
   #reading: Promise<void> | null = null;
+  /** The read after the running one, for the calls that came while it ran. */
+  #next: Promise<void> | null = null;
   #timer: NodeJS.Timeout | null = null;
 
   constructor(options: { db: Db; readers: () => readonly UsageReader[]; now?: () => number }) {
@@ -57,12 +59,24 @@ export class UsageService {
     this.#timer = null;
   }
 
-  /** Ask every runtime that can say, in parallel; a second call while one runs waits for it. */
+  /**
+   * Ask every runtime that can say, in parallel. A call while a read runs gets a fresh read once
+   * it ends, shared by every call that came meanwhile: the running one chose its runtimes, and
+   * asked them, before the call (a "Check now" just after a sign-in must ask that runtime).
+   */
   readAll(): Promise<void> {
-    this.#reading ??= this.#readAll().finally(() => {
-      this.#reading = null;
-    });
-    return this.#reading;
+    if (this.#reading === null) {
+      this.#reading = this.#readAll().finally(() => {
+        this.#reading = null;
+      });
+      return this.#reading;
+    }
+    const fresh = (): Promise<void> => {
+      this.#next = null;
+      return this.readAll();
+    };
+    this.#next ??= this.#reading.then(fresh, fresh);
+    return this.#next;
   }
 
   async #readAll(): Promise<void> {

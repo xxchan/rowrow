@@ -113,3 +113,25 @@ it("keeps each account's history apart, and forgets the windows once signed out"
   await runtimes.refresh();
   expect(usage.list()).toEqual([]);
 });
+
+it("a read asked for while one runs is a fresh one, after it", async () => {
+  const { usage, reads } = await setup();
+  // The running read asked before the account changed (say, before a sign-in finished).
+  let answer: (snapshot: AccountUsageSnapshot) => void = () => {};
+  reads(() => new Promise((resolve) => (answer = resolve)));
+  const running = usage.readAll();
+  let asked = 0;
+  reads(async () => {
+    asked += 1;
+    return available(0.4);
+  });
+  const checkNow = usage.readAll();
+  const alsoNow = usage.readAll();
+  answer(available(0.9));
+  await running;
+  expect(usage.list()[0]?.windows[0]?.history.at(-1)?.left).toBe(10);
+  // One more read for both, and it saw the change.
+  await Promise.all([checkNow, alsoNow]);
+  expect(asked).toBe(1);
+  expect(usage.list()[0]?.windows[0]?.history.at(-1)?.left).toBe(60);
+});
