@@ -39,6 +39,7 @@ import {
   type RunBlock,
   type Timeline,
   type TimelineBlock,
+  stoppedByAgent,
 } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
 import { endText, noticeText } from "../../shared/transcript-model.ts";
@@ -105,6 +106,7 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
             timeline={timeline}
             runtime={runtime}
             open={index === view.openTurn}
+            agentStopped={stoppedByAgent(run, message.id)}
           />
         ),
       )}
@@ -120,11 +122,14 @@ const Message = memo(function Message({
   timeline,
   runtime,
   open,
+  agentStopped,
 }: {
   message: ViewMessage;
   timeline: Timeline;
   runtime: string;
   open: boolean;
+  /** An aborted turn the runtime stopped itself, not you. */
+  agentStopped: boolean;
 }) {
   switch (message.kind) {
     case "input": {
@@ -171,7 +176,9 @@ const Message = memo(function Message({
               <FailureHint failure={message.outcome.failure} credential={message.outcome.credential} />
             ))}
           {message.outcome?.kind === "aborted" && (
-            <p className="text-sm text-muted-foreground">You stopped the turn.</p>
+            <p className="text-sm text-muted-foreground">
+              {agentStopped ? "The agent stopped the turn." : "You stopped the turn."}
+            </p>
           )}
         </article>
       );

@@ -23,6 +23,8 @@ export interface RunBlock {
   readonly lastSeq: number;
   /** Its process exited to end a turn you stopped (oar ends one that doesn't stop in time). */
   readonly stoppedByExit?: true;
+  /** Aborted turns no stop from rowrow was in flight for: the runtime stopped them itself (a pi extension). */
+  readonly selfStopped?: readonly string[];
 }
 
 /** An input as rowrow received it. Rendered on its own only until a run takes it over. */
@@ -120,16 +122,17 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
               lastSeq: entry.seq,
             }
           : (t.blocks[index] as RunBlock);
-      const view = reduceSessionView(base.view, entry.record, entry.runId);
+      const { record } = entry;
+      const view = reduceSessionView(base.view, record, entry.runId);
       const run: RunBlock = {
         ...base,
         view,
         lastSeq: entry.seq,
-        ...(endsStoppedTurn(base.view, view, entry.record) ? { stoppedByExit: true } : {}),
+        ...(endsStoppedTurn(base.view, view, record) ? { stoppedByExit: true } : {}),
+        ...foldSelfStopped(base, view),
       };
       const blocks = index === -1 ? [...t.blocks, run] : replaceAt(t.blocks, index, run);
       let next: Timeline = { ...t, blocks };
-      const { record } = entry;
       if (record.kind === "request" && record.direction === "toRuntime" && "inputId" in record.body) {
         const inputId = record.body.inputId;
         const input = inputId === undefined ? undefined : next.inputs.get(inputId);
@@ -219,6 +222,27 @@ export function liveView(timeline: Timeline): SessionView | null {
     if (block?.kind === "run") return block.ended === undefined ? block.view : null;
   }
   return null;
+}
+
+/** A turn that just ended aborted with no stop from rowrow in flight (no pending abort, accepted abort or dispose). */
+function foldSelfStopped(run: RunBlock, after: SessionView): Partial<Pick<RunBlock, "selfStopped">> {
+  const before = run.view.status;
+  if (
+    before.kind !== "running" ||
+    after.status.kind !== "idle" ||
+    after.status.lastTurnOutcome?.kind !== "aborted"
+  ) {
+    return {};
+  }
+  if (before.stop !== undefined && (before.stop.pendingAbortIds.length > 0 || before.stop.abortedOnExit))
+    return {};
+  const turn = after.messages.findLast((m) => m.kind === "turn" && m.outcome !== undefined);
+  return turn === undefined ? {} : { selfStopped: [...(run.selfStopped ?? []), turn.id] };
+}
+
+/** An aborted turn the runtime stopped itself, not you. */
+export function stoppedByAgent(run: RunBlock, turnId: string): boolean {
+  return run.selfStopped?.includes(turnId) === true;
 }
 
 /** The process exit that ended a running turn as stopped (oar 0.37: after an accepted abort or dispose). */

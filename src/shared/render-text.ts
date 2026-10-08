@@ -4,7 +4,7 @@
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
 import { droppedWords, failureHint } from "./describe.ts";
 import type { Actor, Attachment } from "./entries.ts";
-import type { Timeline } from "./timeline.ts";
+import { stoppedByAgent, type Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -43,7 +43,10 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
             ? `── run ${block.runId} (started before this window) ──`
             : `── run ${s.runId} · ${s.runtime}${s.model === undefined ? "" : ` · ${s.model}`}${s.resume === undefined ? "" : " · resumed"} ──`,
         );
-        for (const message of block.view.messages) out.push(...renderMessage(message, timeline, toolChars));
+        for (const message of block.view.messages) {
+          const byAgent = stoppedByAgent(block, message.id);
+          out.push(...renderMessage(message, timeline, toolChars, byAgent));
+        }
         if (block.ended !== undefined) {
           const { reason, code, error } = block.ended;
           const exit = code === undefined || code === null ? "" : ` (code ${code})`;
@@ -65,7 +68,12 @@ function attachmentLines(attachments: readonly Attachment[] | undefined): string
   return (attachments ?? []).map((file) => `>   attached ${file.name}: ${file.path}`);
 }
 
-function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: number): string[] {
+function renderMessage(
+  message: ViewMessage,
+  timeline: Timeline,
+  toolChars: number,
+  agentStopped = false,
+): string[] {
   switch (message.kind) {
     case "input": {
       const { input } = message;
@@ -95,7 +103,9 @@ function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: numb
           outcome.kind === "completed"
             ? "  ✓ turn completed"
             : outcome.kind === "aborted"
-              ? "  ■ turn aborted"
+              ? agentStopped
+                ? "  ■ turn aborted by the agent"
+                : "  ■ turn aborted"
               : `  ✗ turn failed (${outcome.failure}): ${outcome.reason}`,
         );
         const hint = outcome.kind === "failed" ? failureHint(outcome.failure, outcome.credential) : null;

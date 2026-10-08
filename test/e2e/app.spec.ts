@@ -729,6 +729,8 @@ test("⌘↵ steers into the turn, ↑ takes a queued message back, and a stoppe
 
   await page.getByRole("button", { name: "Stop" }).click();
   await expect(tray).toContainText("Queue paused · you stopped the turn");
+  // Your stop was accepted in that turn: it's yours, not the agent's.
+  await expect(page.getByText("You stopped the turn.")).toBeVisible();
   await tray.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByText("later", { exact: true })).toBeVisible();
   await expect(tray).toBeHidden();

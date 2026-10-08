@@ -65,8 +65,8 @@
     "check": "run-p -l typecheck lint format:check && vitest run"
   },
   "dependencies": {
-    "@botiverse/oar": "^0.43.0",
-    "@cursor/sdk": "1.0.36",
+    "@botiverse/oar": "^0.44.0",
+    "@cursor/sdk": "1.0.37",
     "@hono/node-server": "^2.1.1",
     "@orpc/client": "^1.15.4",
     "@orpc/contract": "^1.15.4",
