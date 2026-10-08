@@ -22,6 +22,10 @@ file when something lands.
 - **Right-click menus** (long press on touch): an agent's actions on its rows in the nav and
   on Home (the same list as its ⋯ menu), a workspace's (new agent here, copy path), and a
   changed file's (copy path, stage, discard).
+- **Small things from roamgate 0.8** (#347, #353, #354, #368): double-click an agent's title
+  to rename it; a title suffix per server ("rowrow · Work") for its tabs and installed app;
+  per-device preferences (theme, Changes scope, inspector width) follow across open tabs; on a
+  phone the header folds away while you type.
 
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.

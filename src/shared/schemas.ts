@@ -370,6 +370,10 @@ export type SkillInfo = z.infer<typeof SkillInfo>;
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
+/** Control characters, and the ones that reorder text (a name must read as it's written). */
+// oxlint-disable-next-line no-control-regex
+const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u;
+
 /** Preferences that follow you to every device (kept on the server, part of the app state). */
 export const Settings = z.object({
   quickReplies: z
@@ -379,6 +383,14 @@ export const Settings = z.object({
   checkForUpdates: z
     .boolean()
     .describe("Ask the npm registry twice a day whether a newer rowrow is out, and say so in the app."),
+  instanceName: z
+    .string()
+    .overwrite((name) => name.replace(/\s+/gu, " ").trim())
+    .refine((name) => Array.from(name).length <= 32, "The title suffix must be 32 characters or fewer.")
+    .refine((name) => !UNPRINTABLE.test(name), "The title suffix can't contain control characters.")
+    .describe(
+      'Tells this server apart from your others: its pages and the installed app are called "rowrow · <instanceName>" (empty: rowrow).',
+    ),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -390,7 +402,13 @@ export const DEFAULT_SETTINGS: Settings = {
     "Summarize what you changed, briefly.",
   ],
   checkForUpdates: true,
+  instanceName: "",
 };
+
+/** What the app is called on this server: the page title and the installed app's name (roamgate #368). */
+export function appName(instanceName: string): string {
+  return instanceName === "" ? "rowrow" : `rowrow · ${instanceName}`;
+}
 
 // ─── App state ───────────────────────────────────────────────────────────────
 

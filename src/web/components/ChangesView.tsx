@@ -37,6 +37,7 @@ import {
   type Annotation,
 } from "../lib/annotations.ts";
 import type { Client } from "../lib/connection.ts";
+import { usePref, writePref } from "../lib/device-prefs.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ErrorText } from "./ErrorText.tsx";
@@ -68,10 +69,10 @@ export function ChangesView({
 }) {
   const client = useClient();
   const gitVersion = useApp((s) => s.state?.workspaces[workspaceId]?.git?.updatedAt ?? 0);
-  const [scope, setScope] = useState<DiffScope>(() => {
-    const saved = localStorage.getItem(SCOPE_KEY);
-    return saved === "working" || saved === "branch" || saved === "turn" ? saved : "turn";
-  });
+  // Per device, and the same in every tab: picking another in one switches the others.
+  const scope = usePref(SCOPE_KEY, (saved): DiffScope =>
+    saved === "working" || saved === "branch" || saved === "turn" ? saved : "turn",
+  );
   const [reload, setReload] = useState(0);
   const [result, setResult] = useState<{
     key: string;
@@ -192,14 +193,7 @@ export function ChangesView({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-col gap-1.5 border-b px-3 py-2">
         <div className="flex items-center gap-2">
-          <Tabs
-            value={scope}
-            onValueChange={(value) => {
-              const next = value as DiffScope;
-              setScope(next);
-              localStorage.setItem(SCOPE_KEY, next);
-            }}
-          >
+          <Tabs value={scope} onValueChange={(value) => writePref(SCOPE_KEY, value)}>
             <TabsList aria-label="Compare" className="h-8">
               <TabsTrigger value="turn" className="px-2.5 text-xs">
                 Last turn

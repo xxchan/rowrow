@@ -1,37 +1,23 @@
 import { Button } from "@/components/ui/button";
 import { ArrowUpCircle, Copy, X } from "lucide-react";
-import { useState } from "react";
+import { usePref, writePref } from "../lib/device-prefs.ts";
 import { useApp } from "../lib/store.ts";
 import { copyText } from "./MenuActions.tsx";
 
-// Dismissed per version, on this device: the next release asks again.
+// Dismissed per version, on this device (in every tab): the next release asks again.
 const KEY = "rowrow.update.dismissed";
-
-function dismissed(): string | null {
-  try {
-    return localStorage.getItem(KEY);
-  } catch {
-    return null;
-  }
-}
 
 /** Says so when the server found a newer rowrow on npm, with the command that updates it. */
 export function UpdateBanner() {
   const update = useApp((s) => s.state?.host.update ?? null);
   const version = useApp((s) => s.state?.host.version ?? null);
-  const [hidden, setHidden] = useState(dismissed);
+  const hidden = usePref(KEY, (stored) => stored);
   if (update === null || hidden === update.version) return null;
-  const dismiss = (): void => {
-    try {
-      localStorage.setItem(KEY, update.version);
-    } catch {
-      // private mode: hidden until reload
-    }
-    setHidden(update.version);
-  };
+  const dismiss = (): void => writePref(KEY, update.version);
   return (
     <section
       aria-label="Update"
+      data-hides-while-typing
       className="flex shrink-0 items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-sm"
     >
       <ArrowUpCircle className="size-4 shrink-0 text-primary" />

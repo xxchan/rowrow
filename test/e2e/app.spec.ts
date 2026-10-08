@@ -111,6 +111,40 @@ test("right-click an agent or a workspace for what you can do to it", async ({
   await expect(main.getByRole("link", { name: /new name/ })).toBeHidden();
 });
 
+test("double-click an agent's title to rename it", async ({ page, rowrow }, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "old name",
+  });
+  const { agent: other } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "second",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+
+  await page.getByRole("heading", { name: "old name" }).dblclick();
+  const rename = page.getByRole("dialog", { name: "Rename agent" });
+  await expect(rename.getByLabel("Title")).toBeFocused();
+  // The whole title is selected: what you type replaces it.
+  await page.keyboard.type("new name");
+  await page.keyboard.press("Enter");
+  await expect(rename).toBeHidden();
+  await expect(page.getByRole("heading", { name: "new name" })).toBeVisible();
+
+  if (info.project.name === "phone") return; // the side nav is a sheet there, and a tap opens the agent
+  // A row in the side nav: the first click opens the agent, the double-click renames it.
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  await nav.getByRole("link", { name: /second/ }).dblclick();
+  await expect(page).toHaveURL(new RegExp(`/a/${other.id}$`));
+  await expect(rename.getByLabel("Title")).toHaveValue("second");
+  await page.keyboard.press("Escape");
+  await expect(rename).toBeHidden();
+  await expect(page.getByRole("heading", { name: "second" })).toBeVisible();
+});
+
 test("⌘K: say what a new agent should do, and it starts", async ({ page, rowrow }, info) => {
   test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
   await rowrow.client.workspaces.add({ path: rowrow.repo() });
@@ -287,6 +321,59 @@ test("a quick reply added in Settings is one tap away in the composer", async ({
   await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
 });
 
+test("a title suffix set in Settings names this server's pages and installed app", async ({
+  page,
+  rowrow,
+}, info) => {
+  await rowrow.open(page, "/settings");
+  await expect(page).toHaveTitle("rowrow");
+  const server = page.getByRole("region", { name: "Server" });
+  await server.getByRole("textbox", { name: "App and webpage title suffix" }).fill("  Work  ");
+  await expect(server.getByText("rowrow · Work", { exact: true })).toBeVisible(); // the preview
+  await server.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(server.getByText("Saved for this rowrow server.")).toBeVisible();
+  await expect(page).toHaveTitle("rowrow · Work");
+  if (info.project.name === "phone") await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("navigation").getByText("rowrow · Work")).toBeVisible();
+
+  // A page loaded now is named from the start, and so is the app you'd install from it.
+  await page.goto(`${rowrow.url}/`);
+  await expect(page).toHaveTitle("rowrow · Work");
+  const served = await page.evaluate(async () => ({
+    page: await (await fetch("/")).text(),
+    manifest: (await (await fetch("/manifest.webmanifest")).json()) as { name: string; short_name: string },
+  }));
+  expect(served.page).toContain("<title>rowrow · Work</title>");
+  expect(served.page).toContain('<meta name="apple-mobile-web-app-title" content="rowrow · Work"');
+  expect(served.manifest).toMatchObject({ name: "rowrow · Work", short_name: "rowrow · Work" });
+
+  await page.goto(`${rowrow.url}/settings`);
+  await page
+    .getByRole("region", { name: "Server" })
+    .getByRole("button", { name: "Reset to default" })
+    .click();
+  await expect(page).toHaveTitle("rowrow");
+});
+
+test("a theme picked in one tab applies in the app's other tabs at once", async ({
+  page,
+  context,
+  rowrow,
+}) => {
+  await rowrow.open(page, "/settings");
+  const other = await context.newPage();
+  await other.goto(`${rowrow.url}/settings`);
+  const html = other.locator("html");
+  await expect(html).toHaveClass(/\bdark\b/);
+
+  await page.getByRole("tablist", { name: "Theme" }).getByRole("tab", { name: "Light" }).click();
+  await expect(html).not.toHaveClass(/\bdark\b/);
+  await expect(other.getByRole("tab", { name: "Light" })).toHaveAttribute("aria-selected", "true");
+
+  await page.getByRole("tablist", { name: "Theme" }).getByRole("tab", { name: "Dark" }).click();
+  await expect(html).toHaveClass(/\bdark\b/);
+});
+
 test("sign a runtime in from Settings, pasting the code its sign-in page shows, then out", async ({
   page,
   rowrow,
@@ -389,6 +476,31 @@ test("the model and context sit by the composer, the rest of the session one tap
   await expect(popover.getByRole("meter", { name: "Context used" })).toBeAttached();
   await popover.getByRole("button", { name: "Change model and effort" }).click();
   await expect(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
+});
+
+test("on a phone, the header folds away while you type", async ({ page, rowrow }, info) => {
+  test.skip(info.project.name !== "phone", "a phone's keyboard takes half its screen; a desktop's doesn't");
+  await page.setViewportSize({ width: 375, height: 667 });
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "typing",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const heading = page.getByRole("heading", { name: "typing" });
+  const header = page.locator("main header").first();
+  await expect(heading).toBeVisible();
+
+  const input = page.getByRole("textbox", { name: "Message input" });
+  await input.tap();
+  await expect(input).toBeFocused();
+  await expect(heading).toBeHidden();
+  await expect(header).toHaveJSProperty("offsetHeight", 0);
+
+  await input.blur();
+  await expect(heading).toBeVisible();
+  await expect(page.getByRole("button", { name: /Open navigation/ })).toBeVisible();
 });
 
 test("comment on a passage the agent wrote, then send it as review feedback", async ({ page, rowrow }) => {

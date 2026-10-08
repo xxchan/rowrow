@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ChevronsRight, Ellipsis, FileDiff, LoaderCircle } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { GroupImperativeHandle } from "react-resizable-panels";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
 import { openAgentDialog, useAgentActions } from "../components/AgentActions.tsx";
@@ -32,6 +33,7 @@ import { BackgroundTasks } from "../components/BackgroundTasks.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
+import { onPrefChange, readPref, writePref } from "../lib/device-prefs.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
@@ -83,8 +85,22 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
     return () => clearTimeout(timer);
   }, [client, looking, head, agent.id, agent.seenSeq, transcript.loading]);
 
-  // Remembered open only where it sits beside the conversation; elsewhere it covers it.
-  const [showChanges, setShowChanges] = useState(() => wide && localStorage.getItem(CHANGES_KEY) === "1");
+  // Remembered open only where it sits beside the conversation; elsewhere it covers it. Opened,
+  // closed or resized there, it is in the app's other tabs too (which tab it shows is per tab).
+  const [showChanges, setShowChanges] = useState(() => wide && readPref(CHANGES_KEY) === "1");
+  useEffect(() => {
+    if (!wide) return;
+    return onPrefChange(CHANGES_KEY, () => setShowChanges(readPref(CHANGES_KEY) === "1"));
+  }, [wide]);
+  const panels = useRef<GroupImperativeHandle | null>(null);
+  useEffect(
+    () =>
+      onPrefChange(LAYOUT_KEY, () => {
+        const layout = savedLayout();
+        if (layout !== undefined) panels.current?.setLayout(layout);
+      }),
+    [],
+  );
   const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
   const chooseTab = (next: InspectorTab): void => {
     setTab(next);
@@ -94,8 +110,8 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const toggleChanges = (): void => {
     const open = !showChanges || tab !== "changes";
     chooseTab("changes");
-    if (wide) localStorage.setItem(CHANGES_KEY, open ? "1" : "0");
     setShowChanges(open);
+    if (wide) writePref(CHANGES_KEY, open ? "1" : "0");
   };
   const changed = ws?.git?.changed ?? 0;
 
@@ -115,6 +131,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
       <PageHeader
         route={route}
         title={title(agent)}
+        onRename={() => openAgentDialog("rename", agent.id)}
         status={
           <AgentAvatar
             runtime={summary.runtime}
@@ -179,8 +196,12 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
         {showChanges && wide && ws !== undefined ? (
           <ResizablePanelGroup
             orientation="horizontal"
+            groupRef={panels}
             defaultLayout={savedLayout()}
-            onLayoutChanged={(layout) => localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout))}
+            // Only what you dragged: a layout applied from another tab isn't written back.
+            onLayoutChanged={(layout, { isUserInteraction }) => {
+              if (isUserInteraction) writePref(LAYOUT_KEY, JSON.stringify(layout));
+            }}
           >
             <ResizablePanel id="chat" minSize={360}>
               {chat}
@@ -228,7 +249,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
 
 function savedLayout(): Record<string, number> | undefined {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null");
+    const value: unknown = JSON.parse(readPref(LAYOUT_KEY) ?? "null");
     return value !== null && typeof value === "object" ? (value as Record<string, number>) : undefined;
   } catch {
     return undefined;

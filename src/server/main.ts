@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_SETTINGS, type HostInfo } from "../shared/schemas.ts";
+import { appName, DEFAULT_SETTINGS, type HostInfo } from "../shared/schemas.ts";
 import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
 import { AgentService } from "./agents/service.ts";
@@ -260,6 +260,7 @@ export async function startServer(
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
     kitFile: options.kitFile ?? path.join(root, "dist/kit/kit.js"),
+    appName: () => (settings.get().instanceName === "" ? null : appName(settings.get().instanceName)),
     version,
   });
   url = http.url;

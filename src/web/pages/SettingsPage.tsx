@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { Info, LoaderCircle, Plus, TriangleAlert, X } from "lucide-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import type { AppState, Device, LoginLink } from "../../shared/schemas.ts";
+import { appName, Settings, type AppState, type Device, type LoginLink } from "../../shared/schemas.ts";
 import { PageHeader } from "../components/Shell.tsx";
 import { RuntimeList, useRuntimeUpdates } from "../components/RuntimeList.tsx";
 import { UsageList, useUsage } from "../components/UsageList.tsx";
@@ -246,6 +247,7 @@ export function SettingsPage({ route }: { route: Route }) {
               </Fact>
               <Fact label="Running since">{new Date(host.startedAt).toLocaleString()}</Fact>
             </dl>
+            <InstanceName saved={state.settings.instanceName} />
             <div className="flex items-center gap-3">
               <Switch
                 id="check-for-updates"
@@ -292,6 +294,119 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * The title suffix (roamgate #368): "rowrow · Work" names this server's tabs and its installed
+ * app, so they don't read like your other servers'. Kept on the server, for every device.
+ */
+function InstanceName({ saved }: { saved: string }) {
+  const client = useClient();
+  // null: not edited, so it shows what's saved (also when another device changes it).
+  const [draft, setDraft] = useState<string | null>(null);
+  const [status, setStatus] = useState<{ kind: "saving" | "saved" | "failed"; message: string } | null>(null);
+  const value = draft ?? saved;
+  const parsed = Settings.shape.instanceName.safeParse(value);
+  const next = parsed.success ? parsed.data : null;
+  const changed = next !== null && next !== saved;
+  const saving = status?.kind === "saving";
+  const save = async (instanceName: string): Promise<void> => {
+    if (client === null) return;
+    setStatus({ kind: "saving", message: "Saving…" });
+    try {
+      await client.settings.update({ instanceName });
+      setDraft(null);
+      setStatus({ kind: "saved", message: "Saved for this rowrow server." });
+    } catch (error) {
+      setStatus({
+        kind: "failed",
+        message: `Couldn't save: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      report("warn", "settings.action_failed", error, { action: "Save the title suffix" });
+    }
+  };
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (changed && !saving) void save(next);
+      }}
+    >
+      <div className="flex flex-col gap-0.5">
+        <Label htmlFor="instance-name" className="font-normal">
+          App and webpage title suffix
+        </Label>
+        <p id="instance-name-about" className="text-xs text-muted-foreground">
+          Saved on this rowrow server and shared by every device signed in to it. Your other rowrow servers
+          keep their own names.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Input
+          id="instance-name"
+          className="min-w-0 basis-full sm:basis-0 sm:flex-1"
+          placeholder="For example, Work or Home"
+          spellCheck={false}
+          autoComplete="off"
+          value={value}
+          aria-invalid={!parsed.success}
+          aria-describedby="instance-name-about instance-name-hint"
+          onChange={(event) => {
+            setDraft(event.currentTarget.value);
+            if (!saving) setStatus(null);
+          }}
+        />
+        <Button type="submit" variant="outline" disabled={client === null || saving || !changed}>
+          Save
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={client === null || saving || (saved === "" && value === "")}
+          onClick={() => {
+            setDraft(null);
+            void save("");
+          }}
+        >
+          Reset to default
+        </Button>
+      </div>
+      {parsed.success ? (
+        <p id="instance-name-hint" className="text-xs text-muted-foreground">
+          Up to 32 characters. Extra spaces are trimmed. Leave empty for the default name, rowrow.
+        </p>
+      ) : (
+        <p id="instance-name-hint" role="alert" className="text-xs text-destructive">
+          {parsed.error.issues[0]?.message}
+        </p>
+      )}
+      <div className="rounded-lg border bg-muted/50 px-3 py-2 text-sm">
+        <p>
+          <span className="text-muted-foreground">Saved name: </span>
+          <span className="font-medium">{appName(saved)}</span>
+        </p>
+        {changed && (
+          <p>
+            <span className="text-muted-foreground">Preview (not saved): </span>
+            <span className="font-medium">{appName(next)}</span>
+          </p>
+        )}
+      </div>
+      {status !== null && (
+        <p
+          role={status.kind === "failed" ? "alert" : "status"}
+          className={cn("text-xs", status.kind === "failed" ? "text-destructive" : "text-muted-foreground")}
+        >
+          {status.message}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Save it before installing rowrow as an app (Add to Home Screen). An app installed earlier may keep its
+        old name until you install it again.
+      </p>
+    </form>
   );
 }
 

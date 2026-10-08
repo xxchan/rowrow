@@ -4,9 +4,11 @@
 // (PRINCIPLES.md, product 4): you read it over and press send.
 //
 // Kept per workspace in this browser (localStorage), so they survive closing the panel or
-// reloading; delivered comments are removed once they're in a composer.
+// reloading, and every tab sees the same ones; delivered comments are removed once they're in
+// a composer.
 import { create } from "zustand";
 import type { Annotation, AnnotationSource } from "../../shared/feedback.ts";
+import { onPrefChange } from "./device-prefs.ts";
 
 export { compileFeedback, type Annotation, type AnnotationSource } from "../../shared/feedback.ts";
 
@@ -30,6 +32,9 @@ useAnnotations.subscribe((state) => {
     // storage full or unavailable: annotations stay in memory
   }
 });
+
+// Another tab added or sent some: take its list, so writing ours doesn't drop them.
+onPrefChange(KEY, () => useAnnotations.setState({ items: load() }));
 
 export function addAnnotation(workspaceId: string, source: AnnotationSource, comment: string): void {
   const annotation: Annotation = {

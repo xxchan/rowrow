@@ -1,6 +1,7 @@
 // What you can do to an agent, in one list: the ⋯ menu on its page and the right-click (or
 // long-press) menu on its rows in the side nav and on Home show the same actions. Rename and
-// Model and effort open dialogs that live in the Shell, so any row can start them.
+// Model and effort open dialogs that live in the Shell, so any row can start them (Rename also
+// opens when you double-click the agent's title in its header or its row in the side nav).
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -32,7 +33,7 @@ import {
   Plus,
   Power,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import type { AgentState, ModelInfo, Workspace } from "../../shared/schemas.ts";
@@ -209,9 +210,18 @@ function RenameDialog({
   onRename: (title: string) => void;
 }) {
   const [value, setValue] = useState(current);
+  const input = useRef<HTMLInputElement>(null);
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        // The whole title selected: type to replace it, or an arrow key to edit it.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          input.current?.focus();
+          input.current?.select();
+        }}
+      >
         <form
           className="contents"
           onSubmit={(event) => {
@@ -225,9 +235,10 @@ function RenameDialog({
             <DialogDescription>Leave it empty to name it after its first message.</DialogDescription>
           </DialogHeader>
           <Input
+            ref={input}
             aria-label="Title"
             value={value}
-            autoFocus
+            maxLength={200}
             onChange={(event) => setValue(event.currentTarget.value)}
           />
           <DialogFooter>

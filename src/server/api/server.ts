@@ -8,7 +8,8 @@
 //   GET  /rpc  (Upgrade)      the WebSocket every browser uses (oRPC)
 //   POST /rpc/*               the same procedures over HTTP (the typed CLI client, tests)
 //   *    /api/*               the same procedures as OpenAPI routes (curl, agents); spec at /api/openapi.json
-//   GET  /*                   the web app (when built), falling back to index.html
+//   GET  /*                   the web app (when built), falling back to index.html; a signed-in
+//                             browser gets its page and manifest under this server's name
 //
 // Every request to a procedure needs a device credential: the session cookie or a bearer
 // token (D-009). A WebSocket must also come from this server's own origin.
@@ -51,6 +52,8 @@ export interface HttpOptions {
   readonly webDir?: string;
   /** The kit (dist/kit/kit.js), when built. */
   readonly kitFile?: string;
+  /** What the app is called on this server ("rowrow · Work", settings.instanceName); null: rowrow. */
+  readonly appName?: () => string | null;
   readonly version: string;
 }
 
@@ -193,8 +196,15 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
     return matched ? response : c.text("no such procedure: GET /api/openapi.json lists them\n", 404);
   });
 
-  if (options.webDir !== undefined) app.get("*", (c) => serveWeb(c, options.webDir ?? ""));
-  else
+  if (options.webDir !== undefined) {
+    const root = options.webDir;
+    // Only a signed-in browser learns the server's name: the address alone doesn't tell it.
+    const nameFor = (c: HonoContext) => (): string | null => {
+      const name = options.appName?.() ?? null;
+      return name === null || auth(getCookie(c, COOKIE), undefined) === null ? null : name;
+    };
+    app.get("*", (c) => serveWeb(c, root, nameFor(c)));
+  } else
     app.get("/", (c) =>
       c.html(
         page(
@@ -344,7 +354,12 @@ const TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-function serveWeb(c: HonoContext, root: string): Response {
+/**
+ * A file of the built web app. The page and the manifest carry the app's name on this server
+ * (roamgate #368): its title, the name iOS and Android give it on the Home Screen. `name` is
+ * null when the server has none of its own or the browser isn't signed in: they're served as built.
+ */
+function serveWeb(c: HonoContext, root: string, name: () => string | null): Response {
   const requested = decodeURIComponent(new URL(c.req.url).pathname);
   const file = path.resolve(root, `.${requested}`);
   const inside = file.startsWith(path.resolve(root) + path.sep);
@@ -353,10 +368,24 @@ function serveWeb(c: HonoContext, root: string): Response {
   if (!fs.existsSync(target)) return c.text("web app not built\n", 404);
   const ext = path.extname(target);
   const immutable = requested.startsWith("/assets/");
-  return new Response(fs.readFileSync(target), {
+  const named =
+    target === path.join(root, "index.html") || target === path.join(root, "manifest.webmanifest");
+  const raw = fs.readFileSync(target);
+  const appName = named ? name() : null;
+  const body =
+    appName === null
+      ? raw
+      : ext === ".html"
+        ? namePage(raw.toString(), appName)
+        : nameManifest(raw.toString(), appName);
+  return new Response(body, {
     headers: {
       "content-type": TYPES[ext] ?? "application/octet-stream",
-      "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+      "cache-control": named
+        ? "private, no-cache"
+        : immutable
+          ? "public, max-age=31536000, immutable"
+          : "no-cache",
       ...(ext === ".html"
         ? {
             "content-security-policy":
@@ -365,6 +394,24 @@ function serveWeb(c: HonoContext, root: string): Response {
         : {}),
     },
   });
+}
+
+function namePage(html: string, name: string): string {
+  const text = escapeHtml(name);
+  return html
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${text}</title>`)
+    .replace(
+      /(<meta name="(?:apple-mobile-web-app-title|application-name)" content=")[^"]*"/g,
+      (_, start: string) => `${start}${text}"`,
+    );
+}
+
+function nameManifest(json: string, name: string): string {
+  return JSON.stringify({ ...(JSON.parse(json) as object), name, short_name: name }, null, 2);
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
 function page(title: string, body: string): string {

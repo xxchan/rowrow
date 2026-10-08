@@ -355,6 +355,7 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
         )}
         <textarea
           ref={inputRef}
+          data-composer
           aria-label="Message input"
           rows={1}
           value={draft}

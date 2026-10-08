@@ -22,16 +22,17 @@ import {
   Search,
   Settings,
 } from "lucide-react";
-import { useEffect, useMemo, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import type { AgentState, AppState, Workspace } from "../../shared/schemas.ts";
+import { appName, type AgentState, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
+import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
 import { onAttention, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
-import { AgentContextMenu, AgentDialogs, WorkspaceContextMenu } from "./AgentActions.tsx";
+import { AgentContextMenu, AgentDialogs, openAgentDialog, WorkspaceContextMenu } from "./AgentActions.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
@@ -48,6 +49,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const narrow = useNarrow();
   useAttentionToasts(route);
   useAppBadge();
+  useAppName();
   return (
     <div className="flex h-full flex-col">
       <ConnectionBanner />
@@ -82,7 +84,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 
 /**
  * A page's title bar. On a phone it leads with the nav button, badged with how many agents
- * need you (not counting the one on screen), so you always know if someone's waiting.
+ * need you (not counting the one on screen), so you always know if someone's waiting. While
+ * you type on a phone it folds away (index.css, `data-folds-while-typing`).
  */
 export function PageHeader({
   title: heading,
@@ -90,18 +93,24 @@ export function PageHeader({
   status,
   actions,
   route,
+  onRename,
 }: {
   title: string;
   subtitle?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
   route: Route;
+  /** Double-clicking the title renames what it names. */
+  onRename?: () => void;
 }) {
   const state = useApp((s) => s.state);
   const current = route.name === "agent" ? route.agentId : null;
   const waiting = state === null ? 0 : needsYou(state).filter((a) => a.id !== current).length;
   return (
-    <header className="flex min-h-14 shrink-0 items-center gap-2 border-b px-2 py-2 md:min-h-12 md:px-4">
+    <header
+      data-folds-while-typing
+      className="flex min-h-14 shrink-0 items-center gap-2 border-b px-2 py-2 md:min-h-12 md:px-4"
+    >
       <Button
         variant="ghost"
         size="icon"
@@ -119,7 +128,12 @@ export function PageHeader({
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         {status}
         <div className="min-w-0">
-          <h1 className="truncate text-[15px] leading-5 font-semibold md:text-sm">{heading}</h1>
+          <h1
+            className="truncate text-[15px] leading-5 font-semibold md:text-sm"
+            {...(onRename === undefined ? {} : renameOnDoubleClick(onRename))}
+          >
+            {heading}
+          </h1>
           {subtitle !== undefined && <div className="truncate text-xs text-muted-foreground">{subtitle}</div>}
         </div>
       </div>
@@ -157,6 +171,7 @@ function Nav({ route }: { route: Route }) {
           href={`/a/${agent.id}`}
           selected={agent.id === selectedAgent}
           indent={depth === null ? 8 : indent(depth)}
+          {...renameOnDoubleClick(() => openAgentDialog("rename", agent.id))}
         >
           <AgentIcon
             runtime={agent.summary.runtime}
@@ -232,11 +247,13 @@ function Nav({ route }: { route: Route }) {
     >
       <div className="flex items-center gap-2.5 px-3 pt-3 pb-2">
         <RouterLink href="/" className="flex min-w-0 items-center gap-2.5 rounded-md">
-          <span className="flex size-7 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
             <RowrowMark />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm leading-4 font-semibold text-foreground">rowrow</span>
+            <span className="block truncate text-sm leading-4 font-semibold text-foreground">
+              {appName(state.settings.instanceName)}
+            </span>
             <span className="block truncate text-[11px] text-muted-foreground">{state.host.name}</span>
           </span>
         </RouterLink>
@@ -310,6 +327,22 @@ function Nav({ route }: { route: Route }) {
       </div>
     </nav>
   );
+}
+
+/**
+ * Double-click to rename (roamgate #354). The first click still does what a click does (a row
+ * opens its agent), and the double-click selects no text.
+ */
+function renameOnDoubleClick(rename: () => void) {
+  return {
+    onMouseDown: (event: MouseEvent) => {
+      if (event.detail > 1) event.preventDefault();
+    },
+    onDoubleClick: (event: MouseEvent) => {
+      event.preventDefault();
+      rename();
+    },
+  };
 }
 
 function NavSection({ label, children }: { label: string; children: ReactNode }) {

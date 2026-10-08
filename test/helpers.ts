@@ -37,6 +37,7 @@ export async function startTestServer(
     updateRegistry?: string;
     apnsOrigin?: string;
     kitFile?: string;
+    webDir?: string;
     extraRuntimes?: readonly Runtime[];
   } = {},
 ): Promise<TestServer> {
@@ -54,6 +55,7 @@ export async function startTestServer(
       ...(options.updateRegistry === undefined ? {} : { updateRegistry: options.updateRegistry }),
       ...(options.apnsOrigin === undefined ? {} : { apnsOrigin: options.apnsOrigin }),
       ...(options.kitFile === undefined ? {} : { kitFile: options.kitFile }),
+      ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
       ...(options.extraRuntimes === undefined ? {} : { extraRuntimes: options.extraRuntimes }),
     },
     process.env["ROWROW_TEST_LOG"] === "1" ? "pretty" : "off",

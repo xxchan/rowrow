@@ -1,6 +1,7 @@
 // Light, dark, or whatever the system says; per device. theme.js applies it before the
-// first paint; this keeps it applied as the choice or the system changes.
+// first paint; this keeps it applied as the choice (here or in another tab) or the system changes.
 import { useSyncExternalStore } from "react";
+import { onPrefChange, readPref, writePref } from "./device-prefs.ts";
 
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -9,12 +10,8 @@ const media = matchMedia("(prefers-color-scheme: dark)");
 const listeners = new Set<() => void>();
 
 function stored(): ThemeMode {
-  try {
-    const value = localStorage.getItem(KEY);
-    return value === "system" || value === "light" || value === "dark" ? value : "dark";
-  } catch {
-    return "dark";
-  }
+  const value = readPref(KEY);
+  return value === "system" || value === "light" || value === "dark" ? value : "dark";
 }
 
 let mode = stored();
@@ -29,17 +26,16 @@ function apply(): void {
 /** Keeps the page's theme in step with the choice and, for "system", with the OS. */
 export function startTheme(): void {
   media.addEventListener("change", apply);
+  onPrefChange(KEY, () => {
+    mode = stored();
+    apply();
+  });
   apply();
 }
 
 export function setThemeMode(next: ThemeMode): void {
   mode = next;
-  try {
-    localStorage.setItem(KEY, next);
-  } catch {
-    // Private browsing: the choice lasts for this page.
-  }
-  apply();
+  writePref(KEY, next);
 }
 
 function subscribe(listener: () => void): () => void {

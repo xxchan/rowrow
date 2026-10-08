@@ -3,6 +3,7 @@
 // branch's pull request). Tabs stay mounted, so switching keeps a search or a commit open.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { lazy, Suspense } from "react";
+import { readPref, writePref } from "../lib/device-prefs.ts";
 import { ChangesView } from "./ChangesView.tsx";
 import { HistoryTab } from "./HistoryTab.tsx";
 
@@ -69,11 +70,12 @@ export function Inspector({
 
 const TAB_KEY = "rowrow.inspectorTab";
 
+/** The tab the inspector opens on: the last one picked on this device (switching stays per tab). */
 export function savedInspectorTab(): InspectorTab {
-  const saved = localStorage.getItem(TAB_KEY);
+  const saved = readPref(TAB_KEY);
   return saved === "files" || saved === "history" ? saved : "changes";
 }
 
 export function saveInspectorTab(tab: InspectorTab): void {
-  localStorage.setItem(TAB_KEY, tab);
+  writePref(TAB_KEY, tab);
 }

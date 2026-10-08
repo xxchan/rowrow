@@ -3,6 +3,7 @@
 // browser, the CLI and agents can rely on.
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
@@ -803,6 +804,60 @@ describe("settings", () => {
     await expect(t.client.settings.update({ quickReplies: ["x".repeat(501)] })).rejects.toThrow();
     t = await t.restart();
     expect((await t.client.state.get()).state.settings.quickReplies).toEqual(["Ship it.", "Try again."]);
+  });
+
+  it("names the page and the installed app after the server, for signed-in browsers only", async () => {
+    const web = path.resolve(import.meta.dirname, "../src/web");
+    const webDir = fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-web-"));
+    fs.copyFileSync(path.join(web, "index.html"), path.join(webDir, "index.html"));
+    fs.copyFileSync(path.join(web, "public/manifest.webmanifest"), path.join(webDir, "manifest.webmanifest"));
+    try {
+      t = await startTestServer({ webDir });
+      const { url } = t.server;
+      const code = new URL(t.server.loginLink()).searchParams.get("code") ?? "";
+      const redeemed = await fetch(`${url}/auth/redeem?code=${code}`, { redirect: "manual" });
+      const cookie = (redeemed.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+      const get = (route: string, signedIn = true): Promise<Response> =>
+        fetch(`${url}${route}`, { headers: signedIn ? { cookie } : {} });
+
+      // Without a name, the files as built.
+      const built = fs.readFileSync(path.join(webDir, "manifest.webmanifest"), "utf8");
+      expect(await (await get("/manifest.webmanifest")).text()).toBe(built);
+
+      const saved = await t.client.settings.update({ instanceName: "  Work \t laptop " });
+      expect(saved.instanceName).toBe("Work laptop");
+      const manifest = await get("/manifest.webmanifest");
+      expect(manifest.headers.get("content-type")).toBe("application/manifest+json");
+      expect(manifest.headers.get("cache-control")).toBe("private, no-cache");
+      expect(await manifest.json()).toMatchObject({
+        name: "rowrow · Work laptop",
+        short_name: "rowrow · Work laptop",
+        start_url: "/",
+        icons: (JSON.parse(built) as { icons: unknown[] }).icons,
+      });
+      const page = await (await get("/a/ag_x")).text();
+      expect(page).toContain("<title>rowrow · Work laptop</title>");
+      expect(page).toContain('<meta name="apple-mobile-web-app-title" content="rowrow · Work laptop" />');
+      expect(page).toContain('<meta name="application-name" content="rowrow · Work laptop" />');
+
+      // The address alone doesn't say which server this is.
+      expect(await (await get("/manifest.webmanifest", false)).text()).toBe(built);
+      expect(await (await get("/", false)).text()).toContain("<title>rowrow</title>");
+
+      await t.client.settings.update({ instanceName: '<b>"&' });
+      expect(await (await get("/")).text()).toContain("<title>rowrow · &#60;b&#62;&#34;&#38;</title>");
+      await expect(t.client.settings.update({ instanceName: "x".repeat(33) })).rejects.toThrow();
+      await expect(t.client.settings.update({ instanceName: "a\u202eb" })).rejects.toThrow();
+      expect((await t.client.settings.update({ instanceName: "🚣".repeat(32) })).instanceName).toHaveLength(
+        64,
+      );
+
+      await t.client.settings.update({ instanceName: "Home" });
+      t = await t.restart();
+      expect((await t.client.state.get()).state.settings.instanceName).toBe("Home");
+    } finally {
+      fs.rmSync(webDir, { recursive: true, force: true });
+    }
   });
 });
 

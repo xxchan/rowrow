@@ -223,3 +223,19 @@
   --trees-git-renamed-color-override: var(--info);
   --trees-git-ignored-color-override: var(--muted-foreground);
 }
+
+/* Typing on a phone (roamgate #347): the keyboard takes half the screen, so while the composer
+   has focus the page's header folds to the safe-area strip and the update banner steps aside,
+   and the conversation keeps those rows. No animation: they're back as soon as focus leaves. */
+@media (max-width: 767px) {
+  :root:has(textarea[data-composer]:focus) [data-folds-while-typing] {
+    min-height: 0;
+    padding-block: env(safe-area-inset-top, 0px) 0;
+    border-bottom: none;
+    box-shadow: none;
+  }
+  :root:has(textarea[data-composer]:focus) [data-folds-while-typing] > *,
+  :root:has(textarea[data-composer]:focus) [data-hides-while-typing] {
+    display: none;
+  }
+}
