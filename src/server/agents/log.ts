@@ -3,8 +3,11 @@
 // entry is in the database before any listener hears of it. Listeners are called in
 // append order; a subscription that replays from a cursor reads the database and starts
 // listening in the same tick, so nothing falls between the two.
+// Older oar records are packed (D-041): runs of them move from rows into zstd blocks, and
+// every read merges both by seq, so readers never know.
 import type { RawEvent } from "@botiverse/oar";
 import { setImmediate as nextTick } from "node:timers/promises";
+import zlib from "node:zlib";
 import type { Entry, EntryBody } from "../../shared/entries.ts";
 import type { Db } from "../store/db.ts";
 
@@ -29,6 +32,16 @@ type Listener = (entry: Entry) => void;
 
 /** Records rewritten per transaction; the server answers between pages. */
 const REWRITE_PAGE = 200;
+/** Records per pack at most, so reading a window decompresses little it doesn't need. */
+const PACK_MAX = 2000;
+/** An agent still writing is packed once this many of its records are old enough (a long turn). */
+const PACK_MIN = 500;
+
+interface PackRow {
+  readonly agent_id: string;
+  readonly first_seq: number;
+  readonly body: Uint8Array;
+}
 
 export class AgentLog {
   private readonly heads = new Map<string, number>();
@@ -48,7 +61,11 @@ export class AgentLog {
       "select max(seq) as seq from entries where agent_id = ?",
       agentId,
     );
-    const head = row?.seq ?? -1;
+    const pack = this.db.get<{ seq: number | null }>(
+      "select max(last_seq) as seq from entry_packs where agent_id = ?",
+      agentId,
+    );
+    const head = Math.max(row?.seq ?? -1, pack?.seq ?? -1);
     this.heads.set(agentId, head);
     return head;
   }
@@ -76,24 +93,20 @@ export class AgentLog {
     const headSeq = this.head(agentId);
     const limit = options.limit ?? 20_000;
     if (options.after !== undefined) {
-      const entries = this.rows(
-        "select body from entries where agent_id = ? and seq > ? order by seq limit ?",
-        agentId,
-        options.after,
-        limit,
-      );
+      const entries: Entry[] = [];
+      for (const entry of this.scan(agentId, options.after)) {
+        if (entries.push(entry) >= limit) break;
+      }
       return { entries, firstSeq: entries[0]?.seq ?? -1, headSeq, hasMore: options.after >= 0 };
     }
     const end = options.before ?? headSeq + 1;
     const start = this.windowStart(agentId, end, options.turns ?? 3);
     // Past the limit, keep the newest entries: the end of a conversation matters most.
-    const entries = this.rows(
-      "select body from (select seq, body from entries where agent_id = ? and seq >= ? and seq < ? order by seq desc limit ?) order by seq",
-      agentId,
-      start,
-      end,
-      limit,
-    );
+    let entries: Entry[] = [];
+    for (const entry of this.scan(agentId, start - 1, end)) {
+      if (entries.push(entry) >= 2 * limit) entries = entries.slice(-limit);
+    }
+    entries = entries.slice(-limit);
     const firstSeq = entries[0]?.seq ?? -1;
     return { entries, firstSeq, headSeq, hasMore: firstSeq > 0 };
   }
@@ -110,9 +123,37 @@ export class AgentLog {
   }
 
   /** Every entry, oldest first, without holding them all at once. */
-  *iterate(agentId: string): Generator<Entry> {
-    const statement = this.db.sql.prepare("select body from entries where agent_id = ? order by seq");
-    for (const row of statement.iterate(agentId)) yield JSON.parse((row as { body: string }).body) as Entry;
+  iterate(agentId: string): Generator<Entry> {
+    return this.scan(agentId, -1);
+  }
+
+  /**
+   * The entries with `after` < seq < `before`, oldest first: rows and packed records merged by
+   * seq (packs never overlap, so a pack's records go out in a run between rows).
+   */
+  private *scan(agentId: string, after: number, before = Number.MAX_SAFE_INTEGER): Generator<Entry> {
+    const rows = this.db.sql
+      .prepare("select seq, body from entries where agent_id = ? and seq > ? and seq < ? order by seq")
+      .iterate(agentId, after, before) as Iterator<{ seq: number; body: string }>;
+    const packs = this.db.sql
+      .prepare(
+        "select agent_id, first_seq, body from entry_packs where agent_id = ? and last_seq > ? and first_seq < ? order by first_seq",
+      )
+      .iterate(agentId, after, before) as Iterator<PackRow>;
+    let row = rows.next();
+    for (let pack = packs.next(); pack.done !== true; pack = packs.next()) {
+      for (; row.done !== true && row.value.seq < pack.value.first_seq; row = rows.next()) {
+        yield JSON.parse(row.value.body) as Entry;
+      }
+      for (const entry of unpack(pack.value.body)) {
+        if (entry.seq <= after || entry.seq >= before) continue;
+        for (; row.done !== true && row.value.seq < entry.seq; row = rows.next()) {
+          yield JSON.parse(row.value.body) as Entry;
+        }
+        yield entry;
+      }
+    }
+    for (; row.done !== true; row = rows.next()) yield JSON.parse(row.value.body) as Entry;
   }
 
   /** The input entry with this id and its result, for idempotent sends. */
@@ -134,13 +175,9 @@ export class AgentLog {
    * Returns the unsubscribe function.
    */
   follow(agentId: string, after: number, listener: Listener): () => void {
-    for (const entry of this.rows(
-      "select body from entries where agent_id = ? and seq > ? order by seq",
-      agentId,
-      after,
-    )) {
-      listener(entry);
-    }
+    // Read it all before calling the listener: what it does can't move rows under the scan.
+    const replay = Array.from(this.scan(agentId, after));
+    for (const entry of replay) listener(entry);
     let set = this.listeners.get(agentId);
     if (set === undefined) {
       set = new Set();
@@ -166,8 +203,49 @@ export class AgentLog {
    * type prefixes) are read, so this is cheap enough for every start; a page at a time, so the
    * server keeps answering. Returns how many changed.
    */
-  async rewriteRecords(needles: readonly string[], rewrite: (record: RawEvent) => RawEvent): Promise<number> {
-    if (needles.length === 0) return 0;
+  async rewriteRecords(
+    rules: { readonly frameTypePrefixes: readonly string[]; readonly version: number },
+    rewrite: (record: RawEvent) => RawEvent,
+  ): Promise<number> {
+    const needles = rules.frameTypePrefixes;
+    const changed = await this.rewritePacks(rules.version, rewrite);
+    if (needles.length === 0) return changed;
+    return changed + (await this.rewriteRows(needles, rewrite));
+  }
+
+  /** Packs last redacted with older rules: unpacked, rewritten and packed again, one at a time. */
+  private async rewritePacks(version: number, rewrite: (record: RawEvent) => RawEvent): Promise<number> {
+    let changed = 0;
+    for (;;) {
+      const pack = this.db.get<PackRow>(
+        "select agent_id, first_seq, body from entry_packs where rules_version < ? limit 1",
+        version,
+      );
+      if (pack === undefined) return changed;
+      let touched = false;
+      const entries = unpack(pack.body).map((entry) => {
+        if (entry.kind !== "oar") return entry;
+        const record = rewrite(entry.record);
+        if (record === entry.record) return entry;
+        touched = true;
+        changed++;
+        return { ...entry, record };
+      });
+      this.db.run(
+        "update entry_packs set rules_version = ?, body = ? where agent_id = ? and first_seq = ?",
+        version,
+        touched ? packOf(entries) : pack.body,
+        pack.agent_id,
+        pack.first_seq,
+      );
+      await nextTick();
+    }
+  }
+
+  private async rewriteRows(
+    needles: readonly string[],
+    rewrite: (record: RawEvent) => RawEvent,
+  ): Promise<number> {
     const mentions = needles.map(() => "instr(body, ?) > 0").join(" or ");
     let agentId = "";
     let seq = -1;
@@ -202,11 +280,77 @@ export class AgentLog {
     }
   }
 
+  /**
+   * Move oar records written before `cutoff` from rows into packs (D-041), up to PACK_MAX each:
+   * an agent's whole backlog once it has gone quiet (its turn ended, or its process did), else
+   * once PACK_MIN have waited (a turn that runs for hours). Records are packed as they are,
+   * after the start's redaction pass, so a pack is marked with the rules it was redacted with.
+   * A pack at a time, so the server keeps answering. Returns how many records were packed.
+   */
+  async pack(cutoff: number, rulesVersion: number): Promise<number> {
+    let packed = 0;
+    const agents = this.db.all<{ agent_id: string; pending: number; last_seq: number }>(
+      "select agent_id, count(*) as pending, max(seq) as last_seq from entries where kind = 'oar' and at < ? group by agent_id",
+      cutoff,
+    );
+    for (const agent of agents) {
+      const newest = this.db.get<{ at: number }>(
+        "select max(at) as at from entries where agent_id = ?",
+        agent.agent_id,
+      )?.at;
+      if (agent.pending < PACK_MIN && newest !== undefined && newest >= cutoff) continue;
+      for (;;) {
+        const rows = this.db.all<{ seq: number; body: string }>(
+          "select seq, body from entries where agent_id = ? and kind = 'oar' and seq <= ? order by seq limit ?",
+          agent.agent_id,
+          agent.last_seq,
+          PACK_MAX,
+        );
+        const first = rows[0];
+        const last = rows.at(-1);
+        if (first === undefined || last === undefined) break;
+        this.db.transaction(() => {
+          this.db.run(
+            "insert into entry_packs (agent_id, first_seq, last_seq, count, rules_version, body) values (?, ?, ?, ?, ?, ?)",
+            agent.agent_id,
+            first.seq,
+            last.seq,
+            rows.length,
+            rulesVersion,
+            zlib.zstdCompressSync(Buffer.from(rows.map((row) => row.body).join("\n"))),
+          );
+          this.db.run(
+            "delete from entries where agent_id = ? and kind = 'oar' and seq >= ? and seq <= ?",
+            agent.agent_id,
+            first.seq,
+            last.seq,
+          );
+        });
+        packed += rows.length;
+        await nextTick();
+      }
+    }
+    return packed;
+  }
+
   count(): number {
-    return this.db.get<{ n: number }>("select count(*) as n from entries")?.n ?? 0;
+    const rows = this.db.get<{ n: number }>("select count(*) as n from entries")?.n ?? 0;
+    return rows + (this.db.get<{ n: number | null }>("select sum(count) as n from entry_packs")?.n ?? 0);
   }
 
   private rows(query: string, ...params: (string | number)[]): Entry[] {
     return this.db.all<{ body: string }>(query, ...params).map((row) => JSON.parse(row.body) as Entry);
   }
+}
+
+function unpack(body: Uint8Array): Entry[] {
+  return zlib
+    .zstdDecompressSync(body)
+    .toString("utf8")
+    .split("\n")
+    .map((line) => JSON.parse(line) as Entry);
+}
+
+function packOf(entries: readonly Entry[]): Buffer {
+  return zlib.zstdCompressSync(Buffer.from(entries.map((entry) => JSON.stringify(entry)).join("\n")));
 }

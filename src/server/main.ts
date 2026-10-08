@@ -53,6 +53,9 @@ export interface ServerFile {
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+/** Oar records are packed once they are this old (D-041): a live agent's newest stay rows. */
+const PACK_AFTER_MS = 2 * 60_000;
+const PACK_EVERY_MS = 5 * 60_000;
 
 export function readVersion(): string {
   return (JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { version: string })
@@ -290,9 +293,29 @@ export async function startServer(
 
   // Credentials oar recorded as they came before it redacted them (until oar 0.32.1, grok's MCP
   // notifications carried the env of the user's own MCP servers): rewrite the stored copies.
+  // Then, and every few minutes after, pack older oar records (D-041): after the rewrite, so
+  // nothing is packed between its reading a record and writing it back.
+  let packTimer: NodeJS.Timeout | null = null;
+  let packing = false;
+  const packLog = async (): Promise<void> => {
+    if (packing) return;
+    packing = true;
+    try {
+      const started = Date.now();
+      const packed = await agentLog.pack(Date.now() - PACK_AFTER_MS, REDACTION_RULES.version);
+      if (packed > 0) log.info("agent_log.packed", { records: packed, ms: Date.now() - started });
+    } catch (error) {
+      log.error("agent_log.pack_failed", { err: serializeError(error) });
+    } finally {
+      packing = false;
+    }
+  };
   void (async (): Promise<void> => {
-    const changed = await agentLog.rewriteRecords(REDACTION_RULES.frameTypePrefixes, redactRecord);
+    const changed = await agentLog.rewriteRecords(REDACTION_RULES, redactRecord);
     if (changed > 0) log.info("agent_log.records_redacted", { changed });
+    await packLog();
+    packTimer = setInterval(() => void packLog(), PACK_EVERY_MS);
+    packTimer.unref();
   })().catch((error: unknown) => log.error("agent_log.redact_failed", { err: serializeError(error) }));
 
   log.info("server.started", { url, publicUrl, ms: Date.now() - startedAt });
@@ -311,6 +334,7 @@ export async function startServer(
         usage.stop();
         apns.close();
         clearInterval(pruneTimer);
+        if (packTimer !== null) clearInterval(packTimer);
         workspaces.close();
         await agents.shutdown();
         await http.close();

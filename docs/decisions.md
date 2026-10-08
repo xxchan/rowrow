@@ -1061,3 +1061,32 @@ per runtime every 5 minutes (Ferry has run it at that rate without being limited
 **Revisit when** a provider limits these reads (ask less often, or only while agents run), the
 iOS app wants it (the procedure is there), or several servers share an account (Ferry merges
 an account's readings from every machine; here each server keeps its own).
+
+## D-041 Pack older oar records into compressed blocks (2026-10-08)
+
+**Context.** Since oar 0.41, Claude Code streams: each fragment of its answer is its own
+frame, and rowrow stores every oar record as one row with its `native` payload. One real turn
+(a 1,800-character answer) became 219 records and 130 KB, about six times what it took
+before, and rowrow deletes no entries. oar keeps one frame per record (its record-stream
+spec) and every `native` (Cindy, #proj-rowrow:c498e780); the answer is compression. Rows
+compress badly one at a time (the same turn, row by row: 77 KB), and well together (the
+whole turn: 15 KB with zstd, less than before streaming).
+
+**Decision.** Every 5 minutes (first after the start's redaction pass), the server moves each
+agent's `oar` entries older than 2 minutes into `entry_packs`: up to 2,000 entries per pack,
+their JSON lines compressed with zstd, keyed by the seq range they cover. An agent still
+writing is packed once 500 of its records have waited (a turn can run for hours); once it has
+gone quiet (its turn ended, or its process exited), all of its old records are. Entries stay
+exactly as they were, `seq` included; other kinds of entries (inputs, run starts and ends)
+stay rows, since lookups find them by kind and input id. Every read (windows, `after`,
+`follow`, `iterate`) merges rows and packs by seq. A pack is marked with oar's
+`REDACTION_RULES.version` its records were redacted with; when the rules change, the start's
+redaction pass unpacks, rewrites and repacks the older packs (D-039).
+
+**Why.** It keeps the log lossless and verbatim (oar's records, oar's seq) and the folds
+untouched, and applies to records already stored. Packing by age rather than at a turn's end
+needs no notion of turns and covers turns that never end cleanly.
+
+**Revisit when** reading old history gets slow (packs are read whole: a window that starts
+inside one decompresses up to 2,000 records), or the database file should shrink too (packing
+frees pages for reuse but doesn't shrink the file; that would take a VACUUM).

@@ -115,6 +115,20 @@ const MIGRATIONS: readonly string[] = [
     primary key (account, window_id, at)
   ) without rowid;
   `,
+  // 7: packed oar records (D-041): a run of one agent's oar entries as zstd-compressed JSON
+  // lines, in place of their rows. Packs never overlap; other kinds of entries stay rows.
+  // rules_version is oar's REDACTION_RULES.version its records were last redacted with.
+  `
+  create table entry_packs (
+    agent_id text not null,
+    first_seq integer not null,
+    last_seq integer not null,
+    count integer not null,
+    rules_version integer not null,
+    body blob not null,
+    primary key (agent_id, first_seq)
+  ) without rowid;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

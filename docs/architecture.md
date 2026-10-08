@@ -102,6 +102,9 @@ type Entry = { seq: number; at: number } & (
   in the database. Clients get slim entries by default: frame `native` payloads are
   dropped (the folds never read them). `toApp` request bodies are kept, since a UI must
   show what the agent is asking. Full entries are available to debugging tools.
+- **Packed when old (D-041).** Every few minutes, `oar` entries older than two minutes move
+  from rows into zstd blocks of up to 2,000 (`entry_packs`), unchanged; other entries stay
+  rows. Every read merges both by `seq`, so nothing above the log knows.
 
 ### Folds
 
