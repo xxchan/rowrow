@@ -6,6 +6,7 @@ import type { AvailableInstallation, SessionOptions } from "@botiverse/oar";
 import { scriptedRuntime } from "@botiverse/oar/testing";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
+import { formatLogout } from "../src/cli/login.ts";
 import { Runtimes } from "../src/server/agents/runtimes.ts";
 
 describe("runtimes", () => {
@@ -167,6 +168,11 @@ describe("runtimes", () => {
     expect(() => runtimes.login("scripted")).toThrow(/signing out/);
     expect(await done).toEqual({ kind: "logged_out" });
     expect(runtimes.info("scripted")).toMatchObject({ auth: { kind: "logged_out" } });
+  });
+
+  it("says a Cursor sign-out leaves its API key good, in the CLI too", () => {
+    expect(formatLogout("cursor", { kind: "logged_out" })).toMatch(/revoke it in your Cursor dashboard/);
+    expect(formatLogout("claude", { kind: "logged_out" })).toBe("signed out");
   });
 
   it("says which executable it runs, and the copies later on PATH that never run", async () => {

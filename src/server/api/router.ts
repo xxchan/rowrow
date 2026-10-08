@@ -126,6 +126,8 @@ export interface Services {
 /** Called so often, or so plainly, that an api.call line each would drown the log. */
 const QUIET = new Set(["presence.update", "telemetry.report", "agents.markSeen", "logs.query"]);
 const DEFAULT_WAIT: Attention[] = ["blocked", "done", "idle"];
+/** agents.watch sends at most one batch per this long: ten a second while text streams. */
+const WATCH_GAP_MS = 100;
 
 /** Presence of an HTTP client's state.watch stream: its own name, scoped to the device that chose it. */
 function httpConnection(deviceId: string, name: string): string {
@@ -330,22 +332,28 @@ export function createRouter(s: Services) {
         requireAgent(s, input.agentId);
         let unsubscribe = (): void => undefined;
         const ch = channel<{ entries: Entry[] }>(() => unsubscribe(), signal);
-        // Entries arrive one at a time (text streams as many small ones); send them in batches per tick.
+        // Entries arrive one at a time, and a streaming answer is many small ones (Claude Code:
+        // one per fragment, dozens a second). Send them in batches, at most one per
+        // WATCH_GAP_MS: an entry after a quiet spell goes at once, a stream in a few bigger
+        // messages (which the WebSocket's deflate then compresses).
         let batch: Entry[] = [];
-        let scheduled = false;
+        let timer: NodeJS.Timeout | null = null;
+        let flushedAt = 0;
         const flush = (): void => {
-          scheduled = false;
+          timer = null;
           if (batch.length === 0) return;
+          flushedAt = Date.now();
           ch.push({ entries: batch });
           batch = [];
         };
-        unsubscribe = s.agentLog.follow(input.agentId, input.after, (entry) => {
+        const unfollow = s.agentLog.follow(input.agentId, input.after, (entry) => {
           batch.push(slimEntry(entry));
-          if (!scheduled) {
-            scheduled = true;
-            setImmediate(flush);
-          }
+          timer ??= setTimeout(flush, Math.max(0, flushedAt + WATCH_GAP_MS - Date.now()));
         });
+        unsubscribe = () => {
+          unfollow();
+          if (timer !== null) clearTimeout(timer);
+        };
         return ch.iterator;
       }),
       wait: os.agents.wait.handler(async ({ input }) =>

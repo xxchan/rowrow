@@ -228,7 +228,9 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
   // ─── WebSocket ─────────────────────────────────────────────────────────────
   const wss = new WebSocketServer({
     noServer: true,
-    perMessageDeflate: { threshold: 1024 },
+    // With the context kept across messages, even a few hundred bytes of JSON shrink about 13×
+    // (a streaming answer's batches are that small); tinier ones aren't worth the work.
+    perMessageDeflate: { threshold: 256 },
     maxPayload: 16 * 1024 * 1024,
   });
   const wsRpc = new WsRPCHandler(options.router, {

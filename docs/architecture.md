@@ -129,7 +129,10 @@ once.
 Each agent has one **actor**: a serial queue that every operation on the agent goes
 through (send, abort, answer, restart, archive, change model). It owns the agent's
 current run and is the only writer of its log. Serial execution makes the races easy to
-reason about: two clients sending at once become an ordered prompt, then a steer.
+reason about: two clients sending at once become an ordered prompt, then a steer. Stopping a
+turn doesn't wait in the queue (oar ends a runtime process that doesn't stop within 10 s), and
+stopping the run waits behind other work for at most 10 s before it ends the process itself,
+which settles a call a frozen runtime never answers.
 
 - **Input.** `agents.send {inputId, text, mode}`. The actor records an `input` entry,
   starts a run if none is live (resuming the runtime's conversation), then prompts when
@@ -194,7 +197,8 @@ There are two kinds of replicated data, with one mechanism each:
   `state.watch` sends a snapshot, then patches coalesced per tick. On reconnect a client
   takes a fresh snapshot; it is small.
 - **Agent logs** are large and append-only. `agents.entries` reads a window (for
-  example the last few turns), and `agents.watch {after}` streams entries after a cursor.
+  example the last few turns), and `agents.watch {after}` streams entries after a cursor,
+  in batches at most ten a second (a streaming answer is dozens of small records a second).
   On reconnect a client resumes from its last `seq`.
 
 Everything else (diffs, files, model lists) is request/response, cached by the client.

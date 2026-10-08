@@ -23,8 +23,8 @@ export interface TestServer {
   readonly client: Client;
   /** A fresh repository to use as a workspace. */
   repo(name?: string): string;
-  /** A browser-like client over WebSocket (signed in through a login link). */
-  websocket(): Promise<{ client: Client; close(): void }>;
+  /** A browser-like client over WebSocket (signed in through a login link), and the extensions it agreed. */
+  websocket(): Promise<{ client: Client; close(): void; extensions: string }>;
   restart(): Promise<TestServer>;
   close(): Promise<void>;
 }
@@ -33,6 +33,7 @@ export async function startTestServer(
   options: {
     home?: string;
     idleTimeoutMs?: number;
+    stopWaitMs?: number;
     gh?: string;
     updateRegistry?: string;
     apnsOrigin?: string;
@@ -51,6 +52,7 @@ export async function startTestServer(
       testRuntime: true,
       probeRuntimes: false,
       idleTimeoutMs: options.idleTimeoutMs ?? 60_000,
+      ...(options.stopWaitMs === undefined ? {} : { stopWaitMs: options.stopWaitMs }),
       ...(options.gh === undefined ? {} : { gh: options.gh }),
       ...(options.updateRegistry === undefined ? {} : { updateRegistry: options.updateRegistry }),
       ...(options.apnsOrigin === undefined ? {} : { apnsOrigin: options.apnsOrigin }),
@@ -105,7 +107,7 @@ export async function startTestServer(
       const wsClient = createORPCClient<Client>(
         new WebSocketLink({ websocket: ws as unknown as globalThis.WebSocket }),
       );
-      return { client: wsClient, close: () => ws.close() };
+      return { client: wsClient, close: () => ws.close(), extensions: ws.extensions };
     },
     async restart() {
       await server.close();

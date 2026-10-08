@@ -31,6 +31,8 @@ export interface ActorDeps {
   /** Environment for the agent's runs (ROWROW_* so the agent can use the rowrow CLI). */
   readonly env: (agentId: string) => Record<string, string>;
   readonly idleTimeoutMs: number;
+  /** How long a stop waits behind other work before it ends the process itself (STOP_WAIT_MS). */
+  readonly stopWaitMs?: number;
   /** Called before an input starts a new turn (the "last turn" diff baseline). */
   readonly beforeTurn?: (agentId: string) => Promise<void>;
 }
@@ -40,6 +42,8 @@ interface LiveRun {
   readonly session: Session;
   unsubscribe: () => void;
   stopping: boolean;
+  /** Its dispose, once asked for: it settles when the process has exited. */
+  disposed: Promise<void> | null;
   /** Its process exited (the code it exited with); the session takes nothing more. */
   exited: { readonly code: number | null } | null;
 }
@@ -64,6 +68,13 @@ interface Delivery {
 }
 
 const ALREADY_SENT = "Already sent: the turn ended and it went to the agent before you edited it.";
+
+/**
+ * A stop waits its turn in the queue, but not forever: a task can be stuck on a runtime that
+ * never answers (a Codex that doesn't reply to turn/start can't be interrupted either). After
+ * this long the stop ends the process from outside the queue, which settles the stuck call.
+ */
+const STOP_WAIT_MS = 10_000;
 
 export class AgentActor {
   private queue: Promise<unknown> = Promise.resolve();
@@ -410,7 +421,14 @@ export class AgentActor {
       resumed: resumed !== undefined,
       ms: Date.now() - started,
     });
-    const run: LiveRun = { runId, session, stopping: false, exited: null, unsubscribe: () => undefined };
+    const run: LiveRun = {
+      runId,
+      session,
+      stopping: false,
+      disposed: null,
+      exited: null,
+      unsubscribe: () => undefined,
+    };
     // From seq -1: records the runtime produced while starting are replayed, not lost.
     run.unsubscribe = session.rawEvents(
       (record) => {
@@ -429,17 +447,31 @@ export class AgentActor {
 
   /** Stop the live run, if any. The conversation stays; the next input resumes it. */
   stop(reason: RunEndReason): Promise<void> {
+    const waitMs = this.deps.stopWaitMs ?? STOP_WAIT_MS;
+    const stuck = setTimeout(() => {
+      const run = this.run;
+      if (run === null || run.stopping) return;
+      log.warn("agent.stop_forced", { run: run.runId, waitedMs: waitMs });
+      void this.dispose(run);
+    }, waitMs);
+    stuck.unref();
     return this.enqueue("stop", async () => {
+      clearTimeout(stuck);
       const run = this.run;
       if (run === null) return;
-      run.stopping = true;
-      try {
-        await run.session.dispose();
-      } catch (error) {
-        log.error("agent.dispose_failed", { run: run.runId, err: serializeError(error) });
-      }
+      // Done only once the process is gone, also when the timer above began ending it.
+      await this.dispose(run);
       await this.finishRun(run, reason, null);
     });
+  }
+
+  /** End the run's process, once; resolves when it has exited. */
+  private dispose(run: LiveRun): Promise<void> {
+    run.stopping = true;
+    run.disposed ??= run.session.dispose().catch((error: unknown) => {
+      log.error("agent.dispose_failed", { run: run.runId, err: serializeError(error) });
+    });
+    return run.disposed;
   }
 
   private async finishRun(run: LiveRun, reason: RunEndReason, code: number | null): Promise<void> {

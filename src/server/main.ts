@@ -191,6 +191,7 @@ export async function startServer(
     runtimes,
     workspaces,
     idleTimeoutMs: options.idleTimeoutMs,
+    ...(options.stopWaitMs === undefined ? {} : { stopWaitMs: options.stopWaitMs }),
     env: (agentId) => ({
       // Read at each run's start: the login shell's PATH may have been added since boot.
       PATH: prependPath(agentBin, process.env["PATH"]),

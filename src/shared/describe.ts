@@ -105,9 +105,12 @@ export function failureHint(failure: FailureClass, credential?: CredentialProble
   return null;
 }
 
-/** Why an input the runtime took was never read (oar's dropped state), and what to do. */
+/**
+ * Why an input the runtime took was never read (oar's dropped state), and what to do. Never "not
+ * delivered": it was, and after its process exited a resumed conversation may hold it after all.
+ */
 export function droppedWords(reason: ConversationInput["reason"]): string {
   return reason === "runtime_exited"
-    ? "Not read: the agent's process exited first. Send it again if it still matters."
-    : "Not read: the turn ended first. Send it again if it still matters.";
+    ? "Not read by the agent: its process exited first. Send it again if it still matters."
+    : "Not read by the agent: the turn ended first. Send it again if it still matters.";
 }

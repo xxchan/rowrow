@@ -78,6 +78,8 @@ export interface ServerOptions {
   readonly testRuntime: boolean;
   /** A live run with no activity for this long is stopped (its conversation resumes on the next input). */
   readonly idleTimeoutMs: number;
+  /** How long a stop waits behind stuck work before it ends the process itself (tests; 10 s otherwise). */
+  readonly stopWaitMs?: number;
   /** Keep oar's installed-runtime probe out of the way (tests that need only the scripted runtime). */
   readonly probeRuntimes: boolean;
   /** Runtimes to offer besides oar's (tests: one that behaves like a runtime they can't install). */

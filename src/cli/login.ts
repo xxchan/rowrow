@@ -5,6 +5,7 @@
 import readline from "node:readline/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { LoginEvent, LoginResult, LogoutResult } from "../shared/schemas.ts";
+import { logoutLeaves } from "../shared/sign-in.ts";
 import type { Client } from "./client.ts";
 
 const POLL_MS = 500;
@@ -98,10 +99,12 @@ export function formatLogin(result: LoginResult): string {
   }
 }
 
-export function formatLogout(result: LogoutResult): string {
+export function formatLogout(runtime: string, result: LogoutResult): string {
   switch (result.kind) {
-    case "logged_out":
-      return "signed out";
+    case "logged_out": {
+      const leaves = logoutLeaves(runtime);
+      return leaves === null ? "signed out" : `signed out. ${leaves}`;
+    }
     case "failed":
       return result.reason === "still_logged_in"
         ? `still signed in: something besides its login signs it in, such as an API key in its environment, which rowrow leaves alone${result.detail === undefined ? "" : ` (${result.detail})`}`

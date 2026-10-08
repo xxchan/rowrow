@@ -361,9 +361,10 @@ async function main(argv: string[]): Promise<void> {
           return;
         }
         if (rest[0] === "logout") {
-          if (rest[1] === undefined) throw new Error("usage: rowrow runtimes logout <runtime>");
-          const result = await client.runtimes.logout({ runtime: rest[1] });
-          out(result, () => formatLogout(result));
+          const runtime = rest[1];
+          if (runtime === undefined) throw new Error("usage: rowrow runtimes logout <runtime>");
+          const result = await client.runtimes.logout({ runtime });
+          out(result, () => formatLogout(runtime, result));
           return;
         }
         if (rest[0] === "usage") {

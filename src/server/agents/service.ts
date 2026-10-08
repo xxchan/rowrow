@@ -50,6 +50,8 @@ export interface AgentServiceDeps {
   readonly runtimes: Runtimes;
   readonly workspaces: Workspaces;
   readonly idleTimeoutMs: number;
+  /** Tests: how long a stop waits behind stuck work (the actor's STOP_WAIT_MS otherwise). */
+  readonly stopWaitMs?: number;
   readonly env: (agentId: string) => Record<string, string>;
   /** A turn is about to start / has ended: snapshot the workspace ("last turn" diffs, git). */
   readonly turnStarted?: (workspaceId: string, agentId: string) => Promise<void>;
@@ -106,6 +108,7 @@ export class AgentService {
       },
       env: this.deps.env,
       idleTimeoutMs: this.deps.idleTimeoutMs,
+      ...(this.deps.stopWaitMs === undefined ? {} : { stopWaitMs: this.deps.stopWaitMs }),
       beforeTurn: async (agentId) => this.beforeTurn(agentId),
     });
     const agent: Agent = {

@@ -15,6 +15,7 @@ import type {
   LogoutResult,
   RuntimeInfo,
 } from "../../shared/schemas.ts";
+import { logoutLeaves } from "../../shared/sign-in.ts";
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 
@@ -124,16 +125,11 @@ export function logoutQuestion(runtime: RuntimeInfo): string {
   return [
     `This runs ${runtime.name}'s own sign-out on the machine rowrow runs on, so it is signed out there for everything, not just rowrow. Agents that use it can't work until it's signed in again.`,
     "An API key in its environment stays.",
-    LOGOUT_NOTE[runtime.id],
+    logoutLeaves(runtime.id),
   ]
-    .filter((part) => part !== undefined)
+    .filter((part) => part !== null)
     .join(" ");
 }
-
-/** What a runtime's sign-out leaves behind, past what it says itself. */
-const LOGOUT_NOTE: Record<string, string> = {
-  cursor: "Cursor keeps accepting its API key until you revoke it in your Cursor dashboard.",
-};
 
 const FAILED: Record<string, string> = {
   timed_out: "it took too long.",

@@ -181,7 +181,7 @@ function noteOf(row: Row, working: boolean, paused: QueuePauseReason | null): st
         ? "Steering into this turn · the agent reads it at its next step · can't be taken back"
         : "Sent · waiting for the agent to read it · can't be taken back";
     case "unread":
-      return "Not read · the agent dropped it when its turn was stopped or its process ended";
+      return "Not read by the agent · its turn was stopped or its process ended first";
     case "queued":
       return paused !== null
         ? "Queued · waits until you send the queue on"

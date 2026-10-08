@@ -272,6 +272,45 @@ describe("agents", () => {
     expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
   });
 
+  it("stops a run whose runtime never answers instead of waiting behind it, then resumes", async () => {
+    t = await startTestServer({ extraRuntimes: [neverAnswers()], stopWaitMs: 300 });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "frozen",
+      input: input("/echo hi"),
+    });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.summary.preview === "hi" ? true : undefined,
+    );
+    // The runtime takes this prompt and never answers (a Codex stuck before turn/start
+    // replies, which no interrupt reaches): the send holds the agent's queue.
+    const inputId = newInputId();
+    const stuck = t.client.agents.send({ agentId: agent.id, inputId, text: "/hang", mode: "auto" });
+    await eventually(async () =>
+      (await t!.client.agents.entries({ agentId: agent.id, after: -1 })).entries.some(
+        (e) => e.kind === "input" && e.inputId === inputId,
+      )
+        ? true
+        : undefined,
+    );
+    // Stopping the process still works: it ends the process, which settles the stuck send.
+    await t.client.agents.stop({ agentId: agent.id });
+    expect((await stuck).landed).toBe("rejected");
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(entries.filter((e) => e.kind === "run.ended").map((e) => e.reason)).toEqual(["stopped"]);
+    const next = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/echo again",
+      mode: "auto",
+    });
+    expect(next.landed).toBe("prompted");
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[agent.id]?.summary.preview === "again" ? true : undefined,
+    );
+  });
+
   it("doesn't stop an idle run while work runs in the background, and stops it once that ends", async () => {
     t = await startTestServer({ idleTimeoutMs: 200 });
     const { agent } = await agentIn(t, "/background 1500 npm run dev");
@@ -450,6 +489,35 @@ describe("the queue (D-035)", () => {
     expect(await turns(agent.id)).toBe(1);
   });
 
+  it("shows a steer its process never read as not read, to take back and send again", async () => {
+    // Steers are tracked until the runtime echoes them (Claude Code, Codex): the scripted
+    // runtime under Codex's name never does, like a Codex that ends before its next step.
+    t = await startTestServer({ extraRuntimes: [{ ...scriptedDemoRuntime(), id: "codex" }] });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "codex",
+      input: input("/sleep 10000"),
+    });
+    await eventually(async () => ((await summaryOf(agent.id))?.status.kind === "running" ? true : undefined));
+    const steered = await send(agent.id, "use the other file", "steer");
+    expect(steered.landed).toBe("steered");
+    expect((await summaryOf(agent.id))?.steering.map((q) => q.text)).toEqual(["use the other file"]);
+    await t.client.agents.stop({ agentId: agent.id });
+    const stopped = await summaryOf(agent.id);
+    expect(stopped?.steering).toEqual([]);
+    expect(stopped?.unread.map((q) => q.inputId)).toEqual([steered.inputId]);
+    // Edit takes it back into the composer; sending it again starts a turn with it.
+    const taken = await t.client.agents.withdraw({ agentId: agent.id, inputId: steered.inputId });
+    expect(taken.text).toBe("use the other file");
+    expect((await summaryOf(agent.id))?.unread).toEqual([]);
+    const again = await send(agent.id, `/echo ${taken.text}`, "auto");
+    expect(again.landed).toBe("prompted");
+    await eventually(async () =>
+      (await summaryOf(agent.id))?.preview === "use the other file" ? true : undefined,
+    );
+  });
+
   it("pauses what was held when the server restarted", async () => {
     t = await startTestServer();
     const { agent } = await agentIn(t, "/sleep 10000");
@@ -492,6 +560,39 @@ describe("streams", () => {
       seen.push(...batch.entries.map((e) => e.seq));
     }
     expect(seen).toEqual(all.filter((e) => e.seq > cut).map((e) => e.seq));
+    await iterator.return?.();
+    close();
+  });
+
+  it("agents.watch sends a streaming answer in batches, at most ten a second, over a deflated socket", async () => {
+    t = await startTestServer();
+    const { agent } = await agentIn(t);
+    const { client, close, extensions } = await t.websocket();
+    expect(extensions).toContain("permessage-deflate");
+    const iterator = (await client.agents.watch({ agentId: agent.id, after: -1 }))[Symbol.asyncIterator]();
+    await iterator.next(); // what was there already
+    await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/stream 30",
+      mode: "auto",
+    });
+    const arrived: number[] = [];
+    let texts = 0;
+    for (let ended = false; !ended;) {
+      const { entries } = (await iterator.next()).value as { entries: Entry[] };
+      arrived.push(Date.now());
+      const events = entries.flatMap((e) =>
+        e.kind === "oar" && e.record.kind === "frame" ? e.record.body.events : [],
+      );
+      texts += events.filter((event) => event.kind === "text_delta").length;
+      ended = events.some((event) => event.kind === "turn_ended");
+    }
+    expect(texts).toBe(30);
+    // A chunk every 40 ms, one push each would be 40 ms apart.
+    const gaps = arrived.slice(1).map((at, i) => at - (arrived[i] ?? at));
+    const median = gaps.toSorted((a, b) => a - b)[Math.floor(gaps.length / 2)] ?? 0;
+    expect(median).toBeGreaterThanOrEqual(80);
     await iterator.return?.();
     close();
   });
@@ -942,6 +1043,41 @@ function withoutSteer(): Runtime {
  * records say so, and the scripted turn stops underneath, unseen.
  */
 type Stamp = "sessionId" | "agentPath" | "seq" | "receivedAt";
+
+/**
+ * A runtime that never answers a prompt starting with /hang (a frozen process): the call
+ * settles only once the session is disposed, as oar settles a control its process never
+ * answered when that process ends.
+ */
+function neverAnswers(): Runtime {
+  const base = scriptedDemoRuntime();
+  return {
+    ...base,
+    id: "frozen",
+    session: async (installation, options) => {
+      const session = await base.session(installation, options);
+      const ended = Promise.withResolvers<void>();
+      const prompt: Session["prompt"] = async (text, promptOptions) => {
+        if (text.startsWith("/hang")) await ended.promise;
+        return session.prompt(text, promptOptions);
+      };
+      const dispose = async (): Promise<void> => {
+        ended.resolve();
+        await session.dispose();
+      };
+      return new Proxy(session, {
+        get: (target, key) => {
+          if (key === "prompt") return prompt;
+          if (key === "dispose") return dispose;
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === "function"
+            ? (value as (...args: unknown[]) => unknown).bind(target)
+            : value;
+        },
+      });
+    },
+  };
+}
 
 function exitsOnAbort(answer: "accepted" | "runtime_exited" = "accepted"): Runtime {
   const base = scriptedDemoRuntime();
