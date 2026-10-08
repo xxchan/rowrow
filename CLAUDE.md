@@ -56,7 +56,8 @@ every caller of a function) to a subagent that returns the answer.
 
 The scripted runtime (`src/server/agents/scripted.ts`) is a real oar session with no model:
 `/echo <text>`, `/write <path>` (then the file's lines), `/sleep <ms>`, `/stream <n>`,
-`/fail <reason>`, `/run <ms> <command>` (a Bash tool call that takes that long),
+`/fail <reason>`, `/run <ms> <command>` (a Bash tool call that takes that long; each
+following line is one more call, and `false` fails),
 `/background <ms> <text>` (a background command that outlives the turn). It starts signed
 out; its sign-in (Settings → Agent runtimes) asks for a code, which is always `rowrow`, and
 Sign out signs it out again.

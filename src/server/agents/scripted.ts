@@ -8,7 +8,8 @@
 //   /sleep <ms>             work for <ms> (abortable), then say so
 //   /stream <n>             say n chunks, 40 ms apart
 //   /fail <reason>          end the turn failed with <reason>
-//   /run <ms> <command>     run <command> as a Bash tool call that takes <ms>
+//   /run <ms> <command>     run <command> as a Bash tool call that takes <ms>; each following
+//                           line is one more command (a run of calls); `false` fails
 //   /background <ms> <text> start <text> as a background command, end the turn, and finish
 //                           the command <ms> later (a task that outlives its turn)
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
@@ -31,7 +32,10 @@ const COMMANDS: readonly SkillEntry[] = [
   { name: "stream", description: "Say that many chunks, 40 ms apart" },
   { name: "fail", description: "End the turn failed, with the rest of the line as the reason" },
   { name: "background", description: "Run a command in the background for that many milliseconds" },
-  { name: "run", description: "Run a command as a tool call that takes that many milliseconds" },
+  {
+    name: "run",
+    description: "Run a command (and one per following line) as tool calls that take that many milliseconds",
+  },
 ];
 
 export function scriptedDemoRuntime(): Runtime {
@@ -78,12 +82,22 @@ export function scriptedDemoRuntime(): Runtime {
           throw new Error(arg || "scripted failure");
         case "/run": {
           const ms = Number(args[0]) || 1000;
-          const line = args.slice(1).join(" ") || "true";
-          await turn.tool("Bash", JSON.stringify({ command: line }), async () => {
-            await sleep(ms, undefined, { signal: turn.signal });
-            return `ran ${line}`;
-          });
-          turn.say(`Ran \`${line}\`.`);
+          const lines = [
+            args.slice(1).join(" ") || "true",
+            ...rest.map((line) => line.trim()).filter(Boolean),
+          ];
+          for (const line of lines) {
+            await turn
+              .tool("Bash", JSON.stringify({ command: line }), async () => {
+                await sleep(ms, undefined, { signal: turn.signal });
+                if (line === "false") throw new Error("exit code 1");
+                return `ran ${line}`;
+              })
+              .catch((error: unknown) => {
+                if (line !== "false" || turn.signal.aborted) throw error;
+              });
+          }
+          turn.say(`Ran ${lines.map((line) => `\`${line}\``).join(", ")}.`);
           return;
         }
         case "/background": {

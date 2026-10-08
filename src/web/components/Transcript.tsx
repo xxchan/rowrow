@@ -7,8 +7,13 @@ import { cn } from "@/lib/utils";
 import {
   appRequestKind,
   classifyTool,
+  groupToolActivity,
+  toolActionLabel,
+  toolGroupSummary,
+  type ReasoningPart,
+  type ToolGroup as ActivityGroup,
+  type ToolPart,
   type ViewMessage,
-  type ViewPart,
   type ViewSection,
 } from "@botiverse/oar/observe";
 import { cjk } from "@streamdown/cjk";
@@ -343,19 +348,20 @@ function Section({
   streaming: boolean;
 }) {
   const out: ReactNode[] = [];
-  let tools: ViewPart[] = [];
-  const flushTools = (): void => {
-    if (tools.length === 0) return;
-    out.push(<ToolGroup key={`tools-${out.length}`} parts={tools} runtime={runtime} />);
-    tools = [];
-  };
-  section.parts.forEach((part, index) => {
-    if (part.kind === "tool") {
-      tools.push(part);
-      return;
+  const lastIndex = section.parts.length - 1;
+  for (const segment of groupToolActivity(runtime, section.parts)) {
+    if (segment.kind === "tools") {
+      out.push(
+        <Activity
+          key={`tools-${segment.index}`}
+          group={segment}
+          runtime={runtime}
+          live={streaming ? lastIndex : -1}
+        />,
+      );
+      continue;
     }
-    flushTools();
-    const last = index === section.parts.length - 1;
+    const { part, index } = segment;
     switch (part.kind) {
       case "text":
         out.push(
@@ -363,7 +369,7 @@ function Section({
             key={index}
             className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
             plugins={plugins}
-            isAnimating={streaming && last}
+            isAnimating={streaming && index === lastIndex}
             shikiTheme={["github-light", "tokyo-night"]}
             linkSafety={{ enabled: false }}
             codeBlockMaxHeight={480}
@@ -372,20 +378,9 @@ function Section({
           </Streamdown>,
         );
         break;
+      case "tool":
       case "reasoning":
-        out.push(
-          part.content.kind === "text" ? (
-            <Disclosure key={index} label={streaming && last ? "Thinking…" : "Thought"}>
-              <p className="border-l-2 pl-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
-                {part.content.text}
-              </p>
-            </Disclosure>
-          ) : (
-            <p key={index} className="text-xs text-muted-foreground">
-              {streaming && last ? "Thinking…" : "Thought (hidden)"}
-            </p>
-          ),
-        );
+        // groupToolActivity puts these in a "tools" segment.
         break;
       case "notice":
         out.push(<SystemLine key={index}>{noticeText(part.notice)}</SystemLine>);
@@ -402,8 +397,7 @@ function Section({
         );
         break;
     }
-  });
-  flushTools();
+  }
   const lane = section.agentPath.length === 0 ? null : section.agentPath.join(" / ");
   return lane === null ? (
     <>{out}</>
@@ -434,17 +428,75 @@ function Disclosure({
   );
 }
 
-function ToolGroup({ parts, runtime }: { parts: ViewPart[]; runtime: string }) {
+/**
+ * A run of tool calls and the reasoning between them. Two or more calls fold into one line
+ * ("Ran 3 commands, read a file · 1 failed"); one call shows as it is, since its own row says more.
+ * `live` is the index of the part still streaming, or -1.
+ */
+function Activity({ group, runtime, live }: { group: ActivityGroup; runtime: string; live: number }) {
+  const out: ReactNode[] = [];
+  let tools: ToolPart[] = [];
+  const flushTools = (): void => {
+    const first = tools[0];
+    if (first === undefined) return;
+    out.push(<ToolGroup key={first.callId} parts={tools} runtime={runtime} />);
+    tools = [];
+  };
+  group.parts.forEach((part, offset) => {
+    if (part.kind === "tool") {
+      tools.push(part);
+      return;
+    }
+    flushTools();
+    out.push(<Reasoning key={group.index + offset} part={part} live={group.index + offset === live} />);
+  });
+  flushTools();
+  const calls = group.parts.filter((part) => part.kind === "tool").length;
+  if (calls < 2) return <>{out}</>;
+  const running = group.running ? classifyTool(runtime, group.running.tool, group.running.input) : null;
+  return (
+    <Collapsible className="group/activity min-w-0">
+      <CollapsibleTrigger className="flex max-w-full min-w-0 items-center gap-1 rounded text-left text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/activity:rotate-90" />
+        <span className="shrink-0">{toolGroupSummary(group.counts)}</span>
+        {group.failed > 0 && <span className="shrink-0 text-destructive">· {group.failed} failed</span>}
+        {running && (
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0">·</span>
+            <LoaderCircle className="size-3 shrink-0 animate-spin" aria-label="Running" />
+            <span className="shrink-0">{toolActionLabel(running.kind, "running")}</span>
+            {running.detail && <span className="truncate font-mono">{running.detail}</span>}
+          </span>
+        )}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-col gap-3 pt-2">{out}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function Reasoning({ part, live }: { part: ReasoningPart; live: boolean }) {
+  return part.content.kind === "text" ? (
+    <Disclosure label={live ? "Thinking…" : "Thought"}>
+      <p className="border-l-2 pl-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+        {part.content.text}
+      </p>
+    </Disclosure>
+  ) : (
+    <p className="text-xs text-muted-foreground">{live ? "Thinking…" : "Thought (hidden)"}</p>
+  );
+}
+
+function ToolGroup({ parts, runtime }: { parts: ToolPart[]; runtime: string }) {
   return (
     <div className="divide-y overflow-hidden rounded-lg border bg-card/60">
-      {parts.map((part) =>
-        part.kind === "tool" ? <ToolCall key={part.callId} part={part} runtime={runtime} /> : null,
-      )}
+      {parts.map((part) => (
+        <ToolCall key={part.callId} part={part} runtime={runtime} />
+      ))}
     </div>
   );
 }
 
-function ToolCall({ part, runtime }: { part: Extract<ViewPart, { kind: "tool" }>; runtime: string }) {
+function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
   const action = classifyTool(runtime, part.tool, part.input);
   const output = toolText(part) ?? "";
   const images = toolImages(part);
