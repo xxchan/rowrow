@@ -16,6 +16,7 @@ import {
   type ViewPart,
   type ViewTurn,
 } from "@botiverse/oar/observe";
+import { droppedWords } from "./describe.ts";
 import type { Attachment, EntryOf } from "./entries.ts";
 import { actorLabel } from "./render-text.ts";
 import { toolText } from "./tool-output.ts";
@@ -409,12 +410,20 @@ function deliveredInput(
     attachments: origin?.input.attachments ?? [],
     by: origin === undefined ? null : actorLabel(origin.input.by),
     at: origin?.input.at ?? null,
-    state: input.state === "rejected" ? "failed" : input.state === "pending" ? "sending" : "sent",
+    // Dropped (taken, never read) shows as failed, with why: the app has no other word for it.
+    state:
+      input.state === "rejected" || input.state === "dropped"
+        ? "failed"
+        : input.state === "pending"
+          ? "sending"
+          : "sent",
     landed: landedIn(origin),
     reason:
       input.state === "rejected"
         ? ((origin === undefined ? undefined : outcomeOf(origin))?.reason ?? null)
-        : null,
+        : input.state === "dropped"
+          ? droppedWords(input.reason)
+          : null,
   };
 }
 

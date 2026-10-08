@@ -2,7 +2,7 @@
 // agent reads instead of a screenshot. Same fold as the UI, so the text is what the UI
 // showed.
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
-import { failureHint } from "./describe.ts";
+import { droppedWords, failureHint } from "./describe.ts";
 import type { Actor, Attachment } from "./entries.ts";
 import type { Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
@@ -73,7 +73,11 @@ function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: numb
       const origin = input.inputId === undefined ? undefined : timeline.inputs.get(input.inputId)?.input;
       const who = origin === undefined ? "input" : actorLabel(origin.by);
       const state = input.state === "accepted" ? "" : `, ${input.state}`;
-      return [`> [${who}${state}] ${origin?.text ?? input.input}`, ...attachmentLines(origin?.attachments)];
+      return [
+        `> [${who}${state}] ${origin?.text ?? input.input}`,
+        ...attachmentLines(origin?.attachments),
+        ...(input.state === "dropped" ? [`  ${droppedWords(input.reason)}`] : []),
+      ];
     }
     case "notice":
       return [`· ${noticeText(message.notice)}`];
@@ -94,7 +98,7 @@ function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: numb
               ? "  ■ turn aborted"
               : `  ✗ turn failed (${outcome.failure}): ${outcome.reason}`,
         );
-        const hint = outcome.kind === "failed" ? failureHint(outcome.failure) : null;
+        const hint = outcome.kind === "failed" ? failureHint(outcome.failure, outcome.credential) : null;
         if (hint !== null) lines.push(`    ${hint}`);
       }
       return lines;

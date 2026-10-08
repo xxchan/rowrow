@@ -1,7 +1,8 @@
 // Words and colors for an agent's state, the same on every screen of every client (the web
 // app imports them, the iOS app gets them through the kit), so an agent reads the same
 // everywhere (docs/architecture.md, "Attention and notifications").
-import type { FailureClass } from "@botiverse/oar";
+import type { CredentialProblem, FailureClass } from "@botiverse/oar";
+import type { ConversationInput } from "@botiverse/oar/observe";
 import { classifyTool, failureAdvice, toolActionLabel } from "@botiverse/oar/observe";
 import type { AgentState } from "./schemas.ts";
 import { stalledFor, type AgentSummary } from "./summary.ts";
@@ -86,15 +87,27 @@ const FAILURE_STEPS: Partial<Record<FailureClass, string>> = {
 
 /**
  * What to do after a turn failed, by oar's failure class: the step it needs from you, wait
- * for a limit, or just send it again. Null when nothing helps, and for sign-in, which has its
- * own steps (sign-in.ts).
+ * for a limit, or just send it again. Null when nothing helps, and for a missing sign-in,
+ * which has its own steps (sign-in.ts): a credential the provider rejected (an API key that
+ * no longer works) isn't fixed by signing in.
  */
-export function failureHint(failure: FailureClass): string | null {
-  if (failure === "auth") return null;
+export function failureHint(failure: FailureClass, credential?: CredentialProblem): string | null {
+  if (failure === "auth") {
+    return credential === "rejected"
+      ? "The provider rejected its credentials: if it uses an API key, check or replace it."
+      : null;
+  }
   const advice = failureAdvice(failure);
   if (advice.userAction) return FAILURE_STEPS[failure] ?? null;
   if (advice.retry === "later")
     return "A usage limit ran out: it resets later (Settings → Subscription usage says when).";
   if (advice.retry === "now") return "This usually passes: send it again in a moment.";
   return null;
+}
+
+/** Why an input the runtime took was never read (oar's dropped state), and what to do. */
+export function droppedWords(reason: ConversationInput["reason"]): string {
+  return reason === "runtime_exited"
+    ? "Not read: the agent's process exited first. Send it again if it still matters."
+    : "Not read: the turn ended first. Send it again if it still matters.";
 }

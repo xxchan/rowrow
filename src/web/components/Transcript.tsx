@@ -16,7 +16,7 @@ import {
   type ViewMessage,
   type ViewSection,
 } from "@botiverse/oar/observe";
-import type { FailureClass } from "@botiverse/oar";
+import type { CredentialProblem, FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
@@ -24,7 +24,7 @@ import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
-import { duration, failureHint } from "../../shared/describe.ts";
+import { droppedWords, duration, failureHint } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
 import { navigate } from "../lib/router.ts";
@@ -141,6 +141,7 @@ const Message = memo(function Message({
           at={origin?.input.at}
           landed={landedIn(origin)}
           state={input.state === "rejected" ? "error" : input.state === "pending" ? "sending" : "sent"}
+          dropped={input.state === "dropped" ? droppedWords(input.reason) : null}
         />
       );
     }
@@ -164,10 +165,10 @@ const Message = memo(function Message({
             </p>
           )}
           {message.outcome?.kind === "failed" &&
-            (message.outcome.failure === "auth" ? (
+            (message.outcome.failure === "auth" && message.outcome.credential !== "rejected" ? (
               <SignInAgain runtime={runtime} />
             ) : (
-              <FailureHint failure={message.outcome.failure} />
+              <FailureHint failure={message.outcome.failure} credential={message.outcome.credential} />
             ))}
           {message.outcome?.kind === "aborted" && (
             <p className="text-sm text-muted-foreground">You stopped the turn.</p>
@@ -178,8 +179,14 @@ const Message = memo(function Message({
 });
 
 /** What to do about a failed turn, when something helps (a limit, a model, the input's size…). */
-function FailureHint({ failure }: { failure: FailureClass }) {
-  const hint = failureHint(failure);
+function FailureHint({
+  failure,
+  credential,
+}: {
+  failure: FailureClass;
+  credential: CredentialProblem | undefined;
+}) {
+  const hint = failureHint(failure, credential);
   return hint === null ? null : <p className="text-sm text-muted-foreground">{hint}</p>;
 }
 
@@ -246,6 +253,7 @@ function UserMessage({
   at,
   landed,
   state,
+  dropped,
 }: {
   text: string;
   attachments: readonly Attachment[] | undefined;
@@ -253,6 +261,8 @@ function UserMessage({
   at: number | undefined;
   landed: "steered" | "queued" | null;
   state: "sending" | "sent" | "error";
+  /** The runtime took it but never read it, and why (oar's dropped state). */
+  dropped?: string | null;
 }) {
   const facts = [
     by === undefined ? null : actorLabel(by),
@@ -279,6 +289,7 @@ function UserMessage({
           {[state === "sending" ? "Sending" : state === "error" ? "Not sent" : "Sent", ...facts].join(" · ")}
         </span>
       </div>
+      {dropped && <p className="px-1 text-xs text-warning">{dropped}</p>}
     </article>
   );
 }

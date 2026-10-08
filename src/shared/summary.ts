@@ -289,6 +289,14 @@ function read(s: AgentSummary, inputId: string): AgentSummary {
     : { ...s, steering, unread };
 }
 
+/** The runtime says it dropped this steer (codex, on an interrupt): it will never be read. */
+function unreadOne(s: AgentSummary, inputId: string): AgentSummary {
+  const dropped = s.steering.find((q) => q.inputId === inputId);
+  return dropped === undefined
+    ? s
+    : { ...s, steering: s.steering.filter((q) => q !== dropped), unread: [...s.unread, dropped] };
+}
+
 /** The turn ended: whatever was steered into it and not read by now never will be. */
 function unreadSteering(s: AgentSummary): AgentSummary {
   return s.steering.length === 0 ? s : { ...s, steering: [], unread: [...s.unread, ...s.steering] };
@@ -399,6 +407,9 @@ function foldRecord(
           }
           case "user_message":
             if (event.inputId !== undefined) next = read(next, event.inputId);
+            break;
+          case "input_dropped":
+            next = unreadOne(next, event.inputId);
             break;
           case "model":
             next = { ...next, reportedModel: event.model };
