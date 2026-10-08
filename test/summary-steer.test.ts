@@ -1,5 +1,5 @@
-// A steer the runtime dropped (codex, on an interrupt: oar's input_dropped) moves from
-// "steering" to "not read" at once, without waiting for the turn to end.
+// A steer goes from "steering" to "not read" only when it is dropped: the runtime says so
+// (codex, on an interrupt: oar's input_dropped) or its process ends. A stopped turn keeps it.
 import type { RawEvent } from "@botiverse/oar";
 import { expect, it } from "vitest";
 import type { Entry, EntryBody } from "../src/shared/entries.ts";
@@ -36,4 +36,21 @@ it("moves a steer the runtime dropped to the ones not read", () => {
   ]);
   expect(dropped.steering).toEqual([]);
   expect(dropped.unread.map((q) => q.inputId)).toEqual(["i1"]);
+});
+
+it("keeps a steer through a stopped turn: Claude Code reads it in the next one", () => {
+  const by = { kind: "cli" };
+  const entries = [
+    entry({ kind: "agent.created", workspaceId: "w1", runtime: "claude", by }),
+    entry({ kind: "run.started", runId: "r1", runtime: "claude", cwd: "/w", sessionId: "s1" }),
+    entry({ kind: "input", inputId: "i2", text: "also check the tests", mode: "steer", by }),
+    entry({ kind: "input.result", inputId: "i2", landed: "steered" }),
+    frame([{ kind: "turn_ended", outcome: { kind: "aborted" } }]),
+  ];
+  const stopped = summaryOf(entries);
+  expect(stopped.steering.map((q) => q.inputId)).toEqual(["i2"]);
+  expect(stopped.unread).toEqual([]);
+  // Its process ending is what drops it.
+  const ended = summaryOf([...entries, entry({ kind: "run.ended", runId: "r1", reason: "stopped" })]);
+  expect(ended.unread.map((q) => q.inputId)).toEqual(["i2"]);
 });

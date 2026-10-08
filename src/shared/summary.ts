@@ -297,7 +297,10 @@ function unreadOne(s: AgentSummary, inputId: string): AgentSummary {
     : { ...s, steering: s.steering.filter((q) => q !== dropped), unread: [...s.unread, dropped] };
 }
 
-/** The turn ended: whatever was steered into it and not read by now never will be. */
+/**
+ * The process ended: whatever was steered in and not read by now never will be (oar calls it
+ * dropped, runtime_exited); an echo after a resume still takes it back out (read).
+ */
 function unreadSteering(s: AgentSummary): AgentSummary {
   return s.steering.length === 0 ? s : { ...s, steering: [], unread: [...s.unread, ...s.steering] };
 }
@@ -396,9 +399,10 @@ function foldRecord(
             const continues =
               event.outcome.kind === "completed" && next.queued.length > 0 && next.queuePaused === null;
             next = {
-              // Stopped before it read what you steered in. (A turn that ends on its own
-              // hands it to the next one on runtimes that echo, so the echo still comes.)
-              ...(event.outcome.kind === "aborted" ? unreadSteering(next) : next),
+              // A turn's end, even a stopped one, leaves what you steered in: it may still be read
+              // (Claude Code reads it in its next turn). Only a drop says it won't: the runtime's
+              // (input_dropped, Codex) or its process ending.
+              ...next,
               lastTurn: { seq, at, outcome: event.outcome },
               ...(event.outcome.kind === "aborted" || continues ? {} : { lastCompletionSeq: seq }),
               ...(event.outcome.kind === "failed" ? { lastError: event.outcome.reason } : {}),
