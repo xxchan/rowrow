@@ -16,6 +16,7 @@ interface Picked {
 /**
  * The selection, when it lies entirely in what the agent wrote: both ends in agent messages
  * (the transcript marks them `data-author="agent"`) and none of your messages in between.
+ * Not in a diagram: its text is labels, not a passage.
  */
 function pickAgentText(root: HTMLElement): Picked | null {
   const selection = window.getSelection();
@@ -24,7 +25,9 @@ function pickAgentText(root: HTMLElement): Picked | null {
   const byAgent = (node: Node): boolean => {
     const element = node instanceof Element ? node : node.parentElement;
     return (
-      root.contains(element) && element?.closest("[data-author]")?.getAttribute("data-author") === "agent"
+      root.contains(element) &&
+      element?.closest("[data-author]")?.getAttribute("data-author") === "agent" &&
+      element.closest("[data-mermaid]") === null
     );
   };
   if (!byAgent(range.startContainer) || !byAgent(range.endContainer)) return null;

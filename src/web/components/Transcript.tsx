@@ -44,6 +44,7 @@ import {
   stoppedByAgent,
 } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
+import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
 export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
@@ -391,7 +392,7 @@ function SystemLine({
   );
 }
 
-const plugins = { code, cjk };
+const plugins = { code, cjk, renderers: [mermaidRenderer] };
 
 /** One lane (the agent, or a sub-agent) inside a turn: text, reasoning, tool calls in order. */
 function Section({

@@ -38,6 +38,7 @@ import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ErrorText } from "./ErrorText.tsx";
 import { copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
+import { MermaidDiagram, mermaidRenderer } from "./MermaidDiagram.tsx";
 
 export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentId?: string }) {
   const client = useClient();
@@ -469,11 +470,13 @@ const dirname = (path: string): string =>
 const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 
 const LINE = 20; // px, the preview's line height (leading-5)
+const plugins = { code, cjk, renderers: [mermaidRenderer] };
 
 /**
  * A read-only view of one file, scrolled to `line` (highlighted) when given. With `at`, the
  * file as it was in a commit: labeled with the commit, and nothing to do to it but read it and
- * copy its path (Download and Mention are for the checkout as it is).
+ * copy its path (Download and Mention are for the checkout as it is). Markdown and Mermaid
+ * files (.mmd, .mermaid) open drawn, with their source a tab away.
  */
 export function FilePreview({
   workspaceId,
@@ -498,7 +501,10 @@ export function FilePreview({
   const key = `${rev ?? ""}:${path}`;
   const [file, setFile] = useState<{ key: string; data: FileText | null; error: string | null } | null>(null);
   const markdown = /\.(md|markdown|mdx)$/i.test(path);
-  const [view, setView] = useState<"rendered" | "source">(markdown && line === null ? "rendered" : "source");
+  const diagram = /\.(mmd|mermaid)$/i.test(path);
+  const [view, setView] = useState<"rendered" | "source">(
+    (markdown || diagram) && line === null ? "rendered" : "source",
+  );
   const scroller = useRef<HTMLDivElement>(null);
   const draft = useDrafts((s) => (agentId === undefined ? "" : (s.byAgent[agentId] ?? "")));
 
@@ -547,11 +553,11 @@ export function FilePreview({
             {`@ ${at.rev.slice(0, 7)}`}
           </span>
         )}
-        {markdown && (
+        {(markdown || diagram) && (
           <Tabs value={view} onValueChange={(value) => setView(value as "rendered" | "source")}>
             <TabsList className="h-7">
               <TabsTrigger value="rendered" className="px-2 text-[11px]">
-                Preview
+                {diagram ? "Diagram" : "Preview"}
               </TabsTrigger>
               <TabsTrigger value="source" className="px-2 text-[11px]">
                 Source
@@ -615,11 +621,15 @@ export function FilePreview({
             </Button>
           )}
         </div>
+      ) : view === "rendered" && diagram ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <MermaidDiagram code={file.data.text} fill />
+        </div>
       ) : view === "rendered" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <Streamdown
             className="text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold"
-            plugins={{ code, cjk }}
+            plugins={plugins}
             shikiTheme={["github-light", "tokyo-night"]}
             linkSafety={{ enabled: false }}
             mode="static"

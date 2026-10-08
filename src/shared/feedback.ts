@@ -39,9 +39,25 @@ export function compileFeedback(annotations: readonly Annotation[]): string {
         .join("\n");
     const where =
       a.source.kind === "diff"
-        ? `\`${a.source.path}\` line ${a.source.line}${a.source.side === "old" ? " (before the change)" : ""}:\n${quote(a.source.text)}`
+        ? `${codeSpan(a.source.path)} line ${a.source.line}${a.source.side === "old" ? " (before the change)" : ""}:\n${quote(a.source.text)}`
         : `About what you wrote:\n${quote(a.source.quote)}`;
     return `${n} ${where}\n   ${a.comment.trim().split("\n").join("\n   ")}`;
   });
   return `Review feedback:\n\n${items.join("\n\n")}\n`;
+}
+
+/**
+ * `text` as a Markdown code span that shows it verbatim (CommonMark 6.1): backslashes are
+ * literal inside one, and a delimiter longer than any run of backticks in it can't close
+ * early. A space pads it when it starts or ends with a backtick (or both ends are spaces,
+ * which a parser would otherwise strip).
+ */
+export function codeSpan(text: string): string {
+  const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const delimiter = "`".repeat(longestRun + 1);
+  const pad =
+    text.startsWith("`") ||
+    text.endsWith("`") ||
+    (text.startsWith(" ") && text.endsWith(" ") && /[^ ]/.test(text));
+  return pad ? `${delimiter} ${text} ${delimiter}` : `${delimiter}${text}${delimiter}`;
 }

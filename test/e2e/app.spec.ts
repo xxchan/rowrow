@@ -1092,3 +1092,114 @@ async function trayAction(page: Page, row: Locator, name: string, phone: boolean
 
 const ONE_PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+test("a Mermaid diagram in a reply draws, follows the theme, zooms, and goes fullscreen until Escape", async ({
+  page,
+  context,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const diagram = [
+    "```mermaid",
+    // What a diagram may not do: restyle itself, load a picture, link off the page.
+    '%%{init: {"themeCSS": ".node rect { fill: url(https://example.com/pixel.png) }"}}%%',
+    "flowchart LR",
+    '  plan["Plan changes <img src=https://example.com/pixel.png>"] --> build[Implement] --> check[Verify]',
+    '  click plan href "https://example.com/tracked"',
+    "```",
+  ];
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "draws a plan",
+    input: { inputId: randomUUID(), text: ["/echo Here is the plan:", ...diagram].join("\n") },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+
+  const figure = page.getByRole("region", { name: "Mermaid diagram", exact: true });
+  await expect(figure.locator("svg").first()).toBeVisible();
+  await expect(figure.getByText("Implement")).toBeVisible();
+  // Sanitized: nothing in it reaches off the page.
+  const external = await figure
+    .locator("svg")
+    .first()
+    .evaluate((svg) => ({
+      links: [...svg.querySelectorAll("*")].flatMap((element) =>
+        [...element.attributes]
+          .filter((a) => /href$/i.test(a.name) && !a.value.startsWith("#"))
+          .map((a) => a.value),
+      ),
+      css: [...svg.querySelectorAll("style")].some((style) =>
+        /url\(\s*["']?https?:/i.test(style.textContent ?? ""),
+      ),
+      pictures: svg.querySelectorAll("img, image").length,
+    }));
+  expect(external).toEqual({ links: [], css: false, pictures: 0 });
+
+  // It's drawn in the app's colors: pick Light (in another tab, to stay here) and it redraws.
+  const fill = (): Promise<string> =>
+    figure
+      .locator("g.node :is(rect, path, polygon)")
+      .first()
+      .evaluate((shape) => getComputedStyle(shape).fill);
+  const dark = await fill();
+  const settings = await context.newPage();
+  await settings.goto(`${rowrow.url}/settings`);
+  await settings.getByRole("tablist", { name: "Theme" }).getByRole("tab", { name: "Light" }).click();
+  await settings.close();
+  await expect.poll(fill).not.toBe(dark);
+
+  // It fits its width at first; zoom in and back to Fit.
+  const level = figure.getByLabel("Zoom level");
+  const fitted = await level.textContent();
+  await figure.getByRole("button", { name: "Zoom in" }).click();
+  await expect(level).not.toHaveText(fitted ?? "");
+  await expect(figure.getByRole("button", { name: "Fit" })).toHaveAttribute("aria-pressed", "false");
+  await figure.getByRole("button", { name: "Fit" }).click();
+  await expect(level).toHaveText(fitted ?? "");
+
+  // Fullscreen moves it into a dialog; Escape brings it back, with focus where it was.
+  await figure.getByRole("button", { name: "Fullscreen" }).click();
+  const full = page.getByRole("dialog", { name: "Mermaid diagram fullscreen" });
+  await expect(full.locator("svg").first()).toBeVisible();
+  await expect(full.getByRole("button", { name: "Exit fullscreen" })).toBeFocused();
+  await expect(page.locator("[data-mermaid] > svg")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(full).toBeHidden();
+  await expect(figure.getByRole("button", { name: "Fullscreen" })).toBeFocused();
+  await expect(figure.locator("svg").first()).toBeVisible();
+});
+
+test("a .mmd file previews as a diagram, its source a tab away", async ({ page, rowrow }, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "writes a diagram",
+    input: { inputId: randomUUID(), text: "/write flow.mmd\nsequenceDiagram\n  Agent->>You: Review this" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await page.getByRole("button", { name: /Changes/ }).click();
+  const inspector =
+    info.project.name === "phone"
+      ? page.getByRole("dialog")
+      : page.getByRole("region", { name: "Inspector" });
+  await inspector.getByRole("tab", { name: "Files" }).click();
+  await inspector.getByRole("treeitem", { name: /flow\.mmd/ }).click();
+
+  const figure = inspector.getByRole("region", { name: "Mermaid diagram", exact: true });
+  await expect(figure.locator("svg").first()).toBeVisible();
+  await expect(figure.getByText("Review this")).toBeVisible();
+  // Escape leaves fullscreen, not the inspector around it.
+  await figure.getByRole("button", { name: "Fullscreen" }).click();
+  await expect(page.getByRole("dialog", { name: "Mermaid diagram fullscreen" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Mermaid diagram fullscreen" })).toBeHidden();
+  await expect(figure).toBeVisible();
+
+  await inspector.getByRole("tab", { name: "Source" }).click();
+  await expect(inspector.getByText("Agent->>You: Review this")).toBeVisible();
+  await expect(figure).toBeHidden();
+});

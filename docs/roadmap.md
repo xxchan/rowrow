@@ -29,6 +29,9 @@ file when something lands.
   to rename it; a title suffix per server ("rowrow · Work") for its tabs and installed app;
   per-device preferences (theme, Changes scope, inspector width) follow across open tabs; on a
   phone the header folds away while you type.
+- **Mermaid diagrams** (#26, #159, #346, #350) in replies, Markdown previews and `.mmd` files:
+  zoom, Fit, 100%, fullscreen (Escape leaves it), in the app's colors, loaded with the first
+  diagram and sanitized so a diagram can't load anything.
 
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.
@@ -97,6 +100,6 @@ Diff readability (highlighting, search, side by side, image diffs); workspace ma
 the UI (rename, archive, pin, forget, discover worktrees, review hooks before running them,
 update from origin); transcript filters, turn durations, copy a whole reply, session
 download; theme and text-size overrides; more keyboard shortcuts and a recent-agents
-switcher; Mermaid, PDF and HTML previews; open a session started outside rowrow; a Machines
+switcher; PDF and HTML previews; open a session started outside rowrow; a Machines
 switcher for several servers; a Kanban-style backlog of tasks that become agents
 (roamgate #174); Windows.
