@@ -411,8 +411,11 @@ private struct QueueTray: View {
 
   private func note(_ row: Row) -> String {
     switch row.kind {
-    case .steering: return "Steering into this turn · the agent reads it at its next step"
-    case .unread: return "Not read · the turn ended before the agent read it"
+    case .steering:
+      return agent.attention == .working
+        ? "Steering into this turn · the agent reads it at its next step"
+        : "Sent · waiting for the agent to read it"
+    case .unread: return "Not read · the agent dropped it when its turn was stopped or its process ended"
     case .queued:
       if agent.summary.queuePaused != nil { return "Queued · waits until you send the queue on" }
       return agent.attention == .working ? "Queued · sends after this turn ends" : "Queued · sends next"

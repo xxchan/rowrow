@@ -143,7 +143,8 @@ reason about: two clients sending at once become an ordered prompt, then a steer
   `interrupt` aborts the turn, then prompts. When a turn is stopped or fails, or the run
   exits or rowrow restarts, held inputs wait (`queue.paused`) until someone resumes them
   (`agents.resume`, `queue.resumed`). The summary folds all of this into `queued`,
-  `queuePaused`, `steering` (steered, not read yet) and `unread` (the turn ended first).
+  `queuePaused`, `steering` (steered, not read yet; a stopped turn leaves it for the next) and
+  `unread` (dropped: the runtime said so, `input_dropped`, or its process ended first).
 - **Runs.** A run starts lazily on the first input. It stays live after a turn for a
   while (the idle timeout), then is disposed to free memory; not while work it started runs
   in the background (a dev server, a build), which disposing would end. `run.ended` says why. At
