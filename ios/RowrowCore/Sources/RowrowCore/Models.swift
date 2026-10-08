@@ -292,6 +292,20 @@ public struct ServerSettings: Codable, Sendable, Equatable {
   }
 }
 
+/// A value that decodes to nil (and says why in the log) when this app can't read it.
+struct Lenient<Value: Decodable>: Decodable {
+  let value: Value?
+
+  init(from decoder: any Decoder) throws {
+    do {
+      value = try Value(from: decoder)
+    } catch {
+      logger.error("state.value_unreadable \(String(describing: error), privacy: .public)")
+      value = nil
+    }
+  }
+}
+
 /// Everything every client renders (state.get, state.watch).
 public struct AppState: Decodable, Sendable, Equatable {
   public let host: HostInfo
@@ -299,6 +313,19 @@ public struct AppState: Decodable, Sendable, Equatable {
   public let agents: [String: AgentState]
   public let runtimes: [String: RuntimeInfo]
   public let settings: ServerSettings
+
+  private enum CodingKeys: String, CodingKey { case host, workspaces, agents, runtimes, settings }
+
+  /// A workspace, agent or runtime this app can't read is left out, rather than the whole state
+  /// failing (and with it every later change, since the patches keep coming).
+  public init(from decoder: any Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    host = try c.decode(HostInfo.self, forKey: .host)
+    workspaces = try c.decode([String: Lenient<Workspace>].self, forKey: .workspaces).compactMapValues(\.value)
+    agents = try c.decode([String: Lenient<AgentState>].self, forKey: .agents).compactMapValues(\.value)
+    runtimes = try c.decode([String: Lenient<RuntimeInfo>].self, forKey: .runtimes).compactMapValues(\.value)
+    settings = try c.decode(ServerSettings.self, forKey: .settings)
+  }
 
   /// Unarchived agents, the ones that need you first, then the most recently active.
   public var sortedAgents: [AgentState] {

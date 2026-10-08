@@ -303,7 +303,7 @@ private struct QueueTray: View {
             Spacer()
             if let paused = summary.queuePaused {
               Button(paused == .stopped ? "Resume" : "Send Next") {
-                attempt { try await session.api.resume(agentId: agent.id) }
+                attempt("Couldn't send the queue on") { try await session.api.resume(agentId: agent.id) }
               }
               .buttonStyle(.bordered)
               .controlSize(.small)
@@ -391,7 +391,7 @@ private struct QueueTray: View {
     }
     if case .queued = row.kind, let now = sendNowLabel {
       Button {
-        attempt { _ = try await session.api.sendNow(agentId: agent.id, inputId: item.inputId) }
+        attempt("Couldn't send it now") { _ = try await session.api.sendNow(agentId: agent.id, inputId: item.inputId) }
       } label: {
         Label(now, systemImage: "arrow.up")
       }
@@ -415,7 +415,7 @@ private struct QueueTray: View {
       return agent.attention == .working
         ? "Steering into this turn · the agent reads it at its next step"
         : "Sent · waiting for the agent to read it"
-    case .unread: return "Not read · the agent dropped it when its turn was stopped or its process ended"
+    case .unread: return "Not read by the agent · its turn was stopped or its process ended first"
     case .queued:
       if agent.summary.queuePaused != nil { return "Queued · waits until you send the queue on" }
       return agent.attention == .working ? "Queued · sends after this turn ends" : "Queued · sends next"
@@ -426,17 +426,18 @@ private struct QueueTray: View {
     do {
       return try await session.api.withdraw(agentId: agent.id, inputId: item.inputId)
     } catch {
-      fail((error as? RowrowError)?.errorDescription ?? error.localizedDescription)
+      fail("Couldn't take it back: \((error as? RowrowError)?.errorDescription ?? error.localizedDescription)")
       return nil
     }
   }
 
-  private func attempt(_ call: @escaping @MainActor () async throws -> Void) {
+  /// Run a queue action; a failure says which action it was (`what`) and why.
+  private func attempt(_ what: String, _ call: @escaping @MainActor () async throws -> Void) {
     Task {
       do {
         try await call()
       } catch {
-        fail((error as? RowrowError)?.errorDescription ?? error.localizedDescription)
+        fail("\(what): \((error as? RowrowError)?.errorDescription ?? error.localizedDescription)")
       }
     }
   }

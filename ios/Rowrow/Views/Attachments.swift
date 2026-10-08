@@ -371,4 +371,6 @@ final class ImageCache {
 
   func image(_ key: String) -> UIImage? { cache.object(forKey: key as NSString) }
   func keep(_ image: UIImage, for key: String) { cache.setObject(image, forKey: key as NSString) }
+  /// Signed out: nothing fetched with that credential stays.
+  func clear() { cache.removeAllObjects() }
 }

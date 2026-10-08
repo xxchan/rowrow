@@ -133,17 +133,25 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
   public init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
     let kind = try c.decode(String.self, forKey: .kind)
+    let id = try c.decode(String.self, forKey: .id)
     let one = try decoder.singleValueContainer()
-    switch kind {
-    case "input": self = .input(try one.decode(Input.self))
-    case "turn": self = .turn(try one.decode(Turn.self))
-    case "text": self = .text(try one.decode(Text.self))
-    case "reasoning": self = .reasoning(try one.decode(Reasoning.self))
-    case "tool": self = .tool(try one.decode(Tool.self))
-    case "request": self = .request(try one.decode(Request.self))
-    case "notice": self = .notice(try one.decode(Notice.self))
-    case "outcome": self = .outcome(try one.decode(Outcome.self))
-    default: self = .unknown(id: try c.decode(String.self, forKey: .id))
+    // One item this app can't read shows as nothing; failing here would lose the whole delta,
+    // which the kit has already moved past.
+    do {
+      switch kind {
+      case "input": self = .input(try one.decode(Input.self))
+      case "turn": self = .turn(try one.decode(Turn.self))
+      case "text": self = .text(try one.decode(Text.self))
+      case "reasoning": self = .reasoning(try one.decode(Reasoning.self))
+      case "tool": self = .tool(try one.decode(Tool.self))
+      case "request": self = .request(try one.decode(Request.self))
+      case "notice": self = .notice(try one.decode(Notice.self))
+      case "outcome": self = .outcome(try one.decode(Outcome.self))
+      default: self = .unknown(id: id)
+      }
+    } catch {
+      logger.error("transcript.item_unreadable \(kind, privacy: .public): \(String(describing: error), privacy: .public)")
+      self = .unknown(id: id)
     }
   }
 

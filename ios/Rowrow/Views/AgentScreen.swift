@@ -239,7 +239,15 @@ private struct InputBubble: View {
   private var facts: String {
     var parts: [String] = []
     if input.state == .sending { parts.append("Sending") }
-    if input.state == .failed { parts.append("Not delivered\(input.reason.map { ": \($0)" } ?? "")") }
+    if input.state == .failed {
+      // The kit's words for an input the agent took and never read (describe.ts droppedWords)
+      // say so themselves; it was delivered.
+      if let reason = input.reason, reason.hasPrefix("Not read") {
+        parts.append(reason)
+      } else {
+        parts.append("Not delivered\(input.reason.map { ": \($0)" } ?? "")")
+      }
+    }
     if let by = input.by { parts.append(by) }
     if let at = input.at { parts.append(Date(millis: at).formatted(date: .omitted, time: .shortened)) }
     if input.landed == "steered" { parts.append("steered into the running turn") }

@@ -159,6 +159,7 @@ final class AppModel {
     if let me = try? await session.api.whoami() { try? await session.api.revoke(deviceId: me.id) }
     await session.stop()
     session.forget()
+    ImageCache.shared.clear()
     self.session = nil
     accounts.remove(account.id)
     if let next = accounts.active { activate(next) }
@@ -168,6 +169,7 @@ final class AppModel {
   func forgetSignedOut() {
     guard let session else { return }
     session.forget()
+    ImageCache.shared.clear()
     let id = session.account.id
     self.session = nil
     accounts.remove(id)
