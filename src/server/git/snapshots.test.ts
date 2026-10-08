@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { SnapshotStore, changedPaths } from "./snapshots.ts";
@@ -150,19 +151,16 @@ describe("SnapshotStore.capture", () => {
     });
   });
 
-  it.skipIf(process.getuid?.() === 0)(
-    "refuses an unreadable file instead of snapshotting around it",
-    async () => {
-      write(repo, "locked.txt", "no\n");
-      fs.chmodSync(path.join(repo, "locked.txt"), 0);
-      const result = await store.capture(repo);
-      fs.chmodSync(path.join(repo, "locked.txt"), 0o644);
-      expect(result).toEqual({
-        kind: "refused",
-        reason: expect.stringMatching(/git add failed: .*locked\.txt/s),
-      });
-    },
-  );
+  it.skipIf(!modesEnforced())("refuses an unreadable file instead of snapshotting around it", async () => {
+    write(repo, "locked.txt", "no\n");
+    fs.chmodSync(path.join(repo, "locked.txt"), 0);
+    const result = await store.capture(repo);
+    fs.chmodSync(path.join(repo, "locked.txt"), 0o644);
+    expect(result).toEqual({
+      kind: "refused",
+      reason: expect.stringMatching(/git add failed: .*locked\.txt/s),
+    });
+  });
 
   it("refuses a directory that isn't a git repository", async () => {
     const plain = path.join(tmp, "plain");
@@ -216,3 +214,19 @@ describe("changedPaths", () => {
     ]);
   });
 });
+
+/** Whether a file with mode 0 is unreadable here: not as root, nor in some sandboxes (Fly Sprites). */
+function modesEnforced(): boolean {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-mode-"));
+  const file = path.join(dir, "locked");
+  fs.writeFileSync(file, "");
+  fs.chmodSync(file, 0);
+  try {
+    fs.readFileSync(file);
+    return false;
+  } catch {
+    return true;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
