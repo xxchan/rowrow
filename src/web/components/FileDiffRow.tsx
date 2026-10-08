@@ -53,6 +53,8 @@ export function FileDiffRow({
   badge,
   actions,
   menu = [],
+  open: shown,
+  onOpenChange,
 }: {
   file: ChangedFile;
   /** Changes when the diff may have: an open row reloads it. */
@@ -66,8 +68,13 @@ export function FileDiffRow({
   actions?: ReactNode;
   /** The row's right-click menu, after Copy path. */
   menu?: MenuAction[];
+  /** Whether the diff shows, when the list keeps track (it opens one after a preview). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = shown ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   const [diff, setDiff] = useState<Loaded | null>(null);
 
   useEffect(() => {
@@ -95,11 +102,14 @@ export function FileDiffRow({
     <div className="flex flex-col">
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="group/file flex items-center rounded-md hover:bg-accent/60">
+          <div
+            className="group/file flex items-center rounded-md hover:bg-accent/60"
+            data-file-row={file.path}
+          >
             <button
               type="button"
               className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1.5 text-left"
-              onClick={() => setOpen((o) => !o)}
+              onClick={() => setOpen(!open)}
               aria-expanded={open}
             >
               <ChevronRight

@@ -1,22 +1,43 @@
 // A workspace's checkout: browse it as a tree (files.list, colored by git status) or find
 // anything in it (roamgate #227): file names and contents in one search, .gitignore honored
 // (files.search, D-021). A file opens a read-only preview, at the matching line for a search
-// hit; "Mention" puts the path in the agent's message, since agents read files by path.
+// hit; "Mention" puts the path in the agent's message, since agents read files by path. A
+// tree row's menu (right-click, long press, or its ⋯) and the preview download a file, or a
+// folder as .tar.gz (roamgate #312). The History tab opens the same preview on a commit's file
+// as it was then (`at`).
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { ArrowLeft, AtSign, Copy, FileText as FileIcon, LoaderCircle, Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, AtSign, Copy, Download, FileText as FileIcon, LoaderCircle, Search } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import type { ChangedFile, FileText, SearchResult } from "../../shared/schemas.ts";
+import { downloadFromWorkspace } from "../lib/download.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ErrorText } from "./ErrorText.tsx";
+import { copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
 
 export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentId?: string }) {
   const client = useClient();
@@ -111,6 +132,8 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
     flattenEmptyDirectories: true,
     initialExpansion: "closed",
     icons: "standard",
+    // Right-click, Shift+F10, or the ⋯ that follows the row under the pointer or in focus.
+    composition: { contextMenu: { enabled: true, triggerMode: "both", buttonVisibility: "when-needed" } },
   });
   const shown = useRef<{ workspaceId: string; paths: readonly string[] } | null>(null);
   const [loaded, setLoaded] = useState<{
@@ -160,6 +183,7 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
     };
   }, [client, model, workspaceId, gitVersion]);
 
+  const longPress = useLongPress();
   const state = loaded?.workspaceId === workspaceId ? loaded : null;
   if (state?.error !== null && state?.error !== undefined)
     return <ErrorText className="px-3 py-2">{state.error}</ErrorText>;
@@ -176,15 +200,35 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
       <FileTree
         model={model}
         aria-label="Files"
-        className={cn("file-tree min-h-0 flex-1 py-1", (state === null || state.count === 0) && "hidden")}
+        className={cn(
+          "file-tree min-h-0 flex-1 py-1 [-webkit-touch-callout:none]",
+          (state === null || state.count === 0) && "hidden",
+        )}
         // Rows are buttons inside the tree's shadow root: find the clicked one. Selection
         // events miss a second click on the same file, so this opens it every time.
         onClick={(event) => {
-          for (const target of event.nativeEvent.composedPath()) {
-            if (!(target instanceof HTMLElement) || target.dataset.itemPath === undefined) continue;
-            if (target.dataset.itemType === "file") onOpen(target.dataset.itemPath);
-            return;
-          }
+          const row = rowOf(event.nativeEvent);
+          if (row?.dataset.itemType === "file" && row.dataset.itemPath !== undefined)
+            onOpen(row.dataset.itemPath);
+        }}
+        {...longPress}
+        renderContextMenu={(item, context) => {
+          // The tree names a folder with a trailing slash.
+          const path = item.path.replace(/\/+$/, "");
+          return (
+            <TreeItemMenu
+              path={path}
+              onClose={() => context.close()}
+              actions={[
+                {
+                  label: item.kind === "directory" ? "Download directory" : "Download file",
+                  icon: <Download />,
+                  run: () => void downloadFromWorkspace(workspaceId, path, item.kind),
+                },
+                { label: "Copy path", icon: <Copy />, run: () => void copyText(path, "Path") },
+              ]}
+            />
+          );
         }}
       />
       {state?.truncated === true && (
@@ -193,6 +237,103 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
         </p>
       )}
     </div>
+  );
+}
+
+/** The tree row an event happened on (rows are buttons in the tree's shadow root). */
+function rowOf(event: Event): HTMLElement | null {
+  for (const target of event.composedPath())
+    if (target instanceof HTMLElement && target.dataset.itemPath !== undefined) return target;
+  return null;
+}
+
+const LONG_PRESS_MS = 550;
+
+/**
+ * A long press on a row opens its menu, as a right-click does. Android sends `contextmenu` on a
+ * long press by itself; iOS doesn't, so a held, unmoved touch sends one to the row.
+ */
+function useLongPress(): Pick<
+  HTMLAttributes<HTMLElement>,
+  "onTouchStart" | "onTouchMove" | "onTouchEnd" | "onTouchCancel" | "onContextMenu"
+> {
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number; fired: boolean } | null>(
+    null,
+  );
+  const cancel = useCallback((): void => {
+    if (press.current !== null) clearTimeout(press.current.timer);
+    press.current = null;
+  }, []);
+  useEffect(() => cancel, [cancel]);
+  return {
+    onTouchStart: (event) => {
+      cancel();
+      const touch = event.touches[0];
+      const row = rowOf(event.nativeEvent);
+      if (event.touches.length !== 1 || touch === undefined || row === null) return;
+      const { clientX: x, clientY: y } = touch;
+      const timer = setTimeout(() => {
+        if (press.current === null) return;
+        press.current.fired = true;
+        row.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            composed: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+      }, LONG_PRESS_MS);
+      press.current = { timer, x, y, fired: false };
+    },
+    onTouchMove: (event) => {
+      const touch = event.touches[0];
+      const at = press.current;
+      if (at === null || touch === undefined) return;
+      if (Math.hypot(touch.clientX - at.x, touch.clientY - at.y) > 10) cancel();
+    },
+    // The press that opened the menu doesn't also open the file.
+    onTouchEnd: (event) => {
+      if (press.current?.fired === true) event.preventDefault();
+      cancel();
+    },
+    onTouchCancel: cancel,
+    // Android's own long-press menu came first: the timer's would be a second one.
+    onContextMenu: () => {
+      if (press.current?.fired === false) cancel();
+    },
+  };
+}
+
+/** A tree row's menu, in the slot the tree opens at the row (or the pointer). */
+function TreeItemMenu({
+  path,
+  actions,
+  onClose,
+}: {
+  path: string;
+  actions: MenuAction[];
+  onClose: () => void;
+}) {
+  return (
+    <DropdownMenu open modal={false} onOpenChange={(open) => !open && onClose()}>
+      <DropdownMenuTrigger asChild>
+        <span aria-hidden="true" className="block size-0" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-60"
+        aria-label={`Actions for ${path}`}
+        // Clicks in the portaled menu aren't outside the tree's menu (see @pierre/trees).
+        data-file-tree-context-menu-root="true"
+        // The tree puts focus back on the row itself.
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <DropdownMenuLabel className="truncate">{path}</DropdownMenuLabel>
+        <MenuActions actions={actions} parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -329,24 +470,33 @@ const basename = (path: string): string => path.slice(path.lastIndexOf("/") + 1)
 
 const LINE = 20; // px, the preview's line height (leading-5)
 
-/** A read-only view of one file, scrolled to `line` (highlighted) when given. */
+/**
+ * A read-only view of one file, scrolled to `line` (highlighted) when given. With `at`, the
+ * file as it was in a commit: labeled with the commit, and nothing to do to it but read it and
+ * copy its path (Download and Mention are for the checkout as it is).
+ */
 export function FilePreview({
   workspaceId,
   path,
   line,
   onBack,
+  backLabel = "Back to results",
   agentId,
+  at,
 }: {
   workspaceId: string;
   path: string;
   line: number | null;
   onBack: () => void;
+  backLabel?: string;
   agentId?: string;
+  /** The commit to read it at (files.read `rev`), and what to say about that version. */
+  at?: { rev: string; note: string };
 }) {
   const client = useClient();
-  const [file, setFile] = useState<{ path: string; data: FileText | null; error: string | null } | null>(
-    null,
-  );
+  const rev = at?.rev;
+  const key = `${rev ?? ""}:${path}`;
+  const [file, setFile] = useState<{ key: string; data: FileText | null; error: string | null } | null>(null);
   const markdown = /\.(md|markdown|mdx)$/i.test(path);
   const [view, setView] = useState<"rendered" | "source">(markdown && line === null ? "rendered" : "source");
   const scroller = useRef<HTMLDivElement>(null);
@@ -357,34 +507,46 @@ export function FilePreview({
     let cancelled = false;
     void (async () => {
       try {
-        const data = await client.files.read({ workspaceId, path });
-        if (!cancelled) setFile({ path, data, error: null });
+        const data = await client.files.read({ workspaceId, path, ...(rev === undefined ? {} : { rev }) });
+        if (!cancelled) setFile({ key, data, error: null });
       } catch (error) {
         if (!cancelled)
-          setFile({ path, data: null, error: error instanceof Error ? error.message : String(error) });
+          setFile({ key, data: null, error: error instanceof Error ? error.message : String(error) });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [client, workspaceId, path]);
+  }, [client, workspaceId, path, rev, key]);
 
-  const text = file?.path === path ? file.data?.text : undefined;
+  const text = file?.key === key ? file.data?.text : undefined;
   useLayoutEffect(() => {
     if (text === undefined || line === null || scroller.current === null) return;
     scroller.current.scrollTop = Math.max(0, (line - 1) * LINE - scroller.current.clientHeight / 3);
   }, [text, line]);
 
   const lines = text === undefined ? 0 : text.split("\n").length;
+  const download = (): void => void downloadFromWorkspace(workspaceId, path, "file");
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <section
+      className="flex h-full min-h-0 flex-col"
+      aria-label={at === undefined ? "File preview" : "Historical file preview"}
+    >
       <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Back to results" onClick={onBack}>
+        <Button variant="ghost" size="icon" className="size-8" aria-label={backLabel} onClick={onBack}>
           <ArrowLeft />
         </Button>
         <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={path}>
           {path}
         </span>
+        {at !== undefined && (
+          <span
+            className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+            title={`As of commit ${at.rev}`}
+          >
+            {`@ ${at.rev.slice(0, 7)}`}
+          </span>
+        )}
         {markdown && (
           <Tabs value={view} onValueChange={(value) => setView(value as "rendered" | "source")}>
             <TabsList className="h-7">
@@ -406,7 +568,19 @@ export function FilePreview({
         >
           <Copy />
         </Button>
-        {agentId !== undefined && (
+        {at === undefined && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="Download"
+            title="Download"
+            onClick={download}
+          >
+            <Download />
+          </Button>
+        )}
+        {agentId !== undefined && at === undefined && (
           <Button
             variant="ghost"
             size="sm"
@@ -421,12 +595,26 @@ export function FilePreview({
           </Button>
         )}
       </div>
-      {file === null || file.path !== path ? (
+      {at !== undefined && (
+        <p className="shrink-0 border-b bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          {at.note}
+        </p>
+      )}
+      {file === null || file.key !== key ? (
         <div className="flex items-center gap-2 px-4 py-4 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3.5 animate-spin" /> Loading {path}
+          <LoaderCircle className="size-3.5 animate-spin" />{" "}
+          {at === undefined ? `Loading ${path}` : "Loading historical file"}
         </div>
       ) : file.error !== null || file.data === null ? (
-        <ErrorText className="px-4 py-3">{file.error ?? "Couldn't read it."}</ErrorText>
+        <div className="flex flex-col items-start gap-2 px-4 py-3">
+          <ErrorText>{file.error ?? "Couldn't read it."}</ErrorText>
+          {/* No preview (binary, say) is no reason not to have the file. */}
+          {at === undefined && (
+            <Button variant="outline" size="sm" onClick={download}>
+              <Download /> Download
+            </Button>
+          )}
+        </div>
       ) : view === "rendered" ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <Streamdown
@@ -461,6 +649,6 @@ export function FilePreview({
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

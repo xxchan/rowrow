@@ -88,7 +88,10 @@ export interface GitOps {
   pullRequest(workspaceId: string, refresh: boolean): Promise<PullRequestStatus>;
   search(workspaceId: string, query: string, kind: SearchKind): Promise<SearchResult>;
   listFiles(workspaceId: string): Promise<FileList>;
-  readFile(workspaceId: string, path: string): Promise<FileText>;
+  /** The working tree's file, or (with `rev`) the file as it was in that commit. */
+  readFile(workspaceId: string, path: string, rev?: string): Promise<FileText>;
+  /** A file of the checkout, or a folder as a .tar.gz. */
+  download(workspaceId: string, path: string): Promise<File>;
 }
 
 export interface Services {
@@ -439,7 +442,10 @@ export function createRouter(s: Services) {
         s.git.search(input.workspaceId, input.query, input.kind),
       ),
       list: os.files.list.handler(async ({ input }) => s.git.listFiles(input.workspaceId)),
-      read: os.files.read.handler(async ({ input }) => s.git.readFile(input.workspaceId, input.path)),
+      read: os.files.read.handler(async ({ input }) =>
+        s.git.readFile(input.workspaceId, input.path, input.rev),
+      ),
+      download: os.files.download.handler(async ({ input }) => s.git.download(input.workspaceId, input.path)),
     },
 
     devices: {

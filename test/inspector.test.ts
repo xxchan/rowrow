@@ -3,11 +3,20 @@
 // request through a fake `gh`. Driven through the real typed client over HTTP, as the web
 // app, the CLI and agents use it. No network.
 import { ORPCError } from "@orpc/client";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ChangedFile, Changes } from "../src/shared/schemas.ts";
-import { commitAll, isolateGit, removeDir, sh, tempDir, write } from "../src/server/git/testing.ts";
+import {
+  commitAll,
+  isolateGit,
+  listFiles,
+  removeDir,
+  sh,
+  tempDir,
+  write,
+} from "../src/server/git/testing.ts";
 import { startTestServer, type TestServer } from "./helpers.ts";
 
 beforeAll(isolateGit);
@@ -496,6 +505,62 @@ describe("history", () => {
     ).toBe("BAD_REQUEST");
   });
 
+  it("reads a file as it was in a commit, not as it is now", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, {
+      "src/cart.ts": "total = 1\n",
+      "old.txt": "soon gone\n",
+      "logo.png": "\x89PNG\0\0",
+    });
+    const first = sh(repo, "rev-parse", "HEAD").trim();
+    write(repo, "src/cart.ts", "total = 2\n");
+    fs.rmSync(path.join(repo, "old.txt"));
+    const second = commitAll(repo, "Change totals, drop old.txt");
+    write(repo, "src/cart.ts", "uncommitted\n");
+
+    const at = (rev: string, file: string) => t?.client.files.read({ workspaceId: id, path: file, rev });
+    expect(await at(first.slice(0, 7), "src/cart.ts")).toEqual({
+      path: "src/cart.ts",
+      text: "total = 1\n",
+      size: 10,
+      truncated: false,
+    });
+    expect((await at(second, "src/cart.ts"))?.text).toBe("total = 2\n");
+    expect((await t.client.files.read({ workspaceId: id, path: "src/cart.ts" })).text).toBe("uncommitted\n");
+    // A file deleted in a commit is read from its parent (the client asks for it there).
+    expect((await at(first, "old.txt"))?.text).toBe("soon gone\n");
+    const refusals: Record<string, [string, RegExp]> = {
+      gone: [second, /old\.txt isn't in commit [0-9a-f]{7}/],
+      folder: [second, /src is a folder in commit/],
+      binary: [second, /binary/],
+      escape: [second, /invalid path/],
+      ref: ["HEAD~1", /not a commit id/],
+      option: ["--output=/tmp/x", /not a commit id/],
+      unknown: ["0123456789abcdef", /no commit 0123456789abcdef/],
+    };
+    const paths: Record<string, string> = {
+      gone: "old.txt",
+      folder: "src",
+      binary: "logo.png",
+      escape: "../etc/passwd",
+    };
+    for (const [what, [rev, message]] of Object.entries(refusals)) {
+      const refused = await failure(
+        t.client.files.read({ workspaceId: id, path: paths[what] ?? "src/cart.ts", rev }),
+      );
+      expect(refused.code, what).toBe("BAD_REQUEST");
+      expect(refused.message, what).toMatch(message);
+    }
+
+    const line = `${"x".repeat(99)}\n`;
+    write(repo, "big.txt", line.repeat(11_000));
+    const big = await at(commitAll(repo, "big"), "big.txt");
+    expect(big?.truncated).toBe(true);
+    expect(big?.size).toBe(1_100_000);
+    expect(big?.text.length).toBeLessThanOrEqual(1024 * 1024);
+    expect(big?.text.endsWith("\n")).toBe(true);
+  });
+
   it("says when there are no commits yet", async () => {
     t = await startTestServer();
     const repo = t.repo();
@@ -616,6 +681,105 @@ describe("search", () => {
     expect(big.size).toBe(1_100_000);
     expect(big.text.length).toBeLessThanOrEqual(1024 * 1024);
     expect(big.text.endsWith("\n")).toBe(true);
+  });
+});
+
+describe("downloads", () => {
+  it("sends any file byte for byte, over the typed client and as a plain GET", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, { "src/cart.ts": "line 1\n" });
+    const bytes = Buffer.from(Array.from({ length: 70_000 }, (_, i) => (i * 7919) % 256));
+    write(repo, "dist/app.bin", bytes); // binary and untracked: files.read refuses it, a download doesn't
+
+    const file = await t.client.files.download({ workspaceId: id, path: "dist/app.bin" });
+    expect(file.name).toBe("app.bin");
+    expect(Buffer.from(await file.arrayBuffer()).equals(bytes)).toBe(true);
+
+    // What the web app's Download does: a GET the browser can save, signed in by its cookie.
+    const url = `${t.server.url}/api/files/download?${new URLSearchParams({ workspaceId: id, path: "dist/app.bin" }).toString()}`;
+    const response = await fetch(url, { headers: { authorization: `Bearer ${t.token}` } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/octet-stream");
+    expect(response.headers.get("content-disposition")).toContain('filename="app.bin"');
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(Buffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true);
+    expect((await fetch(url)).status).toBe(401);
+  });
+
+  it("refuses anything outside the checkout, as the preview does", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, { "src/cart.ts": "cart\n" });
+    fs.symlinkSync("/etc", path.join(repo, "escape"));
+    fs.symlinkSync("/etc/hosts", path.join(repo, "hosts"));
+    const refusals: Record<string, RegExp> = {
+      "../x": /invalid path/,
+      "src/../../x": /invalid path/,
+      "/etc/hosts": /invalid path/,
+      hosts: /outside the checkout/,
+      escape: /outside the checkout/,
+      ".git/config": /inside .git/,
+      ".git": /inside .git/,
+      "missing.txt": /doesn't exist/,
+    };
+    for (const [file, message] of Object.entries(refusals)) {
+      const refused = await failure(t.client.files.download({ workspaceId: id, path: file }));
+      expect(refused.code, file).toBe("BAD_REQUEST");
+      expect(refused.message, file).toMatch(message);
+    }
+  });
+
+  it("stops at 256 MiB and says so", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t);
+    fs.mkdirSync(path.join(repo, "out"));
+    // Sparse: as big as it says, without taking the disk.
+    fs.writeFileSync(path.join(repo, "out", "huge.iso"), "");
+    fs.truncateSync(path.join(repo, "out", "huge.iso"), 256 * 1024 * 1024 + 1);
+    const file = await failure(t.client.files.download({ workspaceId: id, path: "out/huge.iso" }));
+    expect(file).toEqual({
+      code: "BAD_REQUEST",
+      message:
+        "out/huge.iso is 257 MiB: downloads stop at 256 MiB. Copy it off the machine another way (scp, rsync).",
+    });
+    expect((await failure(t.client.files.download({ workspaceId: id, path: "out" }))).message).toMatch(
+      /^out holds 257 MiB in 1 file: downloads stop at 256 MiB/,
+    );
+  });
+
+  it("packs a folder as .tar.gz of what the tree shows in it", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, {
+      ".gitignore": "*.log\n",
+      "src/web/app.ts": "app\n",
+      "src/web/deep/util.ts": "util\n",
+      "src/other.ts": "other\n",
+    });
+    write(repo, "src/web/new file.md", "untracked\n");
+    write(repo, "src/web/debug.log", "ignored\n");
+    write(repo, "src/web/logo.png", Buffer.from([0x89, 0x50, 0, 1, 2]));
+
+    const file = await t.client.files.download({ workspaceId: id, path: "src/web" });
+    expect(file.name).toBe("web.tar.gz");
+    const out = tempDir();
+    try {
+      fs.writeFileSync(path.join(out, "web.tar.gz"), Buffer.from(await file.arrayBuffer()));
+      execFileSync("tar", ["-xzf", "web.tar.gz"], { cwd: out });
+      fs.rmSync(path.join(out, "web.tar.gz"));
+      expect(listFiles(out).map((f) => f.split(path.sep).join("/"))).toEqual([
+        "web/app.ts",
+        "web/deep/util.ts",
+        "web/logo.png",
+        "web/new file.md",
+      ]);
+      expect(fs.readFileSync(path.join(out, "web", "logo.png"))).toEqual(Buffer.from([0x89, 0x50, 0, 1, 2]));
+    } finally {
+      removeDir(out);
+    }
+
+    write(repo, "build/out.log", "ignored\n");
+    expect((await failure(t.client.files.download({ workspaceId: id, path: "build" }))).message).toBe(
+      "build has no files to download: git ignores everything in it",
+    );
   });
 });
 

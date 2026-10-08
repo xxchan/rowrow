@@ -507,10 +507,30 @@ const files = {
   read: oc
     .route({
       summary:
-        "A text file of a workspace's checkout, by its path relative to the checkout's top (as git.changes and files.search give it). Refuses binary files, directories, and anything outside the checkout or inside .git; stops at 1 MiB (truncated).",
+        "A text file of a workspace's checkout, by its path relative to the checkout's top (as git.changes and files.search give it). Refuses binary files, directories, and anything outside the checkout or inside .git; stops at 1 MiB (truncated). With `rev`, the file as it was in that commit (git show <rev>:<path>) instead of the working tree.",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        path: z.string().min(1).max(4096),
+        rev: z
+          .string()
+          .max(64)
+          .optional()
+          .describe(
+            "A commit id (full or abbreviated hex, as git.log gives it): read the file as of that commit.",
+          ),
+      }),
+    )
+    .output(FileText),
+  download: oc
+    .route({
+      method: "GET",
+      summary:
+        "Download a file of a workspace's checkout as it is on disk (binary too), or a folder as <name>.tar.gz of the files the tree lists in it (tracked and untracked, .gitignore honored, no .git). The same path rules as files.read. At most 256 MiB (a folder's files added up); bigger is refused with a message. Over HTTP: GET /api/files/download?workspaceId=…&path=….",
     })
     .input(z.object({ workspaceId, path: z.string().min(1).max(4096) }))
-    .output(FileText),
+    .output(z.file()),
 };
 
 const devices = {

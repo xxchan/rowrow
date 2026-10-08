@@ -1090,3 +1090,31 @@ needs no notion of turns and covers turns that never end cleanly.
 **Revisit when** reading old history gets slow (packs are read whole: a window that starts
 inside one decompresses up to 2,000 records), or the database file should shrink too (packing
 frees pages for reuse but doesn't shrink the file; that would take a VACUUM).
+
+## D-042 Downloads: a GET route, folders as the tree shows them, 256 MiB (2026-10-08)
+
+**Context.** Nothing could get a workspace's file onto your device: `files.get` serves
+uploads, `files.read` text. roamgate downloads files and folders (.tar.gz) from its file
+menus, saves straight to disk on a desktop and uses the iOS share sheet on phones (#35, #60,
+#312).
+
+**Decision.** `files.download {workspaceId, path}` is the contract's first GET route
+(`/api/files/download?…`), so a plain URL works with the browser's cookie (a tab on iOS,
+`curl` with a token); the RPC clients call it like any other procedure. A file goes as it is
+on disk, `application/octet-stream` (never rendered by the browser on rowrow's origin:
+`nosniff`); a folder as `<name>.tar.gz` of the files the Files tree shows in it (tracked and
+untracked, .gitignore honored, no `.git`, no `node_modules`), made by the system's `tar`.
+Both stop at 256 MiB (a folder's files added up) with a message. Paths follow the preview's
+rules. The web app picks how the bytes arrive from its layout, as roamgate does: the desktop
+layout fetches and saves under the file's name, so a refusal is a toast that says why rather
+than a failed download; on a phone, iOS shares (a tab above 64 MiB), a home-screen app or an
+iOS browser without file sharing opens a tab, Android downloads.
+
+**Why.** A GET keeps every way of fetching a file (anchor, tab, share, CLI, iOS) on one
+procedure. Folders as the tree shows them keep archives to what you can see and small;
+roamgate archives everything, ignored files included. The cap keeps an in-memory archive
+and a phone's share sheet sane.
+
+**Revisit when** someone needs an ignored folder (`dist/`) or files over 256 MiB (stream the
+archive instead of building it in memory), or the Mac app should save to Downloads without
+asking (Electron's `will-download`).

@@ -212,30 +212,7 @@ export async function readWorkspaceFile(input: {
   readonly path: string;
 }): Promise<FileText> {
   const file = input.path;
-  const parts = file.split("/");
-  if (
-    file === "" ||
-    file.includes("\0") ||
-    path.isAbsolute(file) ||
-    parts.some((part) => part === "" || part === "." || part === "..") ||
-    file.split(/[\\/]/).includes("..")
-  )
-    throw new SearchError(`invalid path "${file}": it must be relative to the checkout, without "." or ".."`);
-  if (parts.some((part) => part.toLowerCase() === ".git")) throw new SearchError(`"${file}" is inside .git`);
-  const top = await fs.promises.realpath(await topOf(input.dir));
-  let real: string;
-  try {
-    real = await fs.promises.realpath(path.join(top, file));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new SearchError(`${file} doesn't exist`);
-    throw error;
-  }
-  const inside = path.relative(top, real);
-  if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside))
-    throw new SearchError(`${file} leads outside the checkout`);
-  if (inside.split(path.sep).some((part) => part.toLowerCase() === ".git"))
-    throw new SearchError(`${file} leads into .git`);
-  const stat = await fs.promises.stat(real);
+  const { real, stat } = await resolveInCheckout(input.dir, file);
   if (!stat.isFile()) throw new SearchError(`${file} isn't a file`);
   const handle = await fs.promises.open(real, "r");
   let data: Buffer;
@@ -253,6 +230,41 @@ export async function readWorkspaceFile(input: {
     if (end !== -1) data = data.subarray(0, end + 1);
   }
   return { path: file, text: data.toString("utf8"), size: stat.size, truncated };
+}
+
+/**
+ * A path relative to the top of the checkout, resolved where it really is: refuses `..`,
+ * absolute paths, symlinks that lead out of the checkout, and anything in `.git`. Shared by
+ * the preview and downloads, so both see the same files.
+ */
+export async function resolveInCheckout(
+  dir: string,
+  file: string,
+): Promise<{ top: string; real: string; inside: string; stat: fs.Stats }> {
+  const parts = file.split("/");
+  if (
+    file === "" ||
+    file.includes("\0") ||
+    path.isAbsolute(file) ||
+    parts.some((part) => part === "" || part === "." || part === "..") ||
+    file.split(/[\\/]/).includes("..")
+  )
+    throw new SearchError(`invalid path "${file}": it must be relative to the checkout, without "." or ".."`);
+  if (parts.some((part) => part.toLowerCase() === ".git")) throw new SearchError(`"${file}" is inside .git`);
+  const top = await fs.promises.realpath(await topOf(dir));
+  let real: string;
+  try {
+    real = await fs.promises.realpath(path.join(top, file));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new SearchError(`${file} doesn't exist`);
+    throw error;
+  }
+  const inside = path.relative(top, real);
+  if (inside === "" || inside.startsWith("..") || path.isAbsolute(inside))
+    throw new SearchError(`${file} leads outside the checkout`);
+  if (inside.split(path.sep).some((part) => part.toLowerCase() === ".git"))
+    throw new SearchError(`${file} leads into .git`);
+  return { top, real, inside, stat: await fs.promises.stat(real) };
 }
 
 async function topOf(dir: string): Promise<string> {

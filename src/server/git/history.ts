@@ -2,8 +2,15 @@
 // commits a page at a time, and one commit's changes. Read-only. A normal commit is
 // compared with its parent, a root commit with the empty tree, and a merge commit with its
 // first parent (and says so). Commit ids are the only revisions accepted: no ranges, no
-// ref expressions, nothing that could be read as an option.
-import type { CommitChanges, CommitDetail, CommitPage, CommitSummary } from "../../shared/schemas.ts";
+// ref expressions, nothing that could be read as an option. A file can also be read as it was
+// in a commit, for a preview of the past.
+import type {
+  CommitChanges,
+  CommitDetail,
+  CommitPage,
+  CommitSummary,
+  FileText,
+} from "../../shared/schemas.ts";
 import {
   checkPath,
   clip,
@@ -18,6 +25,7 @@ import {
   type FileDiff,
 } from "./changes.ts";
 import { git } from "./exec.ts";
+import { READ_MAX_BYTES } from "./search.ts";
 
 export const PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
@@ -159,6 +167,56 @@ export async function commitPatch(input: {
     "diff",
   );
   return clip(patch.stdout);
+}
+
+/**
+ * A file's text as it was in a commit (`git ls-tree` finds it, `git cat-file` reads it): the
+ * same refusals and 1 MiB cut as a preview of the working tree (readWorkspaceFile).
+ */
+export async function readFileAtCommit(input: {
+  readonly dir: string;
+  readonly sha: string;
+  readonly path: string;
+}): Promise<FileText> {
+  const cwd = input.dir;
+  const file = input.path;
+  let parts: string[];
+  try {
+    parts = checkPath(file).split("/");
+  } catch (error) {
+    throw new HistoryError((error as Error).message);
+  }
+  if (parts.some((part) => part === "" || part === "."))
+    throw new HistoryError(`invalid path "${file}": it must be relative to the checkout, without "."`);
+  if (!/^[0-9a-f]{4,64}$/.test(input.sha)) throw new HistoryError(`"${input.sha}" is not a commit id`);
+  const sha = await resolveCommit(cwd, input.sha);
+  if (sha === null) throw new HistoryError(`There is no commit ${input.sha} in this repository.`);
+  // `<mode> <type> <object> <size>\t<path>\0` for the entry itself (a folder isn't listed into).
+  const listed = ok(
+    await git(["ls-tree", "-z", "-l", "--full-tree", sha, "--", file], {
+      cwd,
+      env: { GIT_LITERAL_PATHSPECS: "1" },
+    }),
+    "ls-tree",
+  );
+  const entry = listed.stdout
+    .split("\0")
+    .map((record) => /^\d+ (\w+) ([0-9a-f]+) +(\S+)\t(.*)$/s.exec(record))
+    .find((match) => match?.[4] === file);
+  if (entry === undefined || entry === null) throw new HistoryError(`${file} isn't in commit ${short(sha)}`);
+  const [, type = "", object = "", size = "0"] = entry;
+  if (type === "tree") throw new HistoryError(`${file} is a folder in commit ${short(sha)}`);
+  if (type !== "blob") throw new HistoryError(`${file} isn't a file in commit ${short(sha)} (a submodule)`);
+  const blob = await git(["cat-file", "blob", object], { cwd, maxBytes: READ_MAX_BYTES, stopAtMax: true });
+  if (!blob.capped) ok(blob, "cat-file");
+  let data = blob.bytes ?? Buffer.alloc(0);
+  if (data.subarray(0, 8000).includes(0)) throw new HistoryError(`${file} is a binary file: no preview`);
+  const truncated = Number(size) > data.length;
+  if (truncated) {
+    const end = data.lastIndexOf(10);
+    if (end !== -1) data = data.subarray(0, end + 1);
+  }
+  return { path: file, text: data.toString("utf8"), size: Number(size), truncated };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

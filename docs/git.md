@@ -244,6 +244,12 @@ The current branch's commits and each commit's changes (roamgate #229), behind `
   <id>^{commit}`. No ranges or ref expressions, nothing that could be read as an option.
 - A shallow clone says so (`shallow: true`), and its last page notes that older commits
   aren't here.
+- **A file as it was** (roamgate #304): `files.read {rev}` finds the path in the commit's tree
+  with `git ls-tree -z -l --full-tree <commit> -- <path>` (literal pathspecs) and reads the
+  blob with `git cat-file blob`, under the preview's rules (binary refused, cut at 1 MiB on a
+  line). A folder, a submodule, or a path the commit doesn't have is refused with a message.
+  For a file the commit deleted, the History tab asks for it at the base the commit is
+  compared with (its parent, or a merge's first parent) and says so.
 
 ## Search (`search.ts`)
 
@@ -270,6 +276,24 @@ list for the Files tree, `files.list`, and the preview a result opens, `files.re
   file, .gitignore honored, files deleted from the worktree left out, sorted, at most
   50,000 (`truncated`). The Files tab builds its tree from it and colors it with the
   working changes; it reloads when the workspace's git state changes.
+
+## Downloads (`download.ts`)
+
+Any file of a checkout, or a folder as `<folder>.tar.gz` (roamgate #312), behind
+`files.download`: `GET /api/files/download?workspaceId=…&path=…`, so a browser fetches it
+with its cookie (D-042). Paths are resolved like the preview's (`resolveInCheckout`: inside
+the checkout, outside `.git`, symlinks followed only if they stay in).
+
+- **A file**: sent as it is on disk, binary or not, read as the response goes out
+  (`fs.openAsBlob`), as `application/octet-stream` under its own name.
+- **A folder**: the files the tree shows in it (`git ls-files --cached --others
+  --exclude-standard` on the folder, minus files deleted from the worktree; never `.git`,
+  never ignored files like `node_modules`), packed by the system's `tar` (`--no-recursion
+  --null -T -`, `-C` the folder's parent so entries start with its name; `COPYFILE_DISABLE`
+  for macOS) in memory, for at most 2 minutes. A folder with nothing but ignored files is
+  refused.
+- **Cap**: 256 MiB, a file's size or a folder's files added up before compression (and the
+  archive itself); above it the call fails with a message that says the size and the cap.
 
 ## Pull requests (`pull-request.ts`)
 

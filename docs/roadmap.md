@@ -12,6 +12,9 @@ file when something lands.
   phone inserts a newline; the menu button counts the agents that need you.
 - **Workspace inspector**: search (#227), PR status (#228, GitHub), history (#229), file
   previews, and stage/unstage/discard/delete on uncommitted files.
+- **Downloads** (#312, D-042): a file, or a folder as .tar.gz, from a tree row's menu or the
+  preview; straight to disk on a desktop, the share sheet on an iPhone; `rowrow ws download`.
+  **A file as of a commit** (#304): Preview on each file of a commit in History.
 - **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
 - **Model and effort switcher**, **one tap to the next agent that needs you** (and the Home
   Screen badge), and **quick replies** kept on the server for every device.

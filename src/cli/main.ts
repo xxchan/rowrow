@@ -70,7 +70,8 @@ Workspaces
   rowrow ws log <workspace> [--limit 20]                 the branch's commits, newest first
   rowrow ws show <workspace> <commit> [--path FILE]      a commit and its files, or one file's diff
   rowrow ws search <workspace> <text…> [--names | --content]
-  rowrow ws read <workspace> <path>                      a file of the checkout
+  rowrow ws read <workspace> <path> [--rev COMMIT]       a file of the checkout (as of a commit)
+  rowrow ws download <workspace> <path> [-o FILE]        a file, or a folder as .tar.gz (-o - for stdout)
   rowrow ws pr <workspace> [--refresh]                   the branch's GitHub pull request (via gh)
   (a <workspace> is its id, its label, or its path; file actions: rowrow call git.fileAction)
 
@@ -141,6 +142,8 @@ async function main(argv: string[]): Promise<void> {
       text: { type: "string" },
       limit: { type: "string" },
       path: { type: "string" },
+      rev: { type: "string" },
+      output: { type: "string", short: "o" },
       names: { type: "boolean" },
       content: { type: "boolean" },
       refresh: { type: "boolean" },
@@ -418,7 +421,7 @@ async function main(argv: string[]): Promise<void> {
           out(listing, () =>
             [listing.path, ...listing.entries.map((e) => `  ${e.repo ? "●" : " "} ${e.name}`)].join("\n"),
           );
-        } else if (sub === "log" || sub === "show" || sub === "search" || sub === "read" || sub === "pr") {
+        } else if (sub !== undefined && ["log", "show", "search", "read", "download", "pr"].includes(sub)) {
           await inspectCommand(client, sub, args, { str, bool, strings, json, out, trace });
         } else {
           const { state } = await client.state.get();
@@ -703,9 +706,34 @@ async function inspectCommand(client: Client, sub: string, args: string[], h: He
       return;
     }
     case "read": {
-      const file = await client.files.read({ workspaceId, path: rest[0] ?? "" });
+      const rev = h.str("rev");
+      const file = await client.files.read({
+        workspaceId,
+        path: rest[0] ?? "",
+        ...(rev === undefined ? {} : { rev }),
+      });
       if (h.json) console.log(JSON.stringify(file, null, 2));
       else process.stdout.write(`${file.text}${file.truncated ? "\n(cut at 1 MiB)\n" : ""}`);
+      return;
+    }
+    case "download": {
+      const file = await client.files.download({ workspaceId, path: rest[0] ?? "" });
+      const bytes = Buffer.from(await file.arrayBuffer());
+      const target = h.str("output") ?? (path.basename(file.name) || "download");
+      if (target === "-") {
+        process.stdout.write(bytes);
+        return;
+      }
+      try {
+        // Never over a file that's there unless -o names it.
+        fs.writeFileSync(target, bytes, { flag: h.str("output") === undefined ? "wx" : "w" });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        throw new Error(`${target} is already here: -o FILE saves it elsewhere (-o ${target} replaces it)`, {
+          cause: error,
+        });
+      }
+      h.out({ path: path.resolve(target), size: bytes.length }, () => `${target} (${bytes.length} bytes)`);
       return;
     }
     default: {

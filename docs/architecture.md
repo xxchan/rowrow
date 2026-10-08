@@ -242,17 +242,21 @@ message says what to do next.
   attachments: the runtime reads their absolute paths listed before your text, and images
   also as its own image input when it takes images (D-024).
 - **Inspector.** A workspace can also be looked into and tidied up through the API (and
-  `rowrow ws log|show|search|read|pr`; the web UI for it is still to come):
+  `rowrow ws log|show|search|read|download|pr`), and in the web app's Changes / Files /
+  History tabs:
   - *File actions* stage, unstage, discard unstaged edits, delete untracked files or mark a
     conflict resolved, one file or all at once. Each is one fixed git command on paths git
     itself reports, and carries the stamp of what the client saw: when the file changed
     since, it is refused and nothing happens (D-019).
   - *History* pages through the current branch's commits; a commit shows its message,
     people, dates, parents and files, compared with its parent (a root commit with the
-    empty tree, a merge with its first parent).
+    empty tree, a merge with its first parent), and `files.read {rev}` reads a file as it
+    was in a commit.
   - *Search* finds file names and lines through git's own view of the checkout (tracked and
     untracked files, .gitignore honored, binaries skipped), bounded at 200 each, and
     `files.read` previews a file (D-021).
+  - *Downloads*: `files.download` sends any file, or a folder as a .tar.gz of what the tree
+    shows, up to 256 MiB, as a GET the browser can fetch with its cookie (D-042).
   - *Pull request*: the branch's GitHub PR (state, checks, review decision), read with the
     host's `gh`, so rowrow holds no token; every other outcome is an explicit state (D-020).
 

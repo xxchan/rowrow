@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { connect, type Client } from "../../src/cli/client.ts";
 
-interface Rowrow {
+export interface Rowrow {
   readonly url: string;
   readonly client: Client;
   /** A git repository to use as a workspace. */

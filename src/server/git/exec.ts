@@ -11,6 +11,8 @@ export interface GitResult {
   readonly timedOut: boolean;
   /** stdout passed `maxBytes`: what is here is its start. */
   readonly capped: boolean;
+  /** stdout as bytes (an archive, a binary file), cut like `stdout`. */
+  readonly bytes?: Buffer;
   /** The process couldn't start (e.g. `ENOENT`: not installed). */
   readonly spawnError?: string;
 }
@@ -91,10 +93,12 @@ async function spawnCollect(
     }, options.timeoutMs ?? 20_000);
     const finish = (code: number | null): void => {
       clearTimeout(timer);
-      const stdout = Buffer.concat(out);
+      const all = Buffer.concat(out);
+      const bytes = capped ? all.subarray(0, maxBytes) : all;
       const result: GitResult = {
         code,
-        stdout: (capped ? stdout.subarray(0, maxBytes) : stdout).toString("utf8"),
+        stdout: bytes.toString("utf8"),
+        bytes,
         stderr: Buffer.concat(err).toString("utf8").trim(),
         timedOut,
         capped,

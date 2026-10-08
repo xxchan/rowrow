@@ -17,7 +17,8 @@ import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
 import { fileDiff, listChanges } from "../git/changes.ts";
 import { ActionRefused, applyBulkAction, applyFileAction, StaleError } from "../git/file-actions.ts";
-import { commitPatch, HistoryError, listCommits, readCommit } from "../git/history.ts";
+import { downloadWorkspacePath } from "../git/download.ts";
+import { commitPatch, HistoryError, listCommits, readCommit, readFileAtCommit } from "../git/history.ts";
 import { resolveHooks, runHook, type HookEvent, type HookRun } from "../git/hooks.ts";
 import { pullRequestStatus } from "../git/pull-request.ts";
 import { listWorkspaceFiles, readWorkspaceFile, SearchError, searchWorkspace } from "../git/search.ts";
@@ -385,10 +386,21 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       }
     },
 
-    async readFile(workspaceId, path) {
+    async readFile(workspaceId, path, rev) {
       const ws = gitWorkspace(workspaceId);
       try {
-        return await readWorkspaceFile({ dir: ws.path, path });
+        return rev === undefined
+          ? await readWorkspaceFile({ dir: ws.path, path })
+          : await readFileAtCommit({ dir: ws.path, sha: rev, path });
+      } catch (error) {
+        throw asUserError(error);
+      }
+    },
+
+    async download(workspaceId, path) {
+      const ws = gitWorkspace(workspaceId);
+      try {
+        return await downloadWorkspacePath({ dir: ws.path, path });
       } catch (error) {
         throw asUserError(error);
       }

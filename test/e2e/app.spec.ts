@@ -1,10 +1,12 @@
 // The app as a person uses it, on a desktop and a phone viewport. Each test gets its own
 // server and data (fixtures.ts); agents are the scripted runtime, so no tokens are spent.
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
-import { expect, test } from "./fixtures.ts";
+import { expect, test, type Rowrow } from "./fixtures.ts";
 
 test("a signed-out browser is asked to sign in, not shown an error", async ({ page, rowrow }) => {
   await page.goto(rowrow.url);
@@ -298,7 +300,155 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   // The history has the repository's first commit, and its file.
   await inspector.getByRole("tab", { name: "History" }).click();
   await inspector.getByRole("button", { name: /init/ }).click();
-  await expect(inspector.getByRole("button", { name: /README\.md/ })).toBeVisible();
+  await expect(inspector.getByRole("button", { name: /^\S README\.md/ })).toBeVisible();
+});
+
+/** Commit everything in `repo` (the e2e fixture's identity, no background maintenance). */
+function commit(repo: string, message: string): void {
+  for (const args of [
+    ["add", "-A"],
+    ["commit", "-q", "-m", message],
+  ])
+    execFileSync(
+      "git",
+      ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "-c", "maintenance.auto=false", ...args],
+      {
+        cwd: repo,
+        stdio: "ignore",
+      },
+    );
+}
+
+/** An agent's page with the inspector open on `tab`; returns the inspector. */
+async function inspect(
+  page: Page,
+  rowrow: Rowrow,
+  phone: boolean,
+  repo: string,
+  tab: string,
+  /** Files to add once the agent's turn is over (its snapshots needn't copy them). */
+  later?: () => void,
+) {
+  const ws = await rowrow.client.workspaces.add({ path: repo });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "inspects",
+    input: { inputId: randomUUID(), text: "/echo ready" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  later?.();
+  await rowrow.client.workspaces.refresh({ id: ws.id });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await page.getByRole("button", { name: /Changes/ }).click();
+  const inspector = phone ? page.getByRole("dialog") : page.getByRole("region", { name: "Inspector" });
+  await inspector.getByRole("tab", { name: tab }).click();
+  return inspector;
+}
+
+test("download a file or a folder from the inspector, and hear why when it can't", async ({
+  page,
+  rowrow,
+}, info) => {
+  const repo = rowrow.repo();
+  const bytes = Buffer.from(Array.from({ length: 5000 }, (_, i) => (i * 31) % 256));
+  fs.mkdirSync(path.join(repo, "assets", "img"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "assets", "app.bin"), bytes);
+  fs.writeFileSync(path.join(repo, "assets", "img", "logo.svg"), "<svg/>\n");
+  const phone = info.project.name === "phone";
+  const inspector = await inspect(page, rowrow, phone, repo, "Files", () => {
+    // Sparse: over the cap without taking the disk.
+    fs.writeFileSync(path.join(repo, "huge.iso"), "");
+    fs.truncateSync(path.join(repo, "huge.iso"), 256 * 1024 * 1024 + 1);
+  });
+
+  // A binary file has no preview, but it downloads, byte for byte, under its own name.
+  await inspector.getByRole("treeitem", { name: /assets/ }).click();
+  await inspector.getByRole("treeitem", { name: /app\.bin/ }).click();
+  await expect(inspector.getByText("app.bin is a binary file: no preview")).toBeVisible();
+  let saved = page.waitForEvent("download");
+  await inspector.getByRole("button", { name: "Download", exact: true }).first().click();
+  let download = await saved;
+  expect(download.suggestedFilename()).toBe("app.bin");
+  expect(fs.readFileSync(await download.path()).equals(bytes)).toBe(true);
+  await expect(page.getByText("Download started")).toBeVisible();
+  await inspector.getByRole("button", { name: "Back to results" }).click();
+
+  // A folder, from its row's menu: right-click on a desktop, its ⋯ on a phone.
+  const folder = inspector.getByRole("treeitem", { name: /img/ });
+  if (phone) {
+    await folder.click();
+    await inspector.getByRole("button", { name: "Options" }).click();
+  } else await folder.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Actions for assets/img" });
+  await expect(menu.getByRole("menuitem", { name: "Copy path" })).toBeVisible();
+  saved = page.waitForEvent("download");
+  await menu.getByRole("menuitem", { name: "Download directory" }).click();
+  download = await saved;
+  expect(download.suggestedFilename()).toBe("img.tar.gz");
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-e2e-untar-"));
+  try {
+    execFileSync("tar", ["-xzf", await download.path(), "-C", out]);
+    expect(fs.readFileSync(path.join(out, "img", "logo.svg"), "utf8")).toBe("<svg/>\n");
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+
+  // Over the cap: a toast says so, and nothing is saved.
+  if (!phone) {
+    await inspector.getByRole("treeitem", { name: /huge\.iso/ }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Download file" }).click();
+  } else {
+    await inspector.getByRole("treeitem", { name: /huge\.iso/ }).click();
+    await inspector.getByRole("button", { name: "Download", exact: true }).first().click();
+  }
+  await expect(page.getByText("Couldn't download huge.iso")).toBeVisible();
+  await expect(page.getByText(/huge\.iso is 257 MiB: downloads stop at 256 MiB/)).toBeVisible();
+});
+
+test("view a file as it was in a commit from the history, then go back to its diff", async ({
+  page,
+  rowrow,
+}, info) => {
+  const repo = rowrow.repo();
+  fs.mkdirSync(path.join(repo, "src"));
+  fs.writeFileSync(path.join(repo, "src", "app.ts"), "export const version = 1;\n");
+  fs.writeFileSync(path.join(repo, "old.txt"), "the old notes\n");
+  commit(repo, "Add the app");
+  fs.writeFileSync(path.join(repo, "src", "app.ts"), "export const version = 2;\n");
+  commit(repo, "Bump the version");
+  fs.rmSync(path.join(repo, "old.txt"));
+  commit(repo, "Drop the old notes");
+  fs.writeFileSync(path.join(repo, "src", "app.ts"), "export const version = 3; // not committed\n");
+  const inspector = await inspect(page, rowrow, info.project.name === "phone", repo, "History");
+
+  await inspector.getByRole("button", { name: /Bump the version/ }).click();
+  await inspector.getByRole("button", { name: "Preview src/app.ts at this commit" }).click();
+  const preview = inspector.getByRole("region", { name: "Historical file preview" });
+  await expect(preview.getByText("export const version = 2;")).toBeVisible();
+  await expect(preview.getByText(/^@ [0-9a-f]{7}$/)).toBeVisible();
+  await expect(preview.getByText(/As of commit [0-9a-f]{7}: Bump the version\. Read-only\./)).toBeVisible();
+  // Read-only: nothing here acts on the checkout.
+  await expect(preview.getByRole("button", { name: "Download" })).toHaveCount(0);
+  await expect(preview.getByRole("button", { name: "Mention" })).toHaveCount(0);
+
+  // Back to the commit, with that file's diff open.
+  await preview.getByRole("button", { name: "Back to diff" }).click();
+  await expect(inspector.getByRole("button", { name: /src\/app\.ts/, expanded: true })).toBeVisible();
+  await expect(inspector.getByText("export const version = 2;").first()).toBeVisible();
+
+  // A file the commit deleted shows as it was just before, and says so.
+  await inspector.getByRole("button", { name: "Back to history" }).click();
+  await inspector.getByRole("button", { name: /Drop the old notes/ }).click();
+  await inspector.getByRole("button", { name: "Preview old.txt at this commit" }).click();
+  await expect(
+    inspector
+      .getByRole("region", { name: "Historical file preview" })
+      .getByText("the old notes", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    inspector.getByText(/Deleted in commit [0-9a-f]{7}: this is the file as of its parent [0-9a-f]{7}\./),
+  ).toBeVisible();
 });
 
 test("a quick reply added in Settings is one tap away in the composer", async ({ page, rowrow }) => {

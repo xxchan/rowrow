@@ -1,5 +1,6 @@
 // A workspace's history (roamgate #229): the branch's pull request and its checks (#228),
-// then commits, newest first; a commit opens to its message and files, each with its diff.
+// then commits, newest first; a commit opens to its message and files, each with its diff
+// and a preview of the file as it was in that commit (#304).
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -8,6 +9,7 @@ import {
   CircleDashed,
   CircleX,
   ExternalLink,
+  Eye,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
@@ -15,8 +17,9 @@ import {
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ChangedFile,
   CommitChanges,
   CommitPage,
   CommitSummary,
@@ -27,6 +30,9 @@ import { ago } from "../lib/format.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { ErrorText } from "./ErrorText.tsx";
 import { FileDiffRow } from "./FileDiffRow.tsx";
+
+// The preview comes with the Files tab's code (the tree, Markdown), loaded when first opened.
+const FilePreview = lazy(async () => ({ default: (await import("./FilesTab.tsx")).FilePreview }));
 
 export function HistoryTab({ workspaceId }: { workspaceId: string }) {
   const client = useClient();
@@ -141,9 +147,54 @@ function CommitRow({ commit, onOpen }: { commit: CommitSummary; onOpen: () => vo
   );
 }
 
+/** A file previewed as of a commit: where to read it, what to say about it, and its row. */
+interface Historical {
+  readonly path: string;
+  readonly rev: string;
+  readonly note: string;
+  readonly row: string;
+}
+
+/**
+ * The version of a commit's file worth showing: the file as the commit left it, or, when the
+ * commit deleted it, as it was just before (in the parent the commit is compared with).
+ */
+function historical(detail: CommitChanges, file: ChangedFile): Historical | null {
+  const { commit } = detail;
+  const at = commit.sha.slice(0, 7);
+  if (file.status !== "deleted")
+    return {
+      path: file.path,
+      rev: commit.sha,
+      note: `As of commit ${at}: ${commit.subject}. Read-only.`,
+      row: file.path,
+    };
+  if (detail.base === null) return null;
+  const parent = commit.parents.length > 1 ? "first parent" : "parent";
+  return {
+    path: file.oldPath ?? file.path,
+    rev: detail.base,
+    note: `Deleted in commit ${at}: this is the file as of its ${parent} ${detail.base.slice(0, 7)}. Read-only.`,
+    row: file.path,
+  };
+}
+
 function CommitView({ workspaceId, sha, onBack }: { workspaceId: string; sha: string; onBack: () => void }) {
   const client = useClient();
   const [detail, setDetail] = useState<{ data: CommitChanges | null; error: string | null } | null>(null);
+  const [preview, setPreview] = useState<Historical | null>(null);
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const list = useRef<HTMLDivElement>(null);
+  const backTo = useRef<string | null>(null);
+
+  // Back from a preview: the commit as it was, with that file's diff open and in view.
+  useEffect(() => {
+    const row = backTo.current;
+    if (preview !== null || row === null) return;
+    backTo.current = null;
+    for (const element of list.current?.querySelectorAll<HTMLElement>("[data-file-row]") ?? [])
+      if (element.dataset.fileRow === row) element.scrollIntoView({ block: "nearest" });
+  }, [preview]);
 
   useEffect(() => {
     if (client === null) return;
@@ -170,50 +221,118 @@ function CommitView({ workspaceId, sha, onBack }: { workspaceId: string; sha: st
     [client, workspaceId, sha],
   );
 
-  const commit = detail?.data?.commit;
+  const changes = detail?.data ?? null;
+  const commit = changes?.commit;
   const body = commit === undefined ? "" : commit.message.split("\n").slice(1).join("\n").trim();
+  const toggle = (path: string, shown: boolean): void =>
+    setOpen((before) => {
+      const next = new Set(before);
+      if (shown) next.add(path);
+      else next.delete(path);
+      return next;
+    });
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-        <Button variant="ghost" size="icon" className="size-8" aria-label="Back to history" onClick={onBack}>
-          <ArrowLeft />
-        </Button>
-        <span className="font-mono text-[12px] text-muted-foreground">{sha.slice(0, 7)}</span>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{commit?.subject ?? ""}</span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        {detail === null ? (
-          <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
-            <LoaderCircle className="size-3.5 animate-spin" /> Loading the commit
-          </div>
-        ) : detail.error !== null || detail.data === null ? (
-          <ErrorText className="px-2">{detail.error ?? "Couldn't load it."}</ErrorText>
-        ) : (
-          <>
-            <div className="flex flex-col gap-1.5 px-2 pb-3">
-              <p className="text-sm font-medium">{detail.data.commit.subject}</p>
-              {body !== "" && (
-                <p className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">{body}</p>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                {`${detail.data.commit.authorName} · ${new Date(detail.data.commit.authorDate).toLocaleString()} · against ${detail.data.baseLabel}`}
-              </p>
+    <>
+      {preview !== null && (
+        <Suspense
+          fallback={
+            <div className="flex items-center gap-2 px-4 py-4 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" /> Loading historical file
             </div>
-            {detail.data.files.length === 0 && (
-              <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-                {detail.data.note ?? "No files changed."}
-              </p>
-            )}
-            {detail.data.files.map((file) => (
-              <FileDiffRow key={file.path} file={file} version={sha} load={load(file.path)} />
-            ))}
-            {detail.data.truncated && (
-              <p className="px-2 pt-2 text-xs text-muted-foreground">Showing the first 2000 files.</p>
-            )}
-          </>
-        )}
+          }
+        >
+          <FilePreview
+            workspaceId={workspaceId}
+            path={preview.path}
+            line={null}
+            at={{ rev: preview.rev, note: preview.note }}
+            backLabel="Back to diff"
+            onBack={() => {
+              backTo.current = preview.row;
+              toggle(preview.row, true);
+              setPreview(null);
+            }}
+          />
+        </Suspense>
+      )}
+      {/* Hidden, not unmounted, under a preview: the commit keeps its open diffs and scroll. */}
+      <div className={cn("flex h-full min-h-0 flex-col", preview !== null && "hidden")}>
+        <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label="Back to history"
+            onClick={onBack}
+          >
+            <ArrowLeft />
+          </Button>
+          <span className="font-mono text-[12px] text-muted-foreground">{sha.slice(0, 7)}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{commit?.subject ?? ""}</span>
+        </div>
+        <div ref={list} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          {detail === null ? (
+            <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" /> Loading the commit
+            </div>
+          ) : detail.error !== null || changes === null ? (
+            <ErrorText className="px-2">{detail.error ?? "Couldn't load it."}</ErrorText>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5 px-2 pb-3">
+                <p className="text-sm font-medium">{changes.commit.subject}</p>
+                {body !== "" && (
+                  <p className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">{body}</p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  {`${changes.commit.authorName} · ${new Date(changes.commit.authorDate).toLocaleString()} · against ${changes.baseLabel}`}
+                </p>
+              </div>
+              {changes.files.length === 0 && (
+                <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  {changes.note ?? "No files changed."}
+                </p>
+              )}
+              {changes.files.map((file) => {
+                const version = historical(changes, file);
+                const show = (): void => {
+                  if (version !== null) setPreview(version);
+                };
+                return (
+                  <FileDiffRow
+                    key={file.path}
+                    file={file}
+                    version={sha}
+                    load={load(file.path)}
+                    open={open.has(file.path)}
+                    onOpenChange={(shown) => toggle(file.path, shown)}
+                    menu={
+                      version === null ? [] : [{ label: "Preview at this commit", icon: <Eye />, run: show }]
+                    }
+                    actions={
+                      version === null ? undefined : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 px-2 text-[11px] text-muted-foreground"
+                          aria-label={`Preview ${file.path} at this commit`}
+                          onClick={show}
+                        >
+                          Preview
+                        </Button>
+                      )
+                    }
+                  />
+                );
+              })}
+              {changes.truncated && (
+                <p className="px-2 pt-2 text-xs text-muted-foreground">Showing the first 2000 files.</p>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
