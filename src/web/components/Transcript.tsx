@@ -16,6 +16,7 @@ import {
   type ViewMessage,
   type ViewSection,
 } from "@botiverse/oar/observe";
+import type { FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
@@ -23,7 +24,7 @@ import { memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { Actor, Attachment } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
-import { duration } from "../../shared/describe.ts";
+import { duration, failureHint } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
 import { navigate } from "../lib/router.ts";
@@ -162,9 +163,12 @@ const Message = memo(function Message({
               {`Failed: ${message.outcome.reason}`}
             </p>
           )}
-          {message.outcome?.kind === "failed" && message.outcome.failure === "auth" && (
-            <SignInAgain runtime={runtime} />
-          )}
+          {message.outcome?.kind === "failed" &&
+            (message.outcome.failure === "auth" ? (
+              <SignInAgain runtime={runtime} />
+            ) : (
+              <FailureHint failure={message.outcome.failure} />
+            ))}
           {message.outcome?.kind === "aborted" && (
             <p className="text-sm text-muted-foreground">You stopped the turn.</p>
           )}
@@ -172,6 +176,12 @@ const Message = memo(function Message({
       );
   }
 });
+
+/** What to do about a failed turn, when something helps (a limit, a model, the input's size…). */
+function FailureHint({ failure }: { failure: FailureClass }) {
+  const hint = failureHint(failure);
+  return hint === null ? null : <p className="text-sm text-muted-foreground">{hint}</p>;
+}
 
 /** The runtime's login ran out: where and how to sign it in again, then send again. */
 function SignInAgain({ runtime }: { runtime: string }) {

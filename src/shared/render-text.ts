@@ -2,6 +2,7 @@
 // agent reads instead of a screenshot. Same fold as the UI, so the text is what the UI
 // showed.
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
+import { failureHint } from "./describe.ts";
 import type { Actor, Attachment } from "./entries.ts";
 import type { Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
@@ -93,6 +94,8 @@ function renderMessage(message: ViewMessage, timeline: Timeline, toolChars: numb
               ? "  ■ turn aborted"
               : `  ✗ turn failed (${outcome.failure}): ${outcome.reason}`,
         );
+        const hint = outcome.kind === "failed" ? failureHint(outcome.failure) : null;
+        if (hint !== null) lines.push(`    ${hint}`);
       }
       return lines;
     }

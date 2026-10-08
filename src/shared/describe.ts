@@ -1,7 +1,8 @@
 // Words and colors for an agent's state, the same on every screen of every client (the web
 // app imports them, the iOS app gets them through the kit), so an agent reads the same
 // everywhere (docs/architecture.md, "Attention and notifications").
-import { classifyTool, toolActionLabel } from "@botiverse/oar/observe";
+import type { FailureClass } from "@botiverse/oar";
+import { classifyTool, failureAdvice, toolActionLabel } from "@botiverse/oar/observe";
 import type { AgentState } from "./schemas.ts";
 import { stalledFor, type AgentSummary } from "./summary.ts";
 
@@ -74,4 +75,26 @@ export function duration(ms: number): string {
   if (s < 60) return `${s}s`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
+/** What a person can do about a failed turn whose cause needs them (oar's failureAdvice). */
+const FAILURE_STEPS: Partial<Record<FailureClass, string>> = {
+  billing: "Check the account's plan or billing with the provider, then send it again.",
+  model_unavailable: "This account can't use that model now: pick another one, then send it again.",
+  input_too_large: "That was more than the model takes: send something shorter, or fewer attachments.",
+};
+
+/**
+ * What to do after a turn failed, by oar's failure class: the step it needs from you, wait
+ * for a limit, or just send it again. Null when nothing helps, and for sign-in, which has its
+ * own steps (sign-in.ts).
+ */
+export function failureHint(failure: FailureClass): string | null {
+  if (failure === "auth") return null;
+  const advice = failureAdvice(failure);
+  if (advice.userAction) return FAILURE_STEPS[failure] ?? null;
+  if (advice.retry === "later")
+    return "A usage limit ran out: it resets later (Settings → Subscription usage says when).";
+  if (advice.retry === "now") return "This usually passes: send it again in a moment.";
+  return null;
 }

@@ -126,7 +126,7 @@ export interface OutcomeItem {
   readonly outcome: "completed" | "aborted" | "failed";
   /** Why it failed, in the runtime's words. */
   readonly reason: string | null;
-  /** oar's failure class: auth, quota, invalid_request, overloaded, provider, runtime_exited, unknown. */
+  /** oar's failure class: auth, billing, quota, rate_limited, model_unavailable, input_too_large, invalid_request, overloaded, provider, runtime_exited, unknown. */
   readonly failure: string | null;
 }
 
