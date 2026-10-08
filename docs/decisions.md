@@ -1146,3 +1146,68 @@ from their text. The limits keep a confused agent from becoming noise.
 **Revisit when** scheduled prompts (roamgate's Ranger tasks) arrive and want "quiet unless
 the agent notifies" as a mode, people want to mute one agent's notices (the parity doc's
 per-agent mute), or the limits turn out wrong for real watchers.
+
+## D-044 Coach: an assistant that reads the crew, as an agent of rowrow's own (2026-10-08)
+
+**Context.** With many agents at once, "what needs me, what happened there, did it work?"
+means opening one transcript and diff after another, which is slow on a phone. roamgate's
+Ranger (v0.8.0) answers it with a global assistant that reads the workspaces you allow and
+does no coding itself. The owner asked for it in rowrow, copied faithfully in its UX, in
+phases: reading first (this), then proposals you confirm, then scheduled checks and their
+notifications, then the iOS app.
+
+**Decision.** Coach is a rowrow agent with `role: "coach"` (on `agent.created`), not a second
+kind of conversation: it has the log, runs, transcript fold, stop, model and effort of any
+agent. Its chats run in `<profile>/coach`, an empty directory in no workspace, and are kept
+out of everything that lists agents: AppState carries the current chat as `coach.chat`, not
+under `agents`, so no list, count, badge, toast, notification, Home, ⌘K or `rowrow agents`
+sees it (`rowrow agents --coach` lists the chats; `coach.chats` is History). Leaving a chat
+archives it; the current chat is the newest one not archived.
+
+- **What it runs on.** A runtime signed in on this machine that takes all three of oar's
+  `systemPrompt`, `disallowedTools` and `mcpServers`: claude and pi (and the scripted runtime
+  in tests). Codex can't turn its built-in tools off, cursor, kimi and antigravity refuse a
+  system prompt, grok, kimi and opencode refuse the tool list; the picker shows them, disabled,
+  saying so, and `coach.send` refuses them before oar would.
+- **How a run opens.** Coach's system prompt (roamgate's manual-confirmation prompt nearly
+  verbatim, with rowrow's nouns) replaces the runtime's; every built-in tool is turned off by
+  its exact, case-sensitive name (`src/server/coach/tools.ts`, pinned by a test: claude and pi
+  turn off nothing for a misspelled name, without a word); claude also gets
+  `ENABLE_CLAUDEAI_MCP_SERVERS=false`. Its one MCP server is `rowrow mcp coach` (this server's
+  own CLI, through the profile's launcher), a small stdio JSON-RPC server written here rather
+  than a dependency. The runtime itself gets no rowrow credential. What the runtime then says
+  it loaded is checked, not trusted: any tool in claude's init frame besides rowrow's logs
+  `coach.tools_leaked` and says "Coach's session has tools it shouldn't: …" in the chat.
+- **Its credential.** Each run of a Coach chat mints a token (`rrc_…`, in memory, gone when the
+  run ends) that only the MCP server holds. The router lets it call `coach.agentsStatus`,
+  `agentHistory`, `agentChanges` and `agentBackground` and nothing else (FORBIDDEN), and those
+  read only agents of the turn's workspaces (never Coach's own chats). Bounded like roamgate's:
+  80 items, 8,000 characters a message, 32,000 a read, each with `readAt` and, when cut, "do not
+  infer that omitted records do not exist".
+- **What it may read.** `settings.coach.workspaces`: none until you tick them. `coach.send`
+  captures them (the ticked ones that still exist) into the `input` entry's `scope`, fixed for
+  that turn; the runtime reads them as a frame before your text, and the log and transcript keep
+  your text alone (as attachments already do). The model and effort in `settings.coach` apply to
+  the next message; another runtime starts a new chat.
+- **Its window** follows roamgate's Ranger: a header button and ⌘⌥⇧A, floating at the right
+  (380 px), pinned beside the page (resizable; under it when the page is 900 px or narrower) or
+  maximized, full screen on a phone, Escape to restore or close; each message under "You" or
+  "Coach", tool calls and the agents and workspaces they read folded into "Work performed (N)"
+  under each answer; a wave bar maps the conversation; settings change with one Save.
+
+**Why.** An agent already is a durable conversation with a runtime, streamed, resumable and
+replayable from its log; a parallel assistant stack (roamgate's Pi driver and its own
+storage) would duplicate all of it. Running the user's own signed-in runtime keeps rowrow
+free of model credentials (PRINCIPLES.md, product 7). Reads go through the contract, so the
+scope check lives in one place on the server, and a confused or injected model can do no more
+than its token allows.
+
+**Phase 2 hooks.** Proposals are more `coach.*` procedures added to the token's list (the prompt
+already says what a proposal tool means); cards confirm through the device's own call, so
+PRINCIPLES.md product 4 holds. Scheduled tasks are Coach chats a timer sends to.
+
+**Revisit when** oar can pass claude `--strict-mcp-config` and `--setting-sources` (oar#250)
+and report a session's effective tools (oar#253): today claude still loads the user's own MCP
+servers, CLAUDE.md and hooks (docs/upstream.md);
+when another runtime gains a tool deny list; or when the assistant needs to outlive a run
+(tokens are per run).

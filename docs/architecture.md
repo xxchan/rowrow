@@ -79,9 +79,9 @@ to the agent; everything the UI shows about an agent is computed from it.
 
 ```ts
 type Entry = { seq: number; at: number } & (
-  | { kind: "agent.created"; workspaceId; runtime; model?; title?; by }
+  | { kind: "agent.created"; workspaceId; runtime; model?; title?; role?; by } // role "coach": D-044
   | { kind: "agent.updated"; changes; by }              // title, model, archived
-  | { kind: "input"; inputId; text; mode; by }          // what you sent, before delivery
+  | { kind: "input"; inputId; text; mode; by; scope? }  // what you sent, before delivery
   | { kind: "input.result"; inputId; landed; code?; reason? } // where it landed
   | { kind: "run.started"; runId; runtime; model?; cwd; resume?; sessionId }
   | { kind: "run.failed"; runId; error }                // could not start
@@ -187,6 +187,35 @@ Status vocabulary, in priority order (a workspace shows its highest):
   notification (it replaces neither "finished" nor an earlier one; the Mac app keeps one per
   agent), and it opens the agent. A `dedupKey` sends once per agent per 24 h, and an agent
   may send one per 10 s and 30 an hour; both count the log, so they hold across restarts.
+
+## Coach
+
+Coach (D-044) is rowrow's assistant: it reads the agents of the workspaces you allow and
+helps you keep track of them, and does no coding itself. It is roamgate's Ranger, built from
+rowrow's own parts.
+
+- **A chat is an agent** with `role: "coach"`: same actor, log, runs, transcript, stop, model
+  and effort. It runs in `<profile>/coach`, in no workspace, and AppState carries it as
+  `coach.chat` instead of under `agents`, so lists, counts, attention toasts, notifications and
+  `rowrow agents` never see it. Leaving a chat archives it; `coach.chats` is its History.
+- **A message** goes through `coach.send`, which captures `settings.coach.workspaces` (those
+  still there) into the `input` entry's `scope`, fixed for the turn, and applies Coach's model,
+  effort and runtime from `settings.coach`. The runtime reads the scope as a frame before your
+  text (`src/server/coach/prompt.ts`); the transcript shows your text.
+- **A run** opens with Coach's system prompt in place of the runtime's, the runtime's built-in
+  tools turned off by name (`src/server/coach/tools.ts`), and one MCP server, `rowrow mcp
+  coach` (`src/cli/mcp.ts`), whose environment holds a token minted for that run. Only claude
+  and pi take all three; the picker says why the others can't be Coach. The tools claude says
+  it loaded are checked: any but rowrow's is a warning in the log and in the chat.
+- **Its tools** are four reads, each a `coach.*` procedure: `agents_status`, `agent_history`
+  (the `agent view` fold, paged back by turns), `agent_changes` (files, or one file's diff) and
+  `agent_background` (background commands and the end of their output). The token reaches only
+  these, and they read only agents in the turn's scope; results are bounded (80 items, 8,000
+  characters a message, 32,000 a read) and say when they were read and when something was cut.
+- **Its window** (`src/web/components/Coach.tsx`) opens from every page's header or ⌘⌥⇧A:
+  floating at the right, pinned beside the page, or maximized; full screen on a phone. Its
+  conversation is the transcript component, with each answer's tool calls folded into "Work
+  performed (N)", and a wave bar to jump between messages.
 
 ## Replicating state to clients
 

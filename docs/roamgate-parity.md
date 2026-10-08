@@ -211,6 +211,16 @@
 | Incremental transport; dropping stale repaints (#207, #213) | Stay usable on slow links | have | Slim entries, immer patches coalesced per tick, permessage-deflate, cursor resume | — |
 | Pause other browsers; Herdr protocol negotiation and fallbacks (DEPLOYMENT "Herdr compatibility") | Avoid contention; work with whichever Herdr is installed | deliberately different | No shared terminal size to fight over; oar is pinned from npm (D-004) | — |
 
+## 13. Ranger, roamgate's assistant (v0.8.0, compared 2026-10-08): rowrow's Coach
+
+| roamgate feature (source) | User need | rowrow status | rowrow evidence / design sketch | Priority |
+|---|---|---|---|---|
+| Ranger chat: topbar button and ⌘⌥⇧A; float, pin (resizable) or maximize; full screen on mobile; History, New chat; wave bar (#354, #364, #365) | Make sense of many agents at once, from any device | have | Coach (D-044): a rowrow agent with role coach, in its own window (`Coach.tsx`, `CoachWave.tsx`), its chats kept out of every agent list | — |
+| Reads: workspace status, agent history, diffs, terminal output; scope per workspace, none by default, fixed per question; bounded results with read times (#354, #374) | Ask without opening each agent, and control what reaches a model provider | have | `agents_status`, `agent_history`, `agent_changes`, `agent_background` over `rowrow mcp coach`, with a per-run token that reads only the turn's workspaces (`src/server/coach/`) | — |
+| Model connection and quick model/effort pickers (#364, #367, #371) | Choose what it runs on | deliberately different | Coach runs on a runtime signed in on this machine (claude or pi), with its built-in tools off; model and effort pills under the composer apply to the next message | — |
+| Proposals confirmed on cards; high-permission mode (#354, #364) | Act on what it found without switching screens | missing | Phase 2: more `coach.*` procedures on the token's list; cards you confirm (PRINCIPLES product 4) | P1 |
+| Scheduled tasks and monitoring notifications (#356, #358) | Be told when the condition I care about happens | missing | Phase 3: a timer that sends to a Coach chat, and a notification Coach may raise | P1 |
+
 ---
 
 ## Top 10 gaps, in build order

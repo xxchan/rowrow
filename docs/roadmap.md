@@ -55,6 +55,10 @@ file when something lands.
   inside an agent reaches every device and the transcript, once per `--key` a day, for
   watchers that should stay quiet until what they watch happens (roamgate's "Let Ranger
   decide").
+- **Coach, phase 1** (D-044): an assistant that reads your crew of agents (status,
+  conversations, changes, background output) in the workspaces you allow, on your own claude or
+  pi with its tools turned off and rowrow's read-only tools instead; a window floating, pinned
+  or maximized beside every page (⌘⌥⇧A), full screen on a phone. roamgate's Ranger, rebuilt.
 
 ## Parked
 
@@ -73,6 +77,15 @@ file when something lands.
 5. **Notification preferences and per-agent mute.**
 6. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
+
+## Coach, next (D-044)
+
+1. Proposals Coach makes and you confirm on a card: start an agent, send it a message, create
+   a worktree; then Full access, which skips the confirmation.
+2. Scheduled checks: a prompt Coach runs on a schedule, and a notification only when what you
+   asked about happens.
+3. Coach in the iOS app.
+4. Only rowrow's MCP server on claude (docs/upstream.md).
 
 ## The Mac app, next
 
