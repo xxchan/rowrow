@@ -2,7 +2,7 @@
 // "Needs you" lists the agents that are blocked or finished unseen; below it, workspaces
 // hold their agents, and linked worktrees nest under their repository. On a phone the
 // nav is a sheet, opened from each page's header (PageHeader), which shows how many
-// agents need you.
+// agents need you. Coach (D-044) opens from every page's header and sits beside the page.
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Kbd } from "@/components/ui/kbd";
@@ -33,6 +33,8 @@ import { navigate, RouterLink, type Route } from "../lib/router.ts";
 import { onAttention, onNotification, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { AgentContextMenu, AgentDialogs, openAgentDialog, WorkspaceContextMenu } from "./AgentActions.tsx";
+import { useCoach } from "../lib/coach.ts";
+import { CoachButton, CoachDock } from "./Coach.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
@@ -47,6 +49,8 @@ const useNavSheet = create<{ openOn: Route | null }>(() => ({ openOn: null }));
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const openOn = useNavSheet((s) => s.openOn);
   const narrow = useNarrow();
+  // Coach pinned in a narrow page sits under it (D-044).
+  const coachStacked = useCoach((s) => s.stacked);
   useAttentionToasts(route);
   useAppBadge();
   useAppName();
@@ -71,7 +75,10 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             <Nav route={route} />
           </aside>
         )}
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+        <div className={cn("relative flex min-w-0 flex-1", coachStacked && "flex-col")}>
+          <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+          <CoachDock />
+        </div>
       </div>
       <NewAgentDialog route={route} />
       <CommandMenu route={route} />
@@ -137,7 +144,10 @@ export function PageHeader({
           {subtitle !== undefined && <div className="truncate text-xs text-muted-foreground">{subtitle}</div>}
         </div>
       </div>
-      {actions !== undefined && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+      <div className="flex shrink-0 items-center gap-1">
+        {actions}
+        <CoachButton />
+      </div>
     </header>
   );
 }

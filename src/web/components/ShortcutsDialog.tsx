@@ -1,6 +1,6 @@
 // Every keyboard shortcut on one sheet: ? anywhere (bound in CommandMenu), or the keyboard
 // button beside Settings. The list is written by hand, so keep it in step with the handlers
-// it describes (CommandMenu, Composer, NewAgentDialog, DiffView and SelectionComment).
+// it describes (CommandMenu, Composer, NewAgentDialog, DiffView, SelectionComment and Coach).
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { create } from "zustand";
@@ -23,6 +23,7 @@ const GROUPS: readonly {
       [["⌘", "K"], "Go to an agent or workspace"],
       [["⌘", "J"], "Next agent that needs you"],
       [["C"], "New agent"],
+      [["⌘", "⌥", "⇧", "A"], "Coach"],
       [["⌘", ","], "Settings"],
       [["?"], "Keyboard shortcuts"],
     ],
@@ -56,6 +57,14 @@ const GROUPS: readonly {
       [["⌥", "A"], "Agent"],
       [["⌥", "M"], "Model (← → for effort)"],
       [["⌥", "T"], "New worktree on or off"],
+    ],
+  },
+  {
+    heading: "Coach",
+    items: [
+      [["↵"], "Send"],
+      [["⇧", "↵"], "New line"],
+      [["Esc"], "Restore the window, or close Coach"],
     ],
   },
   {

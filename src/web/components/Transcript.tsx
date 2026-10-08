@@ -1,7 +1,9 @@
 // The transcript: the timeline fold (src/shared/timeline.ts) rendered as a conversation.
 // Every block and message is memoized on identity, and the fold shares structure, so while
 // text streams only the open turn re-renders. Messages carry data-author ("you" or
-// "agent"): selection comments quote only what the agent wrote (SelectionComment).
+// "agent"): selection comments quote only what the agent wrote (SelectionComment). Coach's
+// chats (D-044) read the same fold: an answer's text, with the tools it called folded into one
+// "Work performed" group under it.
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
@@ -15,18 +17,22 @@ import {
   type ToolPart,
   type ViewMessage,
   type ViewSection,
+  type ViewTurn,
 } from "@botiverse/oar/observe";
 import type { CredentialProblem, FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { Bell, Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
-import { Fragment, memo, type ReactNode } from "react";
+import { Bell, Check, ChevronRight, CircleAlert, CircleX, ExternalLink, LoaderCircle } from "lucide-react";
+import { Fragment, memo, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
+import { coachToolLabel } from "../../shared/coach.ts";
 import type { Actor, Attachment, EntryOf } from "../../shared/entries.ts";
+import type { AppState } from "../../shared/schemas.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import { droppedWords, duration, failureHint } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
+import { closeCoach } from "../lib/coach.ts";
 import { navigate } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import {
@@ -47,11 +53,20 @@ import { SentAttachments } from "./Attachments.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
-export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
+export function Transcript({
+  timeline,
+  runtime,
+  coach = false,
+}: {
+  timeline: Timeline;
+  runtime: string;
+  /** A Coach chat: answers with their tool calls folded under them. */
+  coach?: boolean;
+}) {
   return (
     <div className="flex flex-col gap-5">
       {timeline.blocks.map((block) => (
-        <Block key={keyOf(block)} block={block} timeline={timeline} runtime={runtime} />
+        <Block key={keyOf(block)} block={block} timeline={timeline} runtime={runtime} coach={coach} />
       ))}
     </div>
   );
@@ -72,23 +87,39 @@ const Block = memo(function Block({
   block,
   timeline,
   runtime,
+  coach,
 }: {
   block: TimelineBlock;
   timeline: Timeline;
   runtime: string;
+  coach: boolean;
 }) {
   switch (block.kind) {
     case "run":
-      return <Run run={block} timeline={timeline} runtime={runtime} />;
+      return <Run run={block} timeline={timeline} runtime={runtime} coach={coach} />;
     case "input":
       // A held one waits above the composer (QueueTray) until it is sent.
-      return block.delivered || held(block) ? null : <PendingInput block={block} />;
+      return block.delivered || held(block) ? null : coach ? (
+        <PendingCoachInput block={block} />
+      ) : (
+        <PendingInput block={block} />
+      );
     case "notice":
       return <Notice block={block} />;
   }
 });
 
-function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; runtime: string }) {
+function Run({
+  run,
+  timeline,
+  runtime,
+  coach,
+}: {
+  run: RunBlock;
+  timeline: Timeline;
+  runtime: string;
+  coach: boolean;
+}) {
   const { started, ended, view } = run;
   const notes = placeNotes(run);
   return (
@@ -113,6 +144,7 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
                 runtime={runtime}
                 open={index === view.openTurn}
                 agentStopped={stoppedByAgent(run, message.id)}
+                coach={coach}
               />
             )
           }
@@ -132,6 +164,7 @@ const Message = memo(function Message({
   runtime,
   open,
   agentStopped,
+  coach,
 }: {
   message: ViewMessage;
   timeline: Timeline;
@@ -139,6 +172,7 @@ const Message = memo(function Message({
   open: boolean;
   /** An aborted turn the runtime stopped itself, not you. */
   agentStopped: boolean;
+  coach: boolean;
 }) {
   switch (message.kind) {
     case "input": {
@@ -147,6 +181,20 @@ const Message = memo(function Message({
       // Steered and not read yet: it waits above the composer (QueueTray).
       if (steerUnread(origin, input.observations.length, runtime)) return null;
       // What you sent (your text and files), rather than the text the runtime read.
+      if (coach)
+        return (
+          <CoachYou
+            text={origin?.input.text ?? input.input}
+            at={origin?.input.at}
+            state={
+              input.state === "rejected" || input.state === "dropped"
+                ? "error"
+                : input.state === "pending"
+                  ? "sending"
+                  : "sent"
+            }
+          />
+        );
       return (
         <UserMessage
           text={origin?.input.text ?? input.input}
@@ -162,6 +210,7 @@ const Message = memo(function Message({
     case "notice":
       return <SystemLine>{noticeText(message.notice)}</SystemLine>;
     case "turn":
+      if (coach) return <CoachAnswer turn={message} runtime={runtime} open={open} />;
       return (
         <article data-author="agent" aria-label="The agent's turn" className="flex min-w-0 flex-col gap-3">
           {message.sections.map((section, index) => (
@@ -193,6 +242,258 @@ const Message = memo(function Message({
       );
   }
 });
+
+// ─── Coach (D-044) ──────────────────────────────────────────────────────────
+// Coach's chat reads like roamgate's Ranger: each message under a "You" or "Coach" line, your
+// text in a tinted block, its answer flat, and the tools it called folded under the answer.
+
+const when = (at: number): string => {
+  const date = new Date(at);
+  return date.toDateString() === new Date().toDateString()
+    ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+};
+
+function CoachHead({ who, at }: { who: "You" | "Coach"; at?: number | undefined }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <strong className="text-[11px] font-semibold">{who}</strong>
+      {at !== undefined && <time className="text-[10px] text-muted-foreground">{when(at)}</time>}
+    </div>
+  );
+}
+
+/** What you asked Coach. */
+function CoachYou({
+  text,
+  at,
+  state,
+  reason,
+}: {
+  text: string;
+  at: number | undefined;
+  state: "sending" | "sent" | "error";
+  reason?: string | null | undefined;
+}) {
+  return (
+    <section data-author="you" aria-label="You message" className="grid min-w-0 gap-[7px]">
+      <CoachHead who="You" at={at} />
+      <p
+        data-preview
+        className="rounded-lg bg-primary/12 px-2.5 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] md:text-xs"
+      >
+        {text}
+      </p>
+      {state === "sending" && <span className="text-[11px] text-muted-foreground">Sending…</span>}
+      {state === "error" && (
+        <span className="text-[11px] text-destructive">{`Not sent${reason ? `: ${reason}` : ""}`}</span>
+      )}
+    </section>
+  );
+}
+
+/** Coach's answer: what it wrote, then "Work performed (N)": its tool calls and what they read. */
+function CoachAnswer({ turn, runtime, open }: { turn: ViewTurn; runtime: string; open: boolean }) {
+  const parts = turn.sections.flatMap((section) => section.parts);
+  const tools = parts.filter((part): part is ToolPart => part.kind === "tool");
+  const said = parts.filter((part) => part.kind === "text" && part.text.trim() !== "");
+  const lastIndex = parts.length - 1;
+  return (
+    <section data-author="agent" aria-label="Coach message" className="grid min-w-0 gap-[7px]">
+      <CoachHead who="Coach" />
+      <div data-preview className="flex min-w-0 flex-col gap-2 empty:hidden">
+        {parts.map((part, index) =>
+          part.kind === "text" ? (
+            <Streamdown
+              key={index}
+              className="min-w-0 text-sm leading-relaxed [overflow-wrap:anywhere] md:text-xs [&_code]:text-[0.92em] [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:font-semibold"
+              plugins={plugins}
+              isAnimating={open && index === lastIndex}
+              shikiTheme={["github-light", "tokyo-night"]}
+              linkSafety={{ enabled: false }}
+              codeBlockMaxHeight={360}
+            >
+              {part.text}
+            </Streamdown>
+          ) : part.kind === "notice" ? (
+            <SystemLine key={index}>{noticeText(part.notice)}</SystemLine>
+          ) : null,
+        )}
+      </div>
+      {said.length === 0 &&
+        (open ? (
+          <span className="text-[11px] text-muted-foreground">Working...</span>
+        ) : turn.outcome?.kind === "completed" ? (
+          <span className="text-[11px] text-muted-foreground">No response text was received.</span>
+        ) : null)}
+      {turn.outcome?.kind === "failed" && (
+        <>
+          <p className="flex items-start gap-2 text-xs text-destructive">
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+            {`Failed: ${turn.outcome.reason}`}
+          </p>
+          {turn.outcome.failure === "auth" && turn.outcome.credential !== "rejected" ? (
+            <SignInAgain runtime={runtime} />
+          ) : (
+            <FailureHint failure={turn.outcome.failure} credential={turn.outcome.credential} />
+          )}
+        </>
+      )}
+      {turn.outcome?.kind === "aborted" && (
+        <span className="text-[11px] text-muted-foreground">You stopped it.</span>
+      )}
+      {tools.length > 0 && <WorkPerformed tools={tools} working={open} />}
+    </section>
+  );
+}
+
+/** Where a read came from, to open it: a workspace or an agent, with when it was read. */
+interface Source {
+  readonly key: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly readAt: string | null;
+  readonly href: string;
+}
+
+function sourcesOf(tools: readonly ToolPart[], state: AppState | null): Source[] {
+  return tools.flatMap((part) => {
+    if (part.result !== "ok") return [];
+    const args = parse(part.input);
+    const result = parse(toolText(part));
+    const kind = coachToolLabel(part.tool);
+    const readAt = typeof result?.["readAt"] === "string" ? result["readAt"] : null;
+    const agentId = args?.["agentId"];
+    if (typeof agentId === "string") {
+      const title = state?.agents[agentId]?.summary.title ?? agentId;
+      return [{ key: `${part.callId}:${agentId}`, title, kind, readAt, href: `/a/${agentId}` }];
+    }
+    const workspaces = Array.isArray(result?.["workspaces"]) ? (result["workspaces"] as unknown[]) : [];
+    return workspaces.flatMap((ws) => {
+      const id =
+        typeof ws === "object" && ws !== null ? (ws as Record<string, unknown>)["workspaceId"] : null;
+      if (typeof id !== "string") return [];
+      const label = state?.workspaces[id]?.label ?? id;
+      return [{ key: `${part.callId}:${id}`, title: label, kind, readAt, href: `/w/${id}` }];
+    });
+  });
+}
+
+function WorkPerformed({ tools, working }: { tools: ToolPart[]; working: boolean }) {
+  const state = useApp((s) => s.state);
+  // Open while Coach works, folded when it answers; in between, yours to open or close.
+  const [open, setOpen] = useState(working);
+  const [wasWorking, setWasWorking] = useState(working);
+  if (wasWorking !== working) {
+    setWasWorking(working);
+    setOpen(working);
+  }
+  const sources = sourcesOf(tools, state);
+  const reading = working && tools.some((tool) => tool.result === "running");
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="group/work min-w-0 text-[10px] text-muted-foreground"
+    >
+      <CollapsibleTrigger className="flex items-center gap-1 rounded hover:text-foreground">
+        <span aria-hidden className="text-[8px]">
+          {open ? "▼" : "▶"}
+        </span>
+        {`${reading ? "Reading workspace context" : "Work performed"} (${tools.length + sources.length})`}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="grid gap-[5px] pt-2">
+        {tools.map((part) => (
+          <CoachToolCard key={part.callId} part={part} />
+        ))}
+        {sources.length > 0 && (
+          <div aria-label="Sources" className="grid gap-[5px]">
+            {sources.map((source) => (
+              <button
+                key={source.key}
+                type="button"
+                onClick={() => {
+                  // On a phone, Coach covers the page: show what it read.
+                  if (matchMedia("(max-width: 767px)").matches) closeCoach();
+                  navigate(source.href);
+                }}
+                className="grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-left text-[10px] text-foreground hover:bg-accent"
+              >
+                <span className="flex min-w-0 items-center gap-1">
+                  <ExternalLink className="size-3 shrink-0" aria-hidden />
+                  <span className="truncate">{source.title}</span>
+                </span>
+                <small className="text-[9px] text-muted-foreground">
+                  {`${source.kind}${source.readAt === null ? "" : ` · Read ${when(Date.parse(source.readAt))}`}`}
+                </small>
+              </button>
+            ))}
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** One tool call: its name and state, then its arguments and its result, as roamgate shows them. */
+function CoachToolCard({ part }: { part: ToolPart }) {
+  const output = toolText(part);
+  const parsed = parse(part.input);
+  const args = parsed === null ? part.input : JSON.stringify(parsed, null, 2);
+  const status = part.result === "running" ? "running" : part.result === "failed" ? "failed" : "completed";
+  const pre =
+    "max-h-60 overflow-auto font-mono text-[11px] leading-[1.6] whitespace-pre-wrap [overflow-wrap:anywhere]";
+  return (
+    <Collapsible className="group/tool min-w-0 rounded-lg border bg-card px-2 py-1.5 text-[10px] text-foreground">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 text-left">
+        <span aria-hidden className="text-[8px] text-muted-foreground">
+          <span className="group-data-[state=open]/tool:hidden">▶</span>
+          <span className="hidden group-data-[state=open]/tool:inline">▼</span>
+        </span>
+        <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{coachToolLabel(part.tool)}</span>
+        <span
+          className={cn(
+            "shrink-0",
+            status === "running"
+              ? "text-primary"
+              : status === "failed"
+                ? "text-destructive"
+                : "text-muted-foreground",
+          )}
+        >
+          {status}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="grid gap-1.5 pt-2">
+        {args !== undefined && (
+          <>
+            <strong className="font-semibold">Arguments</strong>
+            <pre tabIndex={0} className={pre}>
+              {args}
+            </pre>
+          </>
+        )}
+        {output !== undefined && output !== "" && (
+          <>
+            <strong className="font-semibold">{part.result === "failed" ? "Error" : "Result"}</strong>
+            <pre tabIndex={0} className={pre}>
+              {output}
+            </pre>
+          </>
+        )}
+        {args === undefined && (output === undefined || output === "") ? (
+          <p className="text-muted-foreground">Call details are unavailable.</p>
+        ) : output === undefined || output === "" ? (
+          <p className="text-muted-foreground">
+            {part.result === "running" ? "Result pending." : "Result unavailable."}
+          </p>
+        ) : args === undefined ? (
+          <p className="text-muted-foreground">Arguments unavailable.</p>
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 /** What to do about a failed turn, when something helps (a limit, a model, the input's size…). */
 function FailureHint({
@@ -289,7 +590,10 @@ function UserMessage({
     <article data-author="you" aria-label="Your message" className="flex flex-col items-end gap-1 pl-10">
       {attachments !== undefined && attachments.length > 0 && <SentAttachments attachments={attachments} />}
       {text.trim() !== "" && (
-        <div className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-secondary-foreground">
+        <div
+          data-preview
+          className="max-w-full rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-secondary-foreground"
+        >
           {text}
         </div>
       )}
@@ -307,6 +611,19 @@ function UserMessage({
       </div>
       {dropped && <p className="px-1 text-xs text-warning">{dropped}</p>}
     </article>
+  );
+}
+
+function PendingCoachInput({ block }: { block: InputBlock }) {
+  const outcome = outcomeOf(block);
+  const failed = outcome !== undefined && (outcome.landed === "failed" || outcome.landed === "rejected");
+  return (
+    <CoachYou
+      text={block.input.text}
+      at={block.input.at}
+      state={failed ? "error" : "sending"}
+      reason={failed ? (outcome?.reason ?? outcome?.landed) : null}
+    />
   );
 }
 

@@ -1083,6 +1083,85 @@ test("a run of tool calls folds into one line", async ({ page, rowrow }) => {
   await expect(page.getByText("exit code 1")).toBeVisible();
 });
 
+test("Coach: allow a workspace, ask, and read its answer and the work it did", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.client.agents.create({ workspaceId: ws.id, runtime: "scripted", title: "the helper" });
+  await rowrow.client.settings.update({
+    coach: { workspaces: [], runtime: "scripted", model: null, effort: null },
+  });
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+
+  const coach = page.getByRole("complementary", { name: "Coach" });
+  if (phone) await page.getByRole("button", { name: "Open Coach" }).click();
+  else await page.keyboard.press("ControlOrMeta+Alt+Shift+KeyA");
+  await expect(coach).toBeVisible();
+  await expect(coach.getByText("What would you like to work on?")).toBeVisible();
+  if (phone) {
+    // Full screen on a phone.
+    const box = await coach.boundingBox();
+    expect(box?.width).toBe(page.viewportSize()?.width);
+    expect(box?.height).toBe(page.viewportSize()?.height);
+  }
+
+  // It reads nothing until you allow a workspace.
+  await expect(coach.getByText("Allow workspaces in Coach's settings to send messages.")).toBeVisible();
+  await coach.getByRole("button", { name: "Coach settings" }).last().click();
+  await expect(coach.getByText(/may be sent to your model provider/)).toBeVisible();
+  await coach.getByRole("checkbox", { name: ws.label }).check();
+  await coach.getByRole("button", { name: "Save" }).click();
+
+  const message = coach.getByLabel("Message Coach");
+  await expect(message).toBeFocused();
+  await message.fill("/echo hi from Coach");
+  await message.press("Enter");
+  await expect(coach.getByText("hi from Coach", { exact: true })).toBeVisible();
+  await expect(coach.getByText("Idle", { exact: true })).toBeVisible();
+
+  // Its tools' calls fold under its answer, with what they read.
+  await message.fill("/mcp agents_status\nOne agent: the helper, idle.");
+  await message.press("Enter");
+  await expect(coach.getByText("One agent: the helper, idle.", { exact: true })).toBeVisible();
+  const work = coach.getByRole("button", { name: "Work performed (2)" });
+  await expect(work).toBeVisible();
+  await work.click();
+  await expect(coach.getByRole("button", { name: /^Agent status/ })).toBeVisible();
+  await expect(
+    coach.getByRole("button", { name: new RegExp(`${ws.label}.*Agent status · Read`) }),
+  ).toBeVisible();
+
+  // A Coach chat is not one of the agents.
+  if (!phone)
+    await expect(page.getByRole("navigation", { name: "Agents and workspaces" })).not.toContainText(
+      "hi from Coach",
+    );
+
+  if (!phone) {
+    await coach.getByRole("button", { name: "Pin Coach" }).click();
+    await expect(coach.getByRole("button", { name: "Float Coach" })).toBeVisible();
+    await coach.getByRole("button", { name: "Maximize Coach" }).click();
+    await expect(coach.getByRole("button", { name: "Float Coach" })).toBeHidden();
+    // Escape restores the window, then closes it.
+    await page.keyboard.press("Escape");
+    await expect(coach.getByRole("button", { name: "Maximize Coach" })).toBeVisible();
+    await coach.getByRole("button", { name: "Maximize Coach" }).focus();
+    await page.keyboard.press("Escape");
+    await expect(coach).toBeHidden();
+    // Pinned stays pinned in this browser.
+    await page.reload();
+    await page.keyboard.press("ControlOrMeta+Alt+Shift+KeyA");
+    await expect(coach.getByRole("button", { name: "Float Coach" })).toBeVisible();
+    await expect(coach.getByText("hi from Coach", { exact: true })).toBeVisible();
+  } else {
+    await coach.getByRole("button", { name: "Close Coach" }).click();
+    await expect(coach).toBeHidden();
+  }
+});
+
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
 async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
   if (!phone) return row.getByRole("button", { name }).click();
