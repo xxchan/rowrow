@@ -88,6 +88,7 @@ type Entry = { seq: number; at: number } & (
   | { kind: "oar"; runId; record: RawEvent }            // oar's record, verbatim
   | { kind: "run.ended"; runId; reason; code? }         // idle, stopped, exited, shutdown, crashed
   | { kind: "host.error"; code; message }
+  | { kind: "notification.sent"; title; body; dedupKey?; by } // notify.send: an agent told you
 );
 ```
 
@@ -114,7 +115,7 @@ tests alike.
 | Fold | From → to | Used by |
 | --- | --- | --- |
 | `timelineOf` | entries → timeline: one oar `SessionView` per run (`reduceSessionView`, `streamId = runId`), with rowrow's host facts between runs | the transcript, `rowrow agent view`, tests |
-| `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq` | the sidebar, attention, notifications |
+| `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq`, the last notification it sent | the sidebar, attention, notifications |
 | `attentionOf` | summary × seen marker → `blocked`, `done`, `working`, `idle` | everywhere a status is shown |
 | `renderText` | timeline → plain text | the CLI and debugging agents |
 | `paceOf`, `chartSegments` | a subscription window's stored readings → its cycles, its pace against an even burn, where its chart line breaks (D-040) | Settings → Subscription usage, `rowrow runtimes usage` |
@@ -151,7 +152,8 @@ reason about: two clients sending at once become an ordered prompt, then a steer
   boot, a run with no end is closed as `crashed`.
 - **Environment.** Each run gets `ROWROW_URL`, `ROWROW_TOKEN`, `ROWROW_AGENT_ID` and
   `ROWROW_WORKSPACE_ID`, so an agent can use the `rowrow` CLI to start, prompt and wait on
-  other agents.
+  other agents, and `rowrow notify` to tell you something about itself (requests with the
+  agents' token and `ROWROW_AGENT_ID` act as that agent).
 
 ## Attention and notifications
 
@@ -172,6 +174,16 @@ Status vocabulary, in priority order (a workspace shows its highest):
   that subscribed and have no focused window, and `notify.watch` streams (the Mac app) the
   same way. APNs pushes and the Mac app's notifications carry Reply and Mark as Seen and the
   badge; seeing an agent anywhere clears its notifications on every phone and Mac.
+- **Agents' own notifications** (`notify.send`, `rowrow notify "<title>" ["<body>"]`, D-043):
+  an agent says what happened in its own words, for a condition it was asked to watch for.
+  It is logged as `notification.sent` (the transcript shows "Notified you: <title>" where it
+  was sent) and sent at once, whether or not anyone is looking at the agent: browsers toast
+  it from AppState (`summary.lastNotification`), Web Push and `notify.watch` go to devices
+  with no focused window (a focused one shows the toast), and APNs to every phone, where the
+  app shows it unless that agent is on screen. In browsers and on phones each is its own
+  notification (it replaces neither "finished" nor an earlier one; the Mac app keeps one per
+  agent), and it opens the agent. A `dedupKey` sends once per agent per 24 h, and an agent
+  may send one per 10 s and 30 an hour; both count the log, so they hold across restarts.
 
 ## Replicating state to clients
 

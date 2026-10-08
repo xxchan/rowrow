@@ -30,7 +30,7 @@ import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
-import { onAttention, useApp } from "../lib/store.ts";
+import { onAttention, onNotification, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { AgentContextMenu, AgentDialogs, openAgentDialog, WorkspaceContextMenu } from "./AgentActions.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
@@ -398,22 +398,38 @@ function useAppBadge(): void {
   }, [count]);
 }
 
-/** A toast when an agent you're not looking at starts needing you. */
+/**
+ * A toast when an agent you're not looking at starts needing you, and for every notification
+ * an agent sends you (notify.send: it asked to tell you, so even when it's on screen).
+ */
 function useAttentionToasts(route: Route): void {
-  useEffect(
-    () =>
-      onAttention(({ agent, to }) => {
-        if (to !== "blocked" && to !== "done") return;
-        if (route.name === "agent" && route.agentId === agent.id && document.hasFocus()) return;
-        const dot = statusDot(agent);
-        const show = dot.tone === "error" ? toast.error : toast.info;
-        show(`${title(agent)}: ${dot.label.toLowerCase()}`, {
-          id: `attention-${agent.id}`,
-          action: { label: "Open", onClick: () => navigate(`/a/${agent.id}`) },
-        });
-      }),
-    [route],
-  );
+  useEffect(() => {
+    const stopAttention = onAttention(({ agent, to }) => {
+      if (to !== "blocked" && to !== "done") return;
+      if (route.name === "agent" && route.agentId === agent.id && document.hasFocus()) return;
+      const dot = statusDot(agent);
+      const show = dot.tone === "error" ? toast.error : toast.info;
+      show(`${title(agent)}: ${dot.label.toLowerCase()}`, {
+        id: `attention-${agent.id}`,
+        action: { label: "Open", onClick: () => navigate(`/a/${agent.id}`) },
+      });
+    });
+    const stopNotifications = onNotification((agent) => {
+      const sent = agent.summary.lastNotification;
+      if (sent === null) return;
+      const here = route.name === "agent" && route.agentId === agent.id;
+      toast.info(sent.title, {
+        id: `notification-${agent.id}-${sent.seq}`,
+        description: sent.body === "" ? title(agent) : `${title(agent)} · ${sent.body}`,
+        duration: 10_000,
+        ...(here ? {} : { action: { label: "Open", onClick: () => navigate(`/a/${agent.id}`) } }),
+      });
+    });
+    return () => {
+      stopAttention();
+      stopNotifications();
+    };
+  }, [route]);
 }
 
 export function RowrowMark({ className }: { className?: string }) {

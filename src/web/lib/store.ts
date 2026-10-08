@@ -44,6 +44,13 @@ export function onAttention(listener: (event: AttentionEvent) => void): () => vo
   return () => attentionListeners.delete(listener);
 }
 
+/** An agent sent you a notification (notify.send), as it arrives: not the ones from before you connected. */
+const notificationListeners = new Set<(agent: AgentState) => void>();
+export function onNotification(listener: (agent: AgentState) => void): () => void {
+  notificationListeners.add(listener);
+  return () => notificationListeners.delete(listener);
+}
+
 function apply(message: StateMessage): void {
   const before = useApp.getState().state;
   const next =
@@ -59,6 +66,10 @@ function apply(message: StateMessage): void {
     if (previous !== undefined && previous.attention !== agent.attention) {
       for (const listener of attentionListeners)
         listener({ agent, from: previous.attention, to: agent.attention });
+    }
+    const sent = agent.summary.lastNotification;
+    if (sent !== null && sent.seq !== previous?.summary.lastNotification?.seq) {
+      for (const listener of notificationListeners) listener(agent);
     }
   }
 }

@@ -91,6 +91,7 @@ Everything the UI does, so agents can drive agents too. `rowrow help` for the re
 rowrow agents                                      # who needs you first
 rowrow agent new ~/code/app "Fix the flaky test" --runtime codex --wait
 rowrow agent send <agent> "also update the changelog" --wait
+rowrow notify "Deploy failed" "api-7 is crash-looping" --key deploy-7   # from inside an agent: tell you
 ```
 
 ## Status

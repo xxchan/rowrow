@@ -19,10 +19,10 @@ import {
 import type { CredentialProblem, FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
-import { memo, type ReactNode } from "react";
+import { Bell, Check, ChevronRight, CircleAlert, CircleX, LoaderCircle } from "lucide-react";
+import { Fragment, memo, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
-import type { Actor, Attachment } from "../../shared/entries.ts";
+import type { Actor, Attachment, EntryOf } from "../../shared/entries.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import { droppedWords, duration, failureHint } from "../../shared/describe.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
@@ -33,16 +33,18 @@ import {
   held,
   landedIn,
   outcomeOf,
+  placeNotes,
   steerUnread,
   type InputBlock,
   type NoticeBlock,
   type RunBlock,
+  type RunNote,
   type Timeline,
   type TimelineBlock,
   stoppedByAgent,
 } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
-import { endText, noticeText } from "../../shared/transcript-model.ts";
+import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
 export function Transcript({ timeline, runtime }: { timeline: Timeline; runtime: string }) {
   return (
@@ -87,6 +89,7 @@ const Block = memo(function Block({
 
 function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; runtime: string }) {
   const { started, ended, view } = run;
+  const notes = placeNotes(run);
   return (
     <>
       {started?.resume !== undefined && (
@@ -94,22 +97,27 @@ function Run({ run, timeline, runtime }: { run: RunBlock; timeline: Timeline; ru
           divider
         >{`Resumed${started.model === undefined ? "" : ` on ${started.model}`}`}</SystemLine>
       )}
-      {view.messages.map((message, index) =>
-        // The run's own end says why the process went away; oar's exit notice would repeat it.
-        message.kind === "notice" &&
-        message.notice.cause === "exited" &&
-        ended !== undefined &&
-        ended.reason !== "exited" ? null : (
-          <Message
-            key={message.id}
-            message={message}
-            timeline={timeline}
-            runtime={runtime}
-            open={index === view.openTurn}
-            agentStopped={stoppedByAgent(run, message.id)}
-          />
-        ),
-      )}
+      <Notes notes={notes.before} />
+      {view.messages.map((message, index) => (
+        <Fragment key={message.id}>
+          {
+            // The run's own end says why the process went away; oar's exit notice would repeat it.
+            message.kind === "notice" &&
+            message.notice.cause === "exited" &&
+            ended !== undefined &&
+            ended.reason !== "exited" ? null : (
+              <Message
+                message={message}
+                timeline={timeline}
+                runtime={runtime}
+                open={index === view.openTurn}
+                agentStopped={stoppedByAgent(run, message.id)}
+              />
+            )
+          }
+          <Notes notes={notes.after.get(message.id)} />
+        </Fragment>
+      ))}
       {ended !== undefined && ended.reason !== "idle" && ended.reason !== "restart" && (
         <SystemLine>{endText(ended.reason, ended.code)}</SystemLine>
       )}
@@ -319,9 +327,25 @@ function PendingInput({ block }: { block: InputBlock }) {
   );
 }
 
+/** Notifications the agent sent you while it ran, where it sent them. */
+function Notes({ notes }: { notes: readonly RunNote[] | undefined }) {
+  return notes?.map((note) => <Notified key={note.entry.seq} entry={note.entry} />);
+}
+
+function Notified({ entry }: { entry: EntryOf<"notification.sent"> }) {
+  return (
+    <SystemLine hint={entry.body === "" ? undefined : entry.body}>
+      <Bell className="mr-1 inline size-3 align-[-2px]" aria-hidden="true" />
+      {notifiedText(entry)}
+    </SystemLine>
+  );
+}
+
 function Notice({ block }: { block: NoticeBlock }) {
   const { entry } = block;
   switch (entry.kind) {
+    case "notification.sent":
+      return <Notified entry={entry} />;
     case "run.failed":
       return <SystemLine tone="error">{`Couldn't start the agent: ${entry.error}`}</SystemLine>;
     case "host.error":
@@ -340,10 +364,13 @@ function SystemLine({
   children,
   divider = false,
   tone,
+  hint,
 }: {
   children: ReactNode;
   divider?: boolean;
   tone?: "error";
+  /** More of what it says, on hover. */
+  hint?: string | undefined;
 }) {
   if (divider)
     return (
@@ -356,6 +383,7 @@ function SystemLine({
   return (
     <p
       role="note"
+      title={hint}
       className={cn("text-center text-xs text-muted-foreground", tone === "error" && "text-destructive")}
     >
       {children}

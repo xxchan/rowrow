@@ -8,7 +8,7 @@
 import type { RawEvent } from "@botiverse/oar";
 import { setImmediate as nextTick } from "node:timers/promises";
 import zlib from "node:zlib";
-import type { Entry, EntryBody } from "../../shared/entries.ts";
+import type { Entry, EntryBody, EntryKind, EntryOf } from "../../shared/entries.ts";
 import type { Db } from "../store/db.ts";
 
 export interface LogWindow {
@@ -168,6 +168,16 @@ export class AgentLog {
       else if (entry.kind === "input.result") found.result = entry;
     }
     return found;
+  }
+
+  /** An agent's entries of one kind appended since `at` (epoch ms), oldest first. Not for oar records (packed). */
+  recent<K extends Exclude<EntryKind, "oar">>(agentId: string, kind: K, at: number): EntryOf<K>[] {
+    return this.rows(
+      "select body from entries where agent_id = ? and kind = ? and at >= ? order by seq",
+      agentId,
+      kind,
+      at,
+    ) as EntryOf<K>[];
   }
 
   /**

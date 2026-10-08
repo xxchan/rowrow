@@ -5,9 +5,14 @@
 // iOS app its own banners; this sends Web Push, APNs and live notices (notify.watch, the Mac
 // app) to devices that have no focused window. When agents stop needing you (you saw them, or
 // answered), the apps' badges follow, and their notifications for them go away.
+//
+// Agents can also notify you themselves (notify.send, `rowrow notify`): see `send`.
+import type { Actor, EntryOf } from "../../shared/entries.ts";
 import type { AgentSummary, Attention } from "../../shared/summary.ts";
+import type { AgentLog } from "../agents/log.ts";
 import type { AgentService } from "../agents/service.ts";
-import { log, serializeError } from "../telemetry/log.ts";
+import { UserError } from "../errors.ts";
+import { log, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import type { Apns } from "./apns.ts";
 import type { LiveNotices } from "./live.ts";
@@ -18,12 +23,37 @@ const DELAY_MS = 1500;
 /** Agents seen within this long of each other clear together. */
 const SEEN_DELAY_MS = 2500;
 
+/** How much an agent may notify you (notify.send), counted from its log. */
+export const NOTICE_LIMITS = {
+  /** At most one in this long… */
+  burstMs: 10_000,
+  /** …and this many an hour. */
+  perHour: 30,
+  /** A dedupKey is sent once in this long. */
+  dedupMs: 24 * 3_600_000,
+} as const;
+
+export interface Notice {
+  readonly title: string;
+  /** "" for a title alone. */
+  readonly body: string;
+  readonly dedupKey?: string;
+}
+
+export interface NoticeResult {
+  /** false: a notice with the same dedupKey went out within NOTICE_LIMITS.dedupMs (that one's seq). */
+  readonly sent: boolean;
+  readonly seq: number;
+  readonly at: number;
+}
+
 export class Notifier {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private seenTimer: NodeJS.Timeout | null = null;
   private readonly seenAgents = new Set<string>();
   private closed = false;
   private readonly agents: AgentService;
+  private readonly agentLog: AgentLog;
   private readonly workspaces: Workspaces;
   private readonly presence: Presence;
   private readonly push: Push;
@@ -32,6 +62,7 @@ export class Notifier {
 
   constructor(
     agents: AgentService,
+    agentLog: AgentLog,
     workspaces: Workspaces,
     presence: Presence,
     push: Push,
@@ -39,6 +70,7 @@ export class Notifier {
     live: LiveNotices,
   ) {
     this.agents = agents;
+    this.agentLog = agentLog;
     this.workspaces = workspaces;
     this.presence = presence;
     this.push = push;
@@ -135,6 +167,89 @@ export class Notifier {
     ]);
   }
 
+  /**
+   * A notification from an agent (or about it), in its own words: logged in its transcript,
+   * then sent whether or not anyone is looking at that agent, since it asked to tell you.
+   * Browsers toast it from AppState (summary.lastNotification), so a device with a focused
+   * window gets no Web Push or Mac alert (it would say it twice). The iOS app gets it through
+   * APNs either way: it has no in-app path for it, and shows it unless that agent is on screen.
+   * Dedup and limits count the agent's log, so they hold across restarts.
+   */
+  send(agentId: string, notice: Notice, by: Actor): NoticeResult {
+    return withContext({ agent: agentId }, () => {
+      this.agents.summary(agentId); // NOT_FOUND for an agent that isn't there
+      const now = Date.now();
+      const recent = this.agentLog.recent(agentId, "notification.sent", now - NOTICE_LIMITS.dedupMs);
+      const same =
+        notice.dedupKey === undefined ? undefined : recent.findLast((e) => e.dedupKey === notice.dedupKey);
+      if (same !== undefined) {
+        log.info("notify.notice_duplicate", { key: notice.dedupKey, seq: same.seq });
+        return { sent: false, seq: same.seq, at: same.at };
+      }
+      const sentAt = recent.map((e) => e.at);
+      const limited = noticeLimit(sentAt, now);
+      if (limited !== null) {
+        log.warn("notify.notice_limited", { msg: limited });
+        throw new UserError(limited, "TOO_MANY_REQUESTS");
+      }
+      const entry = this.agentLog.append(agentId, {
+        kind: "notification.sent",
+        title: notice.title,
+        body: notice.body,
+        ...(notice.dedupKey === undefined ? {} : { dedupKey: notice.dedupKey }),
+        by,
+      }) as EntryOf<"notification.sent">;
+      void this.deliverNotice(agentId, entry).catch((error: unknown) =>
+        log.error("notify.notice_failed", { seq: entry.seq, err: serializeError(error) }),
+      );
+      return { sent: true, seq: entry.seq, at: entry.at };
+    });
+  }
+
+  private async deliverNotice(agentId: string, entry: EntryOf<"notification.sent">): Promise<void> {
+    if (this.closed) return;
+    const name = this.agents.summary(agentId).title ?? "Agent";
+    const url = `/a/${agentId}`;
+    const active = (deviceId: string): boolean => this.presence.deviceActive(deviceId);
+    const badge = this.needingYou();
+    // Its own notification: it replaces neither the agent's "finished" nor an earlier notice.
+    const tag = `${agentId}:notice:${entry.seq}`;
+    const live = this.live.alert(
+      {
+        kind: "alert",
+        agentId,
+        attention: "notice",
+        title: entry.title,
+        subtitle: name,
+        body: entry.body,
+        url,
+        seq: entry.seq,
+        badge,
+      },
+      active,
+    );
+    const [web, app] = await Promise.all([
+      this.push.send(
+        { title: entry.title, body: [name, entry.body].filter((part) => part !== "").join(" · "), url, tag },
+        active,
+      ),
+      this.apns.alert({
+        title: entry.title,
+        subtitle: name,
+        body: entry.body,
+        generic: "An agent notified you.",
+        thread: agentId,
+        collapse: tag,
+        category: "AGENT",
+        badge,
+        relevance: 0.8,
+        // notice: the app keeps it when it tidies away notifications for agents that don't need you.
+        data: { agentId, notice: true, seq: entry.seq },
+      }),
+    ]);
+    log.info("notify.notice_sent", { agent: agentId, seq: entry.seq, live, web, app });
+  }
+
   private clearLater(agentId: string): void {
     if ((!this.apns.configured && !this.live.connected) || this.closed) return;
     this.seenAgents.add(agentId);
@@ -153,6 +268,24 @@ export class Notifier {
     }, SEEN_DELAY_MS);
     this.seenTimer.unref();
   }
+}
+
+/**
+ * Why one more notice from an agent now would be too many (NOTICE_LIMITS), given when its
+ * earlier ones went out (oldest first), or null when it may send one.
+ */
+export function noticeLimit(sentAt: readonly number[], now: number): string | null {
+  const last = sentAt.at(-1);
+  if (last !== undefined && now - last < NOTICE_LIMITS.burstMs)
+    return `Too many notifications: this agent sent one ${wait(now - last)} ago, and may send one every ${wait(NOTICE_LIMITS.burstMs)}. Try again in ${wait(last + NOTICE_LIMITS.burstMs - now)}.`;
+  const hour = sentAt.filter((at) => at > now - 3_600_000);
+  if (hour.length < NOTICE_LIMITS.perHour) return null;
+  const free = (hour[hour.length - NOTICE_LIMITS.perHour] ?? now) + 3_600_000;
+  return `Too many notifications: this agent sent ${hour.length} in the last hour, the most it may. Try again in ${wait(free - now)}.`;
+}
+
+function wait(ms: number): string {
+  return ms < 60_000 ? `${Math.max(1, Math.ceil(ms / 1000))} s` : `${Math.ceil(ms / 60_000)} min`;
 }
 
 /** Agents that need you (blocked, or done and not seen), archived ones aside. */

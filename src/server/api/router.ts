@@ -37,6 +37,7 @@ import { UserError } from "../errors.ts";
 import type { UpdateChecker } from "../updates.ts";
 import type { Apns } from "../notify/apns.ts";
 import type { LiveNotices } from "../notify/live.ts";
+import type { Notifier } from "../notify/notifier.ts";
 import type { Presence } from "../notify/presence.ts";
 import type { Push } from "../notify/push.ts";
 import type { SettingsService } from "../settings.ts";
@@ -109,6 +110,8 @@ export interface Services {
   readonly apns: Apns;
   /** notify.watch streams (the Mac app). */
   readonly live: LiveNotices;
+  /** notify.send: what agents tell you themselves. */
+  readonly notifier: Pick<Notifier, "send">;
   /** How many agents need you. */
   badge(): number;
   readonly presence: Presence;
@@ -534,6 +537,22 @@ export function createRouter(s: Services) {
           ),
         ]);
         return { sent: web + app + live };
+      }),
+      send: os.notify.send.handler(({ input, context }) => {
+        const agentId = input.agentId ?? (context.actor.kind === "agent" ? context.actor.agentId : undefined);
+        if (agentId === undefined)
+          throw new UserError(
+            "Say which agent this is about: agentId (rowrow notify --agent <agent>). From inside an agent, it's that agent.",
+          );
+        return s.notifier.send(
+          agentId,
+          {
+            title: input.title,
+            body: input.body ?? "",
+            ...(input.dedupKey === undefined ? {} : { dedupKey: input.dedupKey }),
+          },
+          context.actor,
+        );
       }),
       configureApns: os.notify.configureApns.handler(({ input }) => {
         s.apns.configure(input);

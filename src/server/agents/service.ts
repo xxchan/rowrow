@@ -410,6 +410,7 @@ function noticeable(a: AgentSummary, b: AgentSummary): boolean {
     a.run?.runId !== b.run?.runId ||
     a.lastCompletionSeq !== b.lastCompletionSeq ||
     a.lastError !== b.lastError ||
+    a.lastNotification !== b.lastNotification ||
     a.title !== b.title ||
     a.model !== b.model ||
     a.effort !== b.effort ||

@@ -449,10 +449,14 @@ export const Notice = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("alert"),
     agentId: z.string(),
-    attention: z.enum(["blocked", "done"]),
-    title: z.string().describe('"<agent> finished", "<agent> needs you", "<agent> failed".'),
-    subtitle: z.string().nullable().describe("The workspace's label."),
-    body: z.string().describe("The tail of what the agent said, or why it failed."),
+    attention: z
+      .enum(["blocked", "done", "notice"])
+      .describe("notice: a notification the agent sent you (notify.send), whatever its state."),
+    title: z
+      .string()
+      .describe('"<agent> finished", "<agent> needs you", "<agent> failed"; a notice\'s own title.'),
+    subtitle: z.string().nullable().describe("The workspace's label; for a notice, the agent's name."),
+    body: z.string().describe("The tail of what the agent said, or why it failed; a notice's own text."),
     url: z.string().describe("The agent's page: /a/<id>."),
     seq: z.number().describe("The agent's log position; agents.markSeen with it marks this seen."),
     badge: z.number().describe("How many agents need you now."),

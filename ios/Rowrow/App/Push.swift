@@ -151,6 +151,8 @@ final class PushManager: NSObject {
       let delivered = await center.deliveredNotifications()
       let stale = delivered.filter { notification in
         guard let id = notification.request.content.userInfo["agentId"] as? String else { return false }
+        // What an agent told you itself (notify.send) isn't about needing you: it stays.
+        if notification.request.content.userInfo["notice"] != nil { return false }
         return !(state.agents[id]?.attention.needsYou ?? false)
       }
       center.removeDeliveredNotifications(withIdentifiers: stale.map(\.request.identifier))

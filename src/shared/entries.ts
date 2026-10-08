@@ -123,7 +123,17 @@ export type EntryBody =
       readonly code?: number | null;
       readonly error?: string;
     }
-  | { readonly kind: "host.error"; readonly code: string; readonly message: string };
+  | { readonly kind: "host.error"; readonly code: string; readonly message: string }
+  /** The agent (or someone, about it) notified you (notify.send): rowrow sent this to your devices. */
+  | {
+      readonly kind: "notification.sent";
+      readonly title: string;
+      /** "" when there was only a title. */
+      readonly body: string;
+      /** The same key again within a day is not sent (notify.send). */
+      readonly dedupKey?: string;
+      readonly by: Actor;
+    };
 
 export type EntryKind = EntryBody["kind"];
 

@@ -3,8 +3,8 @@
 // showed.
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
 import { droppedWords, failureHint } from "./describe.ts";
-import type { Actor, Attachment } from "./entries.ts";
-import { stoppedByAgent, type Timeline } from "./timeline.ts";
+import type { Actor, Attachment, EntryOf } from "./entries.ts";
+import { placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -33,6 +33,7 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         const { entry } = block;
         if (entry.kind === "run.failed") out.push(`! run ${entry.runId} failed to start: ${entry.error}`);
         else if (entry.kind === "host.error") out.push(`! ${entry.code}: ${entry.message}`);
+        else if (entry.kind === "notification.sent") out.push(notifiedLine(entry));
         else out.push(`· model → ${entry.changes.model ?? "default"} (${actorLabel(entry.by)})`);
         break;
       }
@@ -43,9 +44,12 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
             ? `── run ${block.runId} (started before this window) ──`
             : `── run ${s.runId} · ${s.runtime}${s.model === undefined ? "" : ` · ${s.model}`}${s.resume === undefined ? "" : " · resumed"} ──`,
         );
+        const notes = placeNotes(block);
+        out.push(...notes.before.map((note) => notifiedLine(note.entry)));
         for (const message of block.view.messages) {
           const byAgent = stoppedByAgent(block, message.id);
           out.push(...renderMessage(message, timeline, toolChars, byAgent));
+          out.push(...(notes.after.get(message.id) ?? []).map((note) => notifiedLine(note.entry)));
         }
         if (block.ended !== undefined) {
           const { reason, code, error } = block.ended;
@@ -62,6 +66,13 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
     }
   }
   return `${out.join("\n")}\n`;
+}
+
+/** A notification sent to you: what it said, who sent it, and its dedup key. */
+function notifiedLine(entry: EntryOf<"notification.sent">): string {
+  const body = entry.body === "" ? "" : ` · ${oneLine(entry.body)}`;
+  const key = entry.dedupKey === undefined ? "" : `, key ${entry.dedupKey}`;
+  return `· notified you: ${entry.title}${body} (${actorLabel(entry.by)}${key})`;
 }
 
 function attachmentLines(attachments: readonly Attachment[] | undefined): string[] {

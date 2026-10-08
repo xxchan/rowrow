@@ -600,6 +600,38 @@ const notify = {
   test: oc
     .route({ summary: "Send a test notification to this device." })
     .output(z.object({ sent: z.number() })),
+  send: oc
+    .route({
+      summary:
+        'Notify the user about an agent, in your own words: a title and an optional line, to every device that takes notifications (Web Push, the iOS app, the Mac app) and as a toast in open browsers, even while someone is looking at that agent. Opening it opens the agent. The agent\'s transcript shows it ("Notified you: <title>"). From inside an agent, agentId defaults to that agent (`rowrow notify "<title>" ["<body>"]`). Use it for something worth interrupting someone for (a condition you were asked to watch for, a result they are waiting on), not for every finished turn: rowrow already says when an agent finishes or needs you. Give a dedupKey naming the event ("deploy-failed-<sha>") when you may see it again: the same key within 24 h is not sent again (sent: false). At most one per 10 s and 30 per hour per agent; more is refused (TOO_MANY_REQUESTS) with when to try again.',
+    })
+    .input(
+      z.object({
+        agentId: agentId
+          .optional()
+          .describe("The agent it's about (ag_…); from inside an agent, that agent."),
+        title: z.string().trim().min(1).max(200).describe("What happened, in a few words."),
+        body: z.string().trim().max(400).optional().describe("A line or two more."),
+        dedupKey: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Names the event: the same key for this agent within 24 h is not sent again."),
+      }),
+    )
+    .output(
+      z.object({
+        sent: z
+          .boolean()
+          .describe("false: the same dedupKey already notified you within 24 h, so nothing was sent."),
+        seq: z
+          .number()
+          .describe("The notification's entry in the agent's log; when not sent, the earlier one's."),
+        at: z.number().describe("When that was sent (epoch ms)."),
+      }),
+    ),
   configureApns: oc
     .route({
       summary:

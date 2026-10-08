@@ -1118,3 +1118,31 @@ and a phone's share sheet sane.
 **Revisit when** someone needs an ignored folder (`dist/`) or files over 256 MiB (stream the
 archive instead of building it in memory), or the Mac app should save to Downloads without
 asking (Electron's `will-download`).
+
+## D-043 Agents can notify you themselves, even about what you're looking at (2026-10-08)
+
+**Context.** rowrow notifies you when an agent finishes or needs you. Some work is about
+something else: an agent asked to watch a deploy, a CI run or another agent should tell you
+when the thing it watches happens, in its own words, and stay quiet otherwise. roamgate's
+Ranger tasks do this ("Let Ranger decide", #358): the model sends a title and a message only
+when the condition you wrote is met, deduplicated across runs and restarts.
+
+**Decision.** `notify.send {agentId?, title, body?, dedupKey?}` (`rowrow notify`), with the
+agent defaulting to the one calling. It is a fact in the agent's log (`notification.sent`),
+shown in its transcript where it was sent, and sent at once to every device whether or not
+anyone is looking at the agent: the agent asked to tell you, so the rule "never for what
+you're looking at" (PRINCIPLES.md, product 1) holds per window, not per agent. A focused
+browser shows a toast instead of a push, as for every notification; the iOS app gets the
+push even in the foreground (it has no in-app path for these) and hides it only on that
+agent's screen. A `dedupKey` sends once per agent per 24 hours; an agent may send one per 10
+seconds and 30 an hour, and more is refused with when to try again. Both are counted from the
+log, so they hold across restarts with no table of their own. Notices don't change
+attention: an agent that notified you doesn't "need you" for it.
+
+**Why.** Agents are already the thing that reads the evidence; letting them decide when to
+interrupt you is what makes a watcher quiet when nothing happened, without rowrow guessing
+from their text. The limits keep a confused agent from becoming noise.
+
+**Revisit when** scheduled prompts (roamgate's Ranger tasks) arrive and want "quiet unless
+the agent notifies" as a mode, people want to mute one agent's notices (the parity doc's
+per-agent mute), or the limits turn out wrong for real watchers.

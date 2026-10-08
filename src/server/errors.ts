@@ -2,7 +2,13 @@
 // else that escapes a handler is a bug: it is logged with its stack and reported as an
 // internal error, still with its message, so the caller can quote it.
 
-export type UserErrorCode = "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT" | "PRECONDITION_FAILED" | "FORBIDDEN";
+export type UserErrorCode =
+  | "BAD_REQUEST"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "PRECONDITION_FAILED"
+  | "FORBIDDEN"
+  | "TOO_MANY_REQUESTS";
 
 export class UserError extends Error {
   readonly code: UserErrorCode;

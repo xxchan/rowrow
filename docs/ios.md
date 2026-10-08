@@ -138,6 +138,11 @@ actions: **Reply** (type or dictate; it's sent as your message) and **Mark as Se
 Home Screen badge counts the agents that need you, and when you see an agent anywhere, its
 notifications leave every phone (a quiet push with the ids of the agents seen).
 
+An agent can also notify you itself (`rowrow notify`, D-043). Those come through APNs even
+while you use the app (shown unless that agent is on screen), each as its own notification in
+the agent's group, and stay when the app tidies away notifications for agents that no longer
+need you (`notice` in the push's data).
+
 ## Build and run
 
 Needs Xcode 26 or later (the app targets iOS 26). The project is `ios/Rowrow.xcodeproj`:

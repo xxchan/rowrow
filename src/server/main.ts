@@ -38,6 +38,8 @@ export interface RunningServer {
   readonly dataDir: string;
   /** A fresh one-time sign-in link for a browser. */
   loginLink(name?: string): string;
+  /** The credential the agents it runs get (ROWROW_TOKEN): tests act as an agent with it. */
+  readonly agentToken: string;
   close(): Promise<void>;
 }
 
@@ -220,7 +222,7 @@ export async function startServer(
   housekeeping();
   const pruneTimer = setInterval(housekeeping, 6 * 3600_000);
   pruneTimer.unref();
-  const notifier = new Notifier(agents, workspaces, presence, push, apns, live);
+  const notifier = new Notifier(agents, agentLog, workspaces, presence, push, apns, live);
   apns.onChange = () =>
     state.update("host", (draft) => {
       draft.host = host();
@@ -240,6 +242,7 @@ export async function startServer(
     push,
     apns,
     live,
+    notifier,
     badge: () => needingYou(agents),
     presence,
     git,
@@ -327,6 +330,7 @@ export async function startServer(
     publicUrl,
     dataDir: paths.dir,
     loginLink: (name) => `${publicUrl}/auth/redeem?code=${devices.createLoginCode(name).code}`,
+    agentToken: builtins.agentToken,
     close: () => {
       closing ??= (async () => {
         log.info("server.stopping", {});

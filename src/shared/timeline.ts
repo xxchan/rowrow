@@ -1,7 +1,8 @@
 // The transcript fold: entries → what the agent view renders. Each run's oar records fold
 // into that run's SessionView (oar's own chat projection, streamId = runId so resumed
 // runs never collide); rowrow's host facts (a run failed to start, an input that never
-// reached a run, the run ended) sit between them in log order.
+// reached a run, the run ended) sit between them in log order. A notification sent while a
+// run is live goes in that run, after what the agent had said by then (`placeNotes`).
 //
 // Pure and incremental with structural sharing: an entry replaces only the block it
 // touches, so a renderer memoized on block identity redraws only what changed. The fold
@@ -25,6 +26,14 @@ export interface RunBlock {
   readonly stoppedByExit?: true;
   /** Aborted turns no stop from rowrow was in flight for: the runtime stopped them itself (a pi extension). */
   readonly selfStopped?: readonly string[];
+  /** Notifications sent while it was live (placeNotes says where they go). */
+  readonly notes?: readonly RunNote[];
+}
+
+/** A notification sent during a run, after the message that was the run's last (null: none yet). */
+export interface RunNote {
+  readonly entry: EntryOf<"notification.sent">;
+  readonly after: string | null;
 }
 
 /** An input as rowrow received it. Rendered on its own only until a run takes it over. */
@@ -40,7 +49,7 @@ export interface InputBlock {
 
 export interface NoticeBlock {
   readonly kind: "notice";
-  readonly entry: EntryOf<"run.failed" | "host.error" | "agent.updated">;
+  readonly entry: EntryOf<"run.failed" | "host.error" | "agent.updated" | "notification.sent">;
 }
 
 export type TimelineBlock = RunBlock | InputBlock | NoticeBlock;
@@ -150,6 +159,15 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
     case "run.failed":
     case "host.error":
       return { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
+    case "notification.sent": {
+      // Sent mid-run (usually by the agent itself, from a tool call): in the run, where it was.
+      const index = lastRun(t.blocks);
+      const run = index === -1 ? undefined : (t.blocks[index] as RunBlock);
+      if (run === undefined || run.ended !== undefined)
+        return { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
+      const note: RunNote = { entry, after: run.view.messages.at(-1)?.id ?? null };
+      return { ...t, blocks: replaceAt(t.blocks, index, { ...run, notes: [...(run.notes ?? []), note] }) };
+    }
     case "agent.updated":
       // Only a model change reads as part of the conversation; renames and archiving don't.
       return entry.changes.model === undefined
@@ -168,6 +186,33 @@ function findRun(blocks: readonly TimelineBlock[], runId: string): number {
     if (block?.kind === "run" && block.runId === runId) return i;
   }
   return -1;
+}
+
+function lastRun(blocks: readonly TimelineBlock[]): number {
+  return blocks.findLastIndex((block) => block.kind === "run");
+}
+
+/**
+ * Where a run's notes go: `before` its first message, or `after` the message that was last
+ * when each was sent. One whose message is gone since (oar drops a turn that never began)
+ * goes after the run's last message.
+ */
+export function placeNotes(run: RunBlock): {
+  readonly before: readonly RunNote[];
+  readonly after: ReadonlyMap<string, readonly RunNote[]>;
+} {
+  const notes = run.notes ?? [];
+  if (notes.length === 0) return { before: [], after: new Map() };
+  const ids = new Set(run.view.messages.map((message) => message.id));
+  const last = run.view.messages.at(-1)?.id ?? null;
+  const before: RunNote[] = [];
+  const after = new Map<string, RunNote[]>();
+  for (const note of notes) {
+    const at = note.after === null ? null : ids.has(note.after) ? note.after : last;
+    if (at === null) before.push(note);
+    else after.set(at, [...(after.get(at) ?? []), note]);
+  }
+  return { before, after };
 }
 
 function replaceAt<T>(items: readonly T[], index: number, item: T): T[] {

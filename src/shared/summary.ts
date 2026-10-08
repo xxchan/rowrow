@@ -81,6 +81,13 @@ export interface AgentSummary {
   /** The tail of the agent's latest text, for list rows and notifications. */
   readonly preview: string | null;
   readonly lastError: string | null;
+  /** The latest notification it sent you (notify.send): clients show it as it arrives. */
+  readonly lastNotification: {
+    readonly seq: number;
+    readonly at: number;
+    readonly title: string;
+    readonly body: string;
+  } | null;
   /**
    * Tokens since the run's session opened (oar 0.30: every runtime counts from there, so a
    * resumed session starts again); null until the run reports them, and some never do (Codex
@@ -138,6 +145,7 @@ export function initialSummary(): AgentSummary {
     lastActivityAt: 0,
     preview: null,
     lastError: null,
+    lastNotification: null,
     usage: null,
     context: null,
     inputs: 0,
@@ -252,6 +260,11 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return s.run?.runId === entry.runId ? endRun(s, entry) : s;
     case "host.error":
       return { ...s, lastError: entry.message };
+    case "notification.sent":
+      return {
+        ...s,
+        lastNotification: { seq: entry.seq, at: entry.at, title: entry.title, body: entry.body },
+      };
     case "oar": {
       // A held input leaves the queue as it goes out, not a moment later with input.sent.
       const { record } = entry;

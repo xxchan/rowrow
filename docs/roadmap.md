@@ -48,6 +48,11 @@ file when something lands.
   mid-turn. Notifications with Reply and Mark as Seen (`notify.watch`). Signed with
   Botiverse's Developer ID and notarized since 0.3.0.
 
+- **Agents can notify you themselves** (D-043): `rowrow notify "<title>" ["<body>"]` from
+  inside an agent reaches every device and the transcript, once per `--key` a day, for
+  watchers that should stay quiet until what they watch happens (roamgate's "Let Ranger
+  decide").
+
 ## Parked
 
 - **Permission prompts from the phone** (D-022): agents run with prompts off, by design.

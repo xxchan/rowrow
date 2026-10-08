@@ -215,6 +215,37 @@ test("a finished agent is listed under Needs you until you look at it", async ({
   await expect(page.getByText("finishes").first()).toBeVisible();
 });
 
+test("an agent's notification pops up where you are, opens the agent, and stays in its transcript", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "deploy watcher",
+  });
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+
+  // What `rowrow notify` does from inside the agent (the scripted runtime runs no commands).
+  await rowrow.client.notify.send({
+    agentId: agent.id,
+    title: "Deploy failed",
+    body: "api-7 is crash-looping",
+  });
+  const toast = page
+    .getByRole("region", { name: /Notifications/ })
+    .getByRole("listitem")
+    .filter({ hasText: "Deploy failed" });
+  await expect(toast).toContainText("deploy watcher · api-7 is crash-looping");
+  await toast.getByRole("button", { name: "Open" }).click();
+  await expect(page).toHaveURL(new RegExp(`/a/${agent.id}$`));
+  const note = page.getByRole("note").filter({ hasText: "Notified you: Deploy failed" });
+  await expect(note).toBeVisible();
+  await expect(note).toHaveAttribute("title", "api-7 is crash-looping");
+});
+
 test("the last turn's changes are one click away", async ({ page, rowrow }, info) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent, sent } = await rowrow.client.agents.create({

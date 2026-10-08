@@ -24,9 +24,11 @@ import {
   held,
   landedIn,
   outcomeOf,
+  placeNotes,
   steerUnread,
   type InputBlock,
   type RunBlock,
+  type RunNote,
   type Timeline,
 } from "./timeline.ts";
 
@@ -255,7 +257,14 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
         }),
     });
   }
-  view.messages.forEach((message, index) => {
+  const notes = placeNotes(run);
+  const noteItems = (list: readonly RunNote[] | undefined): void => {
+    for (const { entry } of list ?? []) {
+      const id = `notice:${entry.seq}`;
+      out.push({ id, deps: [entry], make: () => note(id, notifiedText(entry)) });
+    }
+  };
+  const messageItems = (message: ViewMessage, index: number): void => {
     // The run's own end says why the process went away; oar's exit notice would repeat it.
     if (
       message.kind === "notice" &&
@@ -279,6 +288,11 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
         turnItems(id, message, index === view.openTurn && ended === undefined, runtime, out);
         break;
     }
+  };
+  noteItems(notes.before);
+  view.messages.forEach((message, index) => {
+    messageItems(message, index);
+    noteItems(notes.after.get(message.id));
   });
   if (ended !== undefined && endReason !== undefined && endReason !== "idle" && endReason !== "restart") {
     out.push({
@@ -427,8 +441,13 @@ function deliveredInput(
   };
 }
 
-function hostNotice(entry: EntryOf<"run.failed" | "host.error" | "agent.updated">, id: string): NoticeItem {
+function hostNotice(
+  entry: EntryOf<"run.failed" | "host.error" | "agent.updated" | "notification.sent">,
+  id: string,
+): NoticeItem {
   switch (entry.kind) {
+    case "notification.sent":
+      return note(id, notifiedText(entry));
     case "run.failed":
       return note(id, `Couldn't start the agent: ${entry.error}`, { tone: "error" });
     case "host.error":
@@ -457,6 +476,11 @@ function note(
     tone: options.tone ?? "normal",
     divider: options.divider ?? false,
   };
+}
+
+/** A notification the agent sent you (notify.send), as the transcript says it. */
+export function notifiedText(entry: EntryOf<"notification.sent">): string {
+  return `Notified you: ${entry.title}`;
 }
 
 /** What a runtime notice says, in words. */

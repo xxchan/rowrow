@@ -61,6 +61,10 @@ Agents
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
   rowrow agent abort|stop|archive|seen <agent>
+  rowrow notify <title> [body] [--key K] [--agent <agent>]
+                                   notify the user on every device, even while they look at the
+                                   agent (from inside an agent: about that agent); --key K: once
+                                   per K a day. At most 1 per 10 s and 30 an hour per agent
   (an <agent> is its id, a unique id prefix, or a unique part of its title)
 
 Workspaces
@@ -83,7 +87,8 @@ Debugging
   rowrow procedures                every procedure with its summary
 
 Global flags: --profile NAME, --url URL --token T (another server), --json
-Environment: ROWROW_HOME (default ~/.rowrow). Agents run by rowrow get ROWROW_URL and ROWROW_TOKEN.`;
+Environment: ROWROW_HOME (default ~/.rowrow). Agents run by rowrow get ROWROW_URL, ROWROW_TOKEN and
+ROWROW_AGENT_ID: this CLI works from inside them, and rowrow notify tells the user about that agent.`;
 
 const DURATION = /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/;
 
@@ -151,6 +156,7 @@ async function main(argv: string[]): Promise<void> {
       attach: { type: "string", multiple: true },
       "key-id": { type: "string" },
       "team-id": { type: "string" },
+      key: { type: "string" },
       off: { type: "boolean" },
     },
   });
@@ -407,6 +413,29 @@ async function main(argv: string[]): Promise<void> {
       case "agent":
         await agentCommand(client, rest, { str, bool, strings, json, out, trace });
         return;
+      case "notify": {
+        const [title = "", ...more] = rest;
+        if (title.trim() === "")
+          throw new Error('usage: rowrow notify "<title>" ["<body>"] [--key K] [--agent <agent>]');
+        // From inside an agent, the server knows which one (ROWROW_AGENT_ID); --agent names another.
+        const ref = str("agent");
+        const agentId =
+          ref === undefined ? undefined : resolveAgent((await client.state.get()).state, ref).id;
+        const body = more.join(" ");
+        const key = str("key");
+        const result = await client.notify.send({
+          title,
+          ...(body === "" ? {} : { body }),
+          ...(key === undefined ? {} : { dedupKey: key }),
+          ...(agentId === undefined ? {} : { agentId }),
+        });
+        out(result, () =>
+          result.sent
+            ? `Notified you: ${title}`
+            : `Not sent: --key ${key ?? ""} already notified you ${ago(result.at)} ago (entry ${result.seq})`,
+        );
+        return;
+      }
       case "ws":
       case "workspaces": {
         const [sub, ...args] = rest;

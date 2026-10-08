@@ -48,6 +48,8 @@ export interface ApnsAlert {
   readonly generic: string;
   /** One notification per thread: the agent. A newer one replaces the older (apns-collapse-id). */
   readonly thread: string;
+  /** Replaces only an earlier one with this id instead of the thread's (an agent's own notice: none). */
+  readonly collapse?: string;
   /** The app's actions for it (UNNotificationCategory), e.g. AGENT: reply, mark as seen. */
   readonly category?: string;
   /** The Home Screen badge: how many agents need you. */
@@ -192,7 +194,11 @@ export class Apns {
       ...(row.key === null ? {} : { e: sealFor(row.key, words) }),
       ...message.data,
     });
-    return this.broadcast({ type: "alert", priority: 10, payload, collapseId: message.thread }, skip, only);
+    return this.broadcast(
+      { type: "alert", priority: 10, payload, collapseId: message.collapse ?? message.thread },
+      skip,
+      only,
+    );
   }
 
   /**

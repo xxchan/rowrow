@@ -328,6 +328,62 @@ describe("push to the iOS app", () => {
     }
   });
 
+  it("sends what an agent tells you itself, even while the app shows that agent", async () => {
+    const apple = await fakeApple();
+    try {
+      t = await startTestServer({ apnsOrigin: apple.origin });
+      const app = await appWithPush(t);
+      const ws = await t.client.workspaces.add({ path: t.repo() });
+      const { agent } = await t.client.agents.create({
+        workspaceId: ws.id,
+        runtime: "scripted",
+        title: "deployer",
+      });
+      const controller = new AbortController();
+      const response = await fetch(`${t.server.url}/api/state/watch`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${app.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ connection: "ios-conn-0003" }),
+        signal: controller.signal,
+      });
+      await events(response).next();
+      await call(t, app.token, "presence/update", {
+        route: `/a/${agent.id}`,
+        agentId: agent.id,
+        visible: true,
+        focused: true,
+        connection: "ios-conn-0003",
+      });
+      const sent = await t.client.notify.send({
+        agentId: agent.id,
+        title: "Deploy failed",
+        body: "api-7 is crash-looping",
+      });
+      const alert = await eventually(() => apple.received[0], 5000);
+      // Its own notification: it replaces neither the agent's "finished" nor an earlier one.
+      expect(alert.headers["apns-collapse-id"]).toBe(`${agent.id}:notice:${sent.seq}`);
+      expect(alert.body).toMatchObject({
+        aps: {
+          alert: { title: "rowrow", body: "An agent notified you." },
+          "thread-id": agent.id,
+          category: "AGENT",
+        },
+        agentId: agent.id,
+        notice: true,
+        seq: sent.seq,
+      });
+      expect(JSON.stringify(alert.body)).not.toContain("crash-looping");
+      expect(open(alert.body["e"], app.key)).toEqual({
+        title: "Deploy failed",
+        subtitle: "deployer",
+        body: "api-7 is crash-looping",
+      });
+      controller.abort();
+    } finally {
+      await apple.close();
+    }
+  });
+
   it("forgets a device token Apple says is gone", async () => {
     const apple = await fakeApple(() => ({ status: 410, reason: "Unregistered" }));
     try {
