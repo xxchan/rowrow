@@ -391,8 +391,20 @@ export const Settings = z.object({
     .describe(
       'Tells this server apart from your others: its pages and the installed app are called "rowrow · <instanceName>" (empty: rowrow).',
     ),
+  coach: z
+    .object({
+      workspaces: z
+        .array(z.string())
+        .max(512)
+        .describe("Workspaces whose agents Coach may read (none until you tick them)."),
+      runtime: z.string().describe("The runtime a new Coach chat runs on: claude or pi."),
+      model: z.string().nullable().describe("Coach's model; null is the runtime's default."),
+      effort: z.string().nullable().describe("Coach's reasoning effort; null is the model's default."),
+    })
+    .describe("Coach (D-044): what it may read, and what it runs on. Applies to the next message."),
 });
 export type Settings = z.infer<typeof Settings>;
+export type CoachSettings = Settings["coach"];
 
 export const DEFAULT_SETTINGS: Settings = {
   quickReplies: [
@@ -403,6 +415,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   checkForUpdates: true,
   instanceName: "",
+  coach: { workspaces: [], runtime: "claude", model: null, effort: null },
 };
 
 /** What the app is called on this server: the page title and the installed app's name (roamgate #368). */
@@ -419,6 +432,8 @@ export interface AppState {
   readonly agents: Readonly<Record<string, AgentState>>;
   readonly runtimes: Readonly<Record<string, RuntimeInfo>>;
   readonly settings: Settings;
+  /** Coach (D-044): its current chat, kept apart from the agents (null before the first message). */
+  readonly coach: { readonly chat: AgentState | null };
 }
 
 export type StateMessage =

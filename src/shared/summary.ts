@@ -48,7 +48,12 @@ export interface QueuedInput {
 }
 
 export interface AgentSummary {
+  /** "" for a Coach chat. */
   readonly workspaceId: string;
+  /** "coach": a Coach chat (D-044), kept out of the agent lists, attention and notifications. */
+  readonly role: "agent" | "coach";
+  /** Coach: the workspaces its tools may read now, frozen with the latest input (null: none). */
+  readonly scope: readonly string[] | null;
   readonly runtime: string;
   readonly title: string | null;
   /** The model you asked for; null means the runtime's default. */
@@ -128,6 +133,8 @@ const PREVIEW_CHARS = 280;
 export function initialSummary(): AgentSummary {
   return {
     workspaceId: "",
+    role: "agent",
+    scope: null,
     runtime: "",
     title: null,
     model: null,
@@ -177,6 +184,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return {
         ...s,
         workspaceId: entry.workspaceId,
+        role: entry.role ?? "agent",
         runtime: entry.runtime,
         model: entry.model ?? null,
         effort: entry.effort ?? null,
@@ -197,6 +205,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return {
         ...s,
         inputs: s.inputs + 1,
+        ...(s.role === "coach" ? { scope: entry.scope ?? null } : {}),
         unanswered: {
           inputId: entry.inputId,
           text: entry.text,

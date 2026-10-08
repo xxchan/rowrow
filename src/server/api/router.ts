@@ -35,6 +35,8 @@ import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
 import type { UpdateChecker } from "../updates.ts";
+import type { CoachService } from "../coach/service.ts";
+import type { CoachGrant } from "../coach/tokens.ts";
 import type { Apns } from "../notify/apns.ts";
 import type { LiveNotices } from "../notify/live.ts";
 import type { Notifier } from "../notify/notifier.ts";
@@ -55,6 +57,8 @@ export interface ApiContext {
   readonly connectionId?: string;
   /** A trace id the caller brought (header `x-rowrow-trace`). */
   readonly trace?: string;
+  /** Coach's MCP server calling with its run's token (D-044): it may only read, through COACH_READS. */
+  readonly coach?: CoachGrant;
 }
 
 export interface GitOps {
@@ -102,6 +106,7 @@ export interface Services {
   readonly state: StateStore;
   readonly workspaces: Workspaces;
   readonly agents: AgentService;
+  readonly coach: CoachService;
   readonly agentLog: AgentLog;
   readonly runtimes: Runtimes;
   readonly usage: UsageService;
@@ -128,6 +133,13 @@ const QUIET = new Set(["presence.update", "telemetry.report", "agents.markSeen",
 const DEFAULT_WAIT: Attention[] = ["blocked", "done", "idle"];
 /** agents.watch sends at most one batch per this long: ten a second while text streams. */
 const WATCH_GAP_MS = 100;
+/** All Coach's token can call: its tools' reads, each checked against its turn's workspaces. */
+const COACH_READS = new Set([
+  "coach.agentsStatus",
+  "coach.agentHistory",
+  "coach.agentChanges",
+  "coach.agentBackground",
+]);
 
 /** Presence of an HTTP client's state.watch stream: its own name, scoped to the device that chose it. */
 function httpConnection(deviceId: string, name: string): string {
@@ -148,10 +160,13 @@ export function createRouter(s: Services) {
           device: context.device.id,
           ...(context.connectionId === undefined ? {} : { conn: context.connectionId }),
           ...(context.actor.kind === "agent" ? { agent: context.actor.agentId } : {}),
+          ...(context.coach === undefined ? {} : { agent: context.coach.chatId, run: context.coach.runId }),
         },
         async () => {
           const started = Date.now();
           try {
+            if (context.coach !== undefined && !COACH_READS.has(name))
+              throw new UserError("Coach can only read, through its own tools.", "FORBIDDEN");
             const result = await next();
             if (!QUIET.has(name)) log.info("api.call", { proc: name, ms: Date.now() - started });
             return result;
@@ -278,22 +293,27 @@ export function createRouter(s: Services) {
               });
         return { agent: s.agents.get(agent.id) ?? agent, sent };
       }),
-      send: os.agents.send.handler(async ({ input, context }) =>
-        s.agents.send(input.agentId, {
+      send: os.agents.send.handler(async ({ input, context }) => {
+        notCoach(s, input.agentId);
+        return s.agents.send(input.agentId, {
           inputId: input.inputId,
           text: input.text,
           ...attachmentsOf(input.attachments),
           mode: input.mode,
           by: context.actor,
           ...(context.trace === undefined ? {} : { trace: context.trace }),
-        }),
-      ),
+        });
+      }),
       withdraw: os.agents.withdraw.handler(async ({ input, context }) => {
         const taken = await s.agents.withdraw(input.agentId, input.inputId, context.actor);
         return { text: taken.text, attachments: [...taken.attachments] };
       }),
-      sendNow: os.agents.sendNow.handler(async ({ input }) => s.agents.sendNow(input.agentId, input.inputId)),
+      sendNow: os.agents.sendNow.handler(async ({ input }) => {
+        notCoach(s, input.agentId);
+        return s.agents.sendNow(input.agentId, input.inputId);
+      }),
       resume: os.agents.resume.handler(async ({ input, context }) => {
+        notCoach(s, input.agentId);
         await s.agents.resume(input.agentId, context.actor);
         return { ok: true as const };
       }),
@@ -412,6 +432,39 @@ export function createRouter(s: Services) {
         s.runtimes.cancelLogin(input.runtime);
         return { ok: true as const };
       }),
+    },
+
+    coach: {
+      send: os.coach.send.handler(async ({ input, context }) =>
+        s.coach.send({
+          inputId: input.inputId,
+          text: input.text,
+          by: context.actor,
+          ...(input.chatId === undefined ? {} : { chatId: input.chatId }),
+          ...(context.trace === undefined ? {} : { trace: context.trace }),
+        }),
+      ),
+      newChat: os.coach.newChat.handler(async ({ context }) => {
+        await s.coach.newChat(context.actor);
+        return { ok: true as const };
+      }),
+      chats: os.coach.chats.handler(() => s.coach.chats()),
+      open: os.coach.open.handler(async ({ input, context }) => {
+        await s.coach.open(input.chatId, context.actor);
+        return { ok: true as const };
+      }),
+      agentsStatus: os.coach.agentsStatus.handler(({ input, context }) =>
+        s.coach.agentsStatus(chatOf(context, input.chatId), input),
+      ),
+      agentHistory: os.coach.agentHistory.handler(({ input, context }) =>
+        s.coach.agentHistory(chatOf(context, input.chatId), input),
+      ),
+      agentChanges: os.coach.agentChanges.handler(async ({ input, context }) =>
+        s.coach.agentChanges(chatOf(context, input.chatId), input),
+      ),
+      agentBackground: os.coach.agentBackground.handler(async ({ input, context }) =>
+        s.coach.agentBackground(chatOf(context, input.chatId), input),
+      ),
     },
 
     git: {
@@ -618,6 +671,23 @@ export function createRouter(s: Services) {
 }
 
 export type Router = ReturnType<typeof createRouter>;
+
+/** Whose turn a Coach read is for: Coach's own (its token says), or the chat you name. */
+function chatOf(context: ApiContext, chatId: string | undefined): string {
+  if (context.coach !== undefined) {
+    if (chatId !== undefined && chatId !== context.coach.chatId)
+      throw new UserError("Coach reads only for its own chat.", "FORBIDDEN");
+    return context.coach.chatId;
+  }
+  if (chatId === undefined) throw new UserError("Name the Coach chat whose turn to read as (chatId).");
+  return chatId;
+}
+
+/** Messages to Coach go through coach.send, which captures what it may read. */
+function notCoach(s: Services, agentId: string): void {
+  if (s.agents.has(agentId) && s.agents.summary(agentId).role === "coach")
+    throw new UserError("This is a Coach chat: send to it with coach.send.", "PRECONDITION_FAILED");
+}
 
 function requireAgent(s: Services, agentId: string): void {
   if (!s.agents.has(agentId)) throw new ORPCError("NOT_FOUND", { message: `agent ${agentId} not found` });

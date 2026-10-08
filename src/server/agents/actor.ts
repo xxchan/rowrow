@@ -3,7 +3,13 @@
 // owns the live run: an oar Session whose records it appends verbatim, started lazily on
 // input (resuming the runtime's own conversation) and stopped after an idle timeout. It
 // holds input sent while a turn runs and sends it, one per turn, when the turn ends (D-035).
-import { awaitIdle, type ControlOutcome, type InputOrigin, type Session } from "@botiverse/oar";
+import {
+  awaitIdle,
+  type ControlOutcome,
+  type InputOrigin,
+  type Session,
+  type SessionOptions,
+} from "@botiverse/oar";
 import type {
   Actor,
   Attachment,
@@ -35,6 +41,13 @@ export interface ActorDeps {
   readonly stopWaitMs?: number;
   /** Called before an input starts a new turn (the "last turn" diff baseline). */
   readonly beforeTurn?: (agentId: string) => Promise<void>;
+  /** More options for a run about to start (Coach's prompt, tools and MCP server, D-044). */
+  readonly runOptions?: (
+    agentId: string,
+    runId: string,
+  ) => Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers">;
+  /** The text the runtime reads for an input, from the text with its attachments listed (Coach frames it with the turn's scope). */
+  readonly promptText?: (agentId: string, inputId: string, text: string) => string;
 }
 
 interface LiveRun {
@@ -55,6 +68,8 @@ export interface SendInput {
   readonly mode: InputMode;
   readonly by: Actor;
   readonly trace?: string;
+  /** Coach: the workspaces its tools may read in this turn (D-044). */
+  readonly scope?: readonly string[];
 }
 
 /** How rowrow passed an input to the runtime, as oar answered. */
@@ -145,6 +160,7 @@ export class AgentActor {
         mode: input.mode,
         by: input.by,
         ...(input.trace === undefined ? {} : { trace: input.trace }),
+        ...(input.scope === undefined ? {} : { scope: input.scope }),
       });
       const result = await this.deliver(input);
       this.append({
@@ -216,7 +232,8 @@ export class AgentActor {
       };
     }
     const { session, runId } = run;
-    const text = runtimeText(body, attachments);
+    const listed = runtimeText(body, attachments);
+    const text = this.deps.promptText?.(this.id, inputId, listed) ?? listed;
     // A runtime without image input still gets every image's path in the text.
     const images = session.capabilities.images ? runtimeImages(attachments) : [];
     const options = { inputId, origin: originOf(by), ...(images.length === 0 ? {} : { images }) };
@@ -366,11 +383,12 @@ export class AgentActor {
       this.append({ kind: "run.failed", runId, error });
       throw new Error(error);
     }
-    const base = {
+    const base: SessionOptions = {
       cwd,
       env: this.deps.env(this.id),
       ...(summary.model === null ? {} : { model: summary.model }),
       ...(summary.effort === null ? {} : { effort: summary.effort }),
+      ...this.deps.runOptions?.(this.id, runId),
     };
     let session: Session;
     let resumed: string | undefined;

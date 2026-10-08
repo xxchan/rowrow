@@ -14,6 +14,9 @@ import { UsageService } from "./usage.ts";
 import { startHttp } from "./api/server.ts";
 import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
+import { CoachService } from "./coach/service.ts";
+import { CoachTokens } from "./coach/tokens.ts";
+import { COACH_ENV } from "./coach/tools.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
 import { prependPath, writeCliLauncher } from "./cli-launcher.ts";
 import { Apns } from "./notify/apns.ts";
@@ -131,6 +134,7 @@ export async function startServer(
     agents: {},
     runtimes: {},
     settings: DEFAULT_SETTINGS,
+    coach: { chat: null },
   });
   const settings = new SettingsService(db, state);
   settings.load();
@@ -184,6 +188,9 @@ export async function startServer(
   const snapshots = new SnapshotStore(paths.snapshots);
   // Created after the agents, which it needs; the agents reach it only once turns start.
   let git: ReturnType<typeof createGitOps> | null = null;
+  // Coach's chats are agents (D-044); Coach needs them, they reach it only when a run starts.
+  let coach: CoachService | null = null;
+  const coachTokens = new CoachTokens();
   const agents = new AgentService({
     db,
     log: agentLog,
@@ -192,18 +199,32 @@ export async function startServer(
     workspaces,
     idleTimeoutMs: options.idleTimeoutMs,
     ...(options.stopWaitMs === undefined ? {} : { stopWaitMs: options.stopWaitMs }),
-    env: (agentId) => ({
-      // Read at each run's start: the login shell's PATH may have been added since boot.
-      PATH: prependPath(agentBin, process.env["PATH"]),
-      ROWROW: "1",
-      ROWROW_URL: localUrl(),
-      ROWROW_TOKEN: builtins.agentToken,
-      ROWROW_AGENT_ID: agentId,
-      ROWROW_WORKSPACE_ID: agents.summary(agentId).workspaceId,
-      ROWROW_PROFILE: options.profile,
-    }),
+    env: (agentId) =>
+      agents.summary(agentId).role === "coach"
+        ? {
+            // Coach's runtime gets no credential of rowrow's: only its MCP server does, its run's own.
+            PATH: prependPath(agentBin, process.env["PATH"]),
+            ROWROW: "1",
+            ROWROW_URL: "",
+            ROWROW_TOKEN: "",
+            ROWROW_PROFILE: options.profile,
+            ...COACH_ENV[agents.summary(agentId).runtime],
+          }
+        : {
+            // Read at each run's start: the login shell's PATH may have been added since boot.
+            PATH: prependPath(agentBin, process.env["PATH"]),
+            ROWROW: "1",
+            ROWROW_URL: localUrl(),
+            ROWROW_TOKEN: builtins.agentToken,
+            ROWROW_AGENT_ID: agentId,
+            ROWROW_WORKSPACE_ID: agents.summary(agentId).workspaceId,
+            ROWROW_PROFILE: options.profile,
+          },
     turnStarted: async (workspaceId, agentId) => git?.turnStarted(workspaceId, agentId),
     turnEnded: async (agentId) => git?.turnEnded(agentId),
+    coachDir: paths.coach,
+    runOptions: (agentId, runId) => coach?.runOptions(agentId, runId) ?? {},
+    promptText: (agentId, inputId, text) => coach?.promptText(agentId, inputId, text) ?? text,
   });
   agents.load();
   git = createGitOps({
@@ -214,6 +235,20 @@ export async function startServer(
     stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
     agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
     ...(options.gh === undefined ? {} : { gh: options.gh }),
+  });
+  coach = new CoachService({
+    agents,
+    log: agentLog,
+    workspaces,
+    settings,
+    runtimes,
+    git: () => {
+      if (git === null) throw new Error("git operations are not ready");
+      return git;
+    },
+    tokens: coachTokens,
+    cli: path.join(agentBin, "rowrow"),
+    url: () => localUrl(),
   });
   // Housekeeping: turn snapshots and uploads older than a week go.
   const housekeeping = (): void => {
@@ -236,6 +271,7 @@ export async function startServer(
     settings,
     workspaces,
     agents,
+    coach,
     agentLog,
     runtimes,
     usage,
@@ -259,6 +295,7 @@ export async function startServer(
     devices,
     presence,
     agentDeviceId: builtins.agentDevice.id,
+    coachTokens,
     host: options.host,
     port: options.port,
     ...(options.tls === undefined ? {} : { tls: options.tls }),

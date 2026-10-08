@@ -4,6 +4,14 @@
 // an agent that has never seen the code: `rowrow help` lists them.
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
+import {
+  CoachToolArgs,
+  type AgentBackgroundResult,
+  type AgentChangesResult,
+  type AgentHistoryResult,
+  type AgentsStatusResult,
+  type CoachChat,
+} from "./coach.ts";
 import type { Entry } from "./entries.ts";
 import {
   AgentState,
@@ -666,11 +674,74 @@ const presence = {
     .output(ok),
 };
 
+/** Whose turn a Coach read is for: implied by Coach's own token, named when you ask as yourself. */
+const chatId = z
+  .string()
+  .optional()
+  .describe("The Coach chat whose turn's workspaces to read (ag_…); Coach's own token implies it.");
+
+const coach = {
+  send: oc
+    .route({
+      summary:
+        "Send a message to Coach (D-044), rowrow's assistant, which reads the agents in the workspaces settings.coach allows and does no coding itself. Those workspaces are captured now and stay fixed for the turn. Starts a chat when there is none (or when settings.coach.runtime differs from the current chat's), applies settings.coach's model and effort, and refuses while Coach works. `chatId`: the chat you saw, so a stale window can't send to another one (CONFLICT).",
+    })
+    .input(
+      z.object({
+        inputId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
+        text: z.string().trim().min(1).max(20_000),
+        chatId: z.string().nullable().optional(),
+      }),
+    )
+    .output(SendResult.extend({ chatId: z.string() })),
+  newChat: oc
+    .route({
+      summary:
+        "Leave Coach's current chat (it stays in coach.chats) so the next message starts a new one. Not while Coach works.",
+    })
+    .output(ok),
+  chats: oc
+    .route({ summary: "Coach's chats, newest first (at most 200): its History." })
+    .output(z.array(z.custom<CoachChat>())),
+  open: oc
+    .route({ summary: "Make an earlier Coach chat the current one again. Not while Coach works." })
+    .input(z.object({ chatId: z.string() }))
+    .output(ok),
+  agentsStatus: oc
+    .route({
+      summary:
+        "Coach's tool agents_status: the agents in the turn's workspaces and their status, bounded (80 agents).",
+    })
+    .input(CoachToolArgs.agents_status.extend({ chatId }))
+    .output(z.custom<AgentsStatusResult>()),
+  agentHistory: oc
+    .route({
+      summary:
+        "Coach's tool agent_history: an agent's transcript as text (rowrow agent view's fold), its latest turns, at most 32,000 characters; `before` pages back.",
+    })
+    .input(CoachToolArgs.agent_history.extend({ chatId }))
+    .output(z.custom<AgentHistoryResult>()),
+  agentChanges: oc
+    .route({
+      summary:
+        "Coach's tool agent_changes: the changed files of an agent's workspace (80 at most), or one file's diff (32,000 characters at most).",
+    })
+    .input(CoachToolArgs.agent_changes.extend({ chatId }))
+    .output(z.custom<AgentChangesResult>()),
+  agentBackground: oc
+    .route({
+      summary:
+        "Coach's tool agent_background: the commands an agent runs in the background and the end of their output.",
+    })
+    .input(CoachToolArgs.agent_background.extend({ chatId }))
+    .output(z.custom<AgentBackgroundResult>()),
+};
+
 const settings = {
   update: oc
     .route({
       summary:
-        "Change settings that follow you to every device (quickReplies: what one tap puts in the composer; checkForUpdates: whether the server asks npm for a newer rowrow; instanceName: a name for this server, shown as rowrow · <name> in its page titles and installed app, empty for none). Give only what changes; returns all settings. Every client sees the change in its app state (state.settings).",
+        "Change settings that follow you to every device (quickReplies: what one tap puts in the composer; checkForUpdates: whether the server asks npm for a newer rowrow; instanceName: a name for this server, shown as rowrow · <name> in its page titles and installed app, empty for none; coach: the workspaces Coach may read and what it runs on). Give only what changes; returns all settings. Every client sees the change in its app state (state.settings).",
     })
     .input(Settings.partial())
     .output(Settings),
@@ -700,6 +771,7 @@ export const contract = {
   workspaces,
   agents,
   runtimes,
+  coach,
   git,
   files,
   devices,

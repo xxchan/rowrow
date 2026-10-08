@@ -53,7 +53,7 @@ Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service status|start|stop|restart|uninstall
 
 Agents
-  rowrow agents [--all]            list agents, the ones that need you first
+  rowrow agents [--all] [--coach]  list agents, the ones that need you first; --coach: Coach's chats
   rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
   rowrow agent send <agent> <text…> [--attach FILE]… [--steer | --interrupt] [--wait]
                                    while it works: queued for after the turn; --steer: into it now
@@ -84,6 +84,7 @@ Debugging
   rowrow errors [--since 2h]       warnings and errors (browser ones too)
   rowrow state [path.to.value]     the AppState every client renders
   rowrow call <group.name> [json]  call any procedure (rowrow procedures lists them)
+  rowrow mcp coach                 Coach's tools as an MCP server on stdio (rowrow starts it for Coach)
   rowrow procedures                every procedure with its summary
 
 Global flags: --profile NAME, --url URL --token T (another server), --json
@@ -139,6 +140,7 @@ async function main(argv: string[]): Promise<void> {
       after: { type: "string" },
       full: { type: "boolean" },
       all: { type: "boolean" },
+      coach: { type: "boolean" },
       since: { type: "string" },
       level: { type: "string" },
       evt: { type: "string" },
@@ -336,6 +338,20 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       case "agents": {
+        if (bool("coach")) {
+          const chats = await client.coach.chats();
+          out(chats, () =>
+            chats.length === 0
+              ? "No Coach chats yet."
+              : chats
+                  .map(
+                    (c) =>
+                      `${c.current ? "●" : " "} ${c.id}  ${c.title ?? "New chat"} · ${c.runtime} · ${c.messages} messages · ${ago(c.updatedAt)}`,
+                  )
+                  .join("\n"),
+          );
+          return;
+        }
         const { state } = await client.state.get();
         const agents = Object.values(state.agents)
           .filter((a) => bool("all") || !a.summary.archived)
@@ -488,6 +504,13 @@ async function main(argv: string[]): Promise<void> {
         for (const entry of await client.logs.query(filter)) print(entry);
         if (bool("follow"))
           for await (const entry of await client.logs.watch({ ...filter, since: Date.now() })) print(entry);
+        return;
+      }
+      case "mcp": {
+        if (rest[0] !== "coach") throw new Error("usage: rowrow mcp coach");
+        const { packageVersion } = await import("../server/install.ts");
+        const { serveCoachMcp } = await import("./mcp.ts");
+        await serveCoachMcp(client, packageVersion(path.resolve(import.meta.dirname, "../..")) ?? "unknown");
         return;
       }
       case "call": {
@@ -788,7 +811,8 @@ async function inspectCommand(client: Client, sub: string, args: string[], h: He
 function resolveAgent(state: AppState, ref: string): AgentState {
   if (ref === "") throw new Error("which agent? (an id, id prefix, or part of its title)");
   const agents = Object.values(state.agents);
-  const exact = state.agents[ref];
+  // Coach's current chat, by its id: listed apart from the agents (D-044).
+  const exact = state.agents[ref] ?? (state.coach.chat?.id === ref ? state.coach.chat : undefined);
   if (exact !== undefined) return exact;
   const byId = agents.filter((a) => a.id.startsWith(ref) || a.id.startsWith(`ag_${ref}`));
   if (byId.length === 1 && byId[0] !== undefined) return byId[0];

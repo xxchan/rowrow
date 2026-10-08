@@ -2,7 +2,10 @@
 // The service folds every appended entry into that agent's summary, derives attention
 // against your seen marker, and publishes both to AppState: at once when something you
 // would notice changed (status, attention, a request, a run), otherwise at most once a
-// second (the preview and activity time while text streams).
+// second (the preview and activity time while text streams). Coach's chats (D-044) are agents
+// too, with role "coach": they run in their own directory, and are published as AppState's
+// `coach.chat` rather than among the agents, so no list, count or notification sees them.
+import fs from "node:fs";
 import type { Actor, Attachment, Entry, RunEndReason } from "../../shared/entries.ts";
 import { newId } from "../../shared/ids.ts";
 import type { AgentState, SendResult } from "../../shared/schemas.ts";
@@ -19,7 +22,7 @@ import type { Db } from "../store/db.ts";
 import { notFound, UserError } from "../errors.ts";
 import { log, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
-import { AgentActor, waiting, type SendInput } from "./actor.ts";
+import { AgentActor, waiting, type ActorDeps, type SendInput } from "./actor.ts";
 import type { AgentLog } from "./log.ts";
 import type { Runtimes } from "./runtimes.ts";
 
@@ -56,6 +59,11 @@ export interface AgentServiceDeps {
   /** A turn is about to start / has ended: snapshot the workspace ("last turn" diffs, git). */
   readonly turnStarted?: (workspaceId: string, agentId: string) => Promise<void>;
   readonly turnEnded?: (agentId: string) => Promise<void>;
+  /** Where Coach's chats run: a directory of their own (created when one starts). */
+  readonly coachDir: string;
+  /** Coach's session options and the framing of its prompts (the actor's hooks). */
+  readonly runOptions?: ActorDeps["runOptions"];
+  readonly promptText?: ActorDeps["promptText"];
 }
 
 const PUBLISH_EVERY_MS = 1000;
@@ -103,13 +111,20 @@ export class AgentService {
       runtimes: this.deps.runtimes,
       summary: (agentId) => this.require(agentId).summary,
       cwd: (agentId) => {
-        const ws = this.deps.workspaces.get(this.require(agentId).summary.workspaceId);
+        const { summary: s } = this.require(agentId);
+        if (s.role === "coach") {
+          fs.mkdirSync(this.deps.coachDir, { recursive: true, mode: 0o700 });
+          return this.deps.coachDir;
+        }
+        const ws = this.deps.workspaces.get(s.workspaceId);
         return ws === undefined || ws.missing ? null : ws.path;
       },
       env: this.deps.env,
       idleTimeoutMs: this.deps.idleTimeoutMs,
       ...(this.deps.stopWaitMs === undefined ? {} : { stopWaitMs: this.deps.stopWaitMs }),
       beforeTurn: async (agentId) => this.beforeTurn(agentId),
+      ...(this.deps.runOptions === undefined ? {} : { runOptions: this.deps.runOptions }),
+      ...(this.deps.promptText === undefined ? {} : { promptText: this.deps.promptText }),
     });
     const agent: Agent = {
       id,
@@ -140,8 +155,30 @@ export class AgentService {
     return this.agents.has(id);
   }
 
+  /** Every agent, Coach's chats aside. */
   list(): AgentState[] {
-    return [...this.agents.values()].map(stateOf);
+    return [...this.agents.values()].filter((a) => a.summary.role !== "coach").map(stateOf);
+  }
+
+  /** Coach's chats, oldest first. */
+  coachChats(): AgentState[] {
+    return [...this.agents.values()].filter((a) => a.summary.role === "coach").map(stateOf);
+  }
+
+  /** Coach's current chat: the newest one not archived (leaving a chat archives it). */
+  currentCoach(): AgentState | null {
+    const agent = this.currentCoachAgent();
+    return agent === undefined ? null : stateOf(agent);
+  }
+
+  private currentCoachAgent(): Agent | undefined {
+    let current: Agent | undefined;
+    for (const agent of this.agents.values()) {
+      const { summary } = agent;
+      if (summary.role !== "coach" || summary.archived) continue;
+      if (current === undefined || summary.createdAt >= current.summary.createdAt) current = agent;
+    }
+    return current;
   }
 
   summary(id: string): AgentSummary {
@@ -186,6 +223,34 @@ export class AgentService {
         ...(input.title === undefined ? {} : { title: input.title }),
       });
       log.info("agent.created", { runtime: input.runtime, model: input.model, effort: input.effort });
+    });
+    return stateOf(agent);
+  }
+
+  /** A Coach chat (D-044): an agent in no workspace, on a runtime that can be Coach. */
+  createCoach(input: { runtime: string; model?: string; effort?: string; by: Actor }): AgentState {
+    if (this.deps.runtimes.info(input.runtime) === undefined)
+      throw new UserError(`unknown runtime "${input.runtime}"`);
+    const id = newId("ag");
+    this.deps.db.run(
+      "insert into agents (id, workspace_id, created_at) values (?, ?, ?)",
+      id,
+      "",
+      Date.now(),
+    );
+    // Known as Coach's from the start, so it is never published among the agents.
+    const agent = this.register(id, { ...initialSummary(), role: "coach" }, -1);
+    withContext({ agent: id }, () => {
+      this.deps.log.append(id, {
+        kind: "agent.created",
+        workspaceId: "",
+        role: "coach",
+        runtime: input.runtime,
+        by: input.by,
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.effort === undefined ? {} : { effort: input.effort }),
+      });
+      log.info("coach.chat.created", { runtime: input.runtime, model: input.model, effort: input.effort });
     });
     return stateOf(agent);
   }
@@ -302,7 +367,9 @@ export class AgentService {
 
   /** Snapshot the workspace before this agent's turn starts, so "last turn" shows what the turn changed. */
   private async beforeTurn(agentId: string): Promise<void> {
-    await this.deps.turnStarted?.(this.require(agentId).summary.workspaceId, agentId);
+    const { summary } = this.require(agentId);
+    if (summary.role === "coach") return; // no workspace to snapshot
+    await this.deps.turnStarted?.(summary.workspaceId, agentId);
   }
 
   /** Stop the live runs of every agent in a workspace (its checkout is about to go away). */
@@ -334,7 +401,7 @@ export class AgentService {
     agent.actor.noteActivity(agent.summary);
     if (noticeable(before, agent.summary)) this.publish(agent);
     else this.publishLater(agent);
-    if (entry.kind === "oar" && agent.summary.lastTurn?.seq === entry.seq) {
+    if (entry.kind === "oar" && agent.summary.lastTurn?.seq === entry.seq && agent.summary.role !== "coach") {
       // A turn ended: snapshot its end, and its files probably changed.
       void this.deps.turnEnded?.(agentId);
       this.deps.workspaces.refreshSoon(agent.summary.workspaceId);
@@ -352,6 +419,8 @@ export class AgentService {
       entry,
     };
     agent.attention = next;
+    // Coach's chats tell you nothing: you're looking at them when they answer.
+    if (agent.summary.role === "coach") return;
     log.info("agent.attention", { agent: agent.id, from: change.from, to: change.to });
     for (const listener of this.attentionListeners) {
       try {
@@ -368,6 +437,14 @@ export class AgentService {
       agent.publishTimer = null;
     }
     agent.publishedAt = Date.now();
+    if (agent.summary.role === "coach") {
+      const current = this.currentCoachAgent();
+      const chat = current === undefined ? null : stateOf(current);
+      this.deps.state.update("coach.chat", (draft) => {
+        draft.coach.chat = chat as never;
+      });
+      return;
+    }
     const state = stateOf(agent);
     this.deps.state.update("agents.summary", (draft) => {
       draft.agents[agent.id] = state as never;

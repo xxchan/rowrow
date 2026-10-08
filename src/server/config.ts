@@ -23,6 +23,8 @@ export interface ProfilePaths {
   readonly apnsFile: string;
   /** A `rowrow` launcher for this profile's server's own CLI, first on its agents' PATH. */
   readonly bin: string;
+  /** Where Coach's chats run (D-044): an empty directory of their own, in no workspace. */
+  readonly coach: string;
 }
 
 /**
@@ -59,6 +61,7 @@ export function profilePaths(home: string, profile: string): ProfilePaths {
     vapidFile: path.join(dir, "vapid.json"),
     apnsFile: path.join(dir, "apns.json"),
     bin: path.join(dir, "bin"),
+    coach: path.join(dir, "coach"),
   };
 }
 

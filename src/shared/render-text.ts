@@ -10,10 +10,13 @@ import { toolText } from "./tool-output.ts";
 export interface RenderTextOptions {
   /** Cut tool input and output to this many characters (default 400; 0 hides them). */
   readonly toolChars?: number;
+  /** Cut each message the agent wrote to this many characters (default: whole). */
+  readonly textChars?: number;
 }
 
 export function renderText(timeline: Timeline, options: RenderTextOptions = {}): string {
   const toolChars = options.toolChars ?? 400;
+  const textChars = options.textChars ?? Number.POSITIVE_INFINITY;
   const out: string[] = [];
   for (const block of timeline.blocks) {
     switch (block.kind) {
@@ -24,7 +27,7 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
               ? "pending"
               : `${block.result.landed}${block.result.reason === undefined ? "" : `: ${block.result.reason}`}`;
           out.push(
-            `> [${actorLabel(block.input.by)}, ${state}] ${block.input.text}`,
+            `> [${actorLabel(block.input.by)}, ${state}] ${cutText(block.input.text, textChars)}`,
             ...attachmentLines(block.input.attachments),
           );
         }
@@ -48,7 +51,7 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         out.push(...notes.before.map((note) => notifiedLine(note.entry)));
         for (const message of block.view.messages) {
           const byAgent = stoppedByAgent(block, message.id);
-          out.push(...renderMessage(message, timeline, toolChars, byAgent));
+          out.push(...renderMessage(message, timeline, { toolChars, textChars }, byAgent));
           out.push(...(notes.after.get(message.id) ?? []).map((note) => notifiedLine(note.entry)));
         }
         if (block.ended !== undefined) {
@@ -82,7 +85,7 @@ function attachmentLines(attachments: readonly Attachment[] | undefined): string
 function renderMessage(
   message: ViewMessage,
   timeline: Timeline,
-  toolChars: number,
+  cut: { toolChars: number; textChars: number },
   agentStopped = false,
 ): string[] {
   switch (message.kind) {
@@ -93,7 +96,7 @@ function renderMessage(
       const who = origin === undefined ? "input" : actorLabel(origin.by);
       const state = input.state === "accepted" ? "" : `, ${input.state}`;
       return [
-        `> [${who}${state}] ${origin?.text ?? input.input}`,
+        `> [${who}${state}] ${cutText(origin?.text ?? input.input, cut.textChars)}`,
         ...attachmentLines(origin?.attachments),
         ...(input.state === "dropped" ? [`  ${droppedWords(input.reason)}`] : []),
       ];
@@ -106,7 +109,7 @@ function renderMessage(
         const indent = "  ".repeat(section.agentPath.length + 1);
         if (section.agentPath.length > 0)
           lines.push(`${"  ".repeat(section.agentPath.length)}↳ ${section.agentPath.join(" / ")}`);
-        for (const part of section.parts) lines.push(...renderPart(part, indent, toolChars));
+        for (const part of section.parts) lines.push(...renderPart(part, indent, cut));
       }
       const { outcome } = message;
       if (outcome !== undefined) {
@@ -127,10 +130,16 @@ function renderMessage(
   }
 }
 
-function renderPart(part: ViewPart, indent: string, toolChars: number): string[] {
+function renderPart(
+  part: ViewPart,
+  indent: string,
+  { toolChars, textChars }: { toolChars: number; textChars: number },
+): string[] {
   switch (part.kind) {
     case "text":
-      return part.text.split("\n").map((line) => `${indent}${line}`);
+      return cutText(part.text, textChars)
+        .split("\n")
+        .map((line) => `${indent}${line}`);
     case "reasoning":
       return part.content.kind === "text"
         ? [`${indent}(thinking) ${clip(part.content.text.replaceAll("\n", " "), 200)}`]
@@ -183,6 +192,10 @@ export function actorLabel(actor: Actor): string {
 
 function oneLine(text: string): string {
   return text.replaceAll(/\s+/g, " ").trim();
+}
+
+function cutText(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… [${text.length - max} characters cut]`;
 }
 
 function clip(text: string, max: number): string {

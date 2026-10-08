@@ -32,11 +32,14 @@ import { WebSocketServer } from "ws";
 import { contract } from "../../shared/contract.ts";
 import type { Actor } from "../../shared/entries.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
+import type { CoachTokens } from "../coach/tokens.ts";
 import type { Presence } from "../notify/presence.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import type { ApiContext, Router } from "./router.ts";
 
 export const COOKIE = "rowrow_session";
+/** Who Coach's reads come from, in the log: no device of yours. */
+const COACH_DEVICE: DeviceRecord = { id: "coach", name: "Coach", kind: "cli" };
 const TRACE_HEADER = "x-rowrow-trace";
 const AGENT_HEADER = "x-rowrow-agent";
 
@@ -46,6 +49,8 @@ export interface HttpOptions {
   readonly presence: Presence;
   /** The credential rowrow hands to the agents it runs; requests with it act as an agent. */
   readonly agentDeviceId: string;
+  /** The tokens of Coach's runs (D-044): the router lets them only read. */
+  readonly coachTokens?: CoachTokens;
   readonly host: string;
   readonly port: number;
   readonly tls?: { readonly cert: string; readonly key: string };
@@ -66,6 +71,8 @@ export interface HttpServer {
 export async function startHttp(options: HttpOptions): Promise<HttpServer> {
   const secure = options.tls !== undefined;
   const auth = (token: string | undefined, agentHeader: string | undefined): ApiContext | null => {
+    const coach = options.coachTokens?.authenticate(token) ?? null;
+    if (coach !== null) return { device: COACH_DEVICE, actor: { kind: "system" }, coach };
     const device = options.devices.authenticate(token);
     if (device === null) return null;
     const actor: Actor =

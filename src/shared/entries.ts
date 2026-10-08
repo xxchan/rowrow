@@ -56,8 +56,11 @@ export interface AgentChanges {
 export type EntryBody =
   | {
       readonly kind: "agent.created";
+      /** "" for a Coach chat, which works in no workspace. */
       readonly workspaceId: string;
       readonly runtime: string;
+      /** A Coach chat (D-044): rowrow's assistant, listed apart from the agents it reads. */
+      readonly role?: "coach";
       readonly model?: string;
       readonly effort?: string;
       readonly title?: string;
@@ -73,6 +76,9 @@ export type EntryBody =
       readonly mode: InputMode;
       readonly by: Actor;
       readonly trace?: string;
+      /** Coach (D-044): the workspaces whose agents its tools may read in the turn this input
+       * starts, frozen when it was sent. The runtime reads them before the text (coach/prompt.ts). */
+      readonly scope?: readonly string[];
     }
   | {
       readonly kind: "input.result";

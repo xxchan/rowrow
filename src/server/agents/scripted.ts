@@ -12,15 +12,26 @@
 //                           line is one more command (a run of calls); `false` fails
 //   /background <ms> <text> start <text> as a background command, end the turn, and finish
 //                           the command <ms> later (a task that outlives its turn)
+//   /mcp <tool> [json]      call <tool> of the session's first MCP server (Coach's, D-044) with
+//                           the JSON arguments, as a tool call, and say what it returned (or
+//                           the lines that follow, when there are any)
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
 // attachments, commands are read from the request after the list of files, and the answer
 // says which files and images arrived.
 //
 // It starts signed out. Its sign-in shows a page to open and asks for the code on it, which
 // is always "rowrow".
-import { utcInstantFromDate, type AccountUsageSnapshot, type Runtime, type SkillEntry } from "@botiverse/oar";
+import {
+  utcInstantFromDate,
+  type AccountUsageSnapshot,
+  type McpServer,
+  type Runtime,
+  type SkillEntry,
+} from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import readline from "node:readline";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -36,6 +47,7 @@ const COMMANDS: readonly SkillEntry[] = [
     name: "run",
     description: "Run a command (and one per following line) as tool calls that take that many milliseconds",
   },
+  { name: "mcp", description: "Call a tool of the session's MCP server with JSON arguments" },
 ];
 
 export function scriptedDemoRuntime(): Runtime {
@@ -100,6 +112,29 @@ export function scriptedDemoRuntime(): Runtime {
           turn.say(`Ran ${lines.map((line) => `\`${line}\``).join(", ")}.`);
           return;
         }
+        case "/mcp": {
+          const server = turn.options.mcpServers?.[0];
+          if (server === undefined || !("command" in server)) {
+            turn.say("This session has no MCP server to call.");
+            return;
+          }
+          const [tool = "", ...json] = args;
+          const input = json.join(" ") || "{}";
+          let answer = "";
+          await turn
+            .tool(`mcp__${server.name}__${tool}`, input, async () => {
+              const result = await callMcp(server, turn.options.cwd, tool, JSON.parse(input), turn.signal);
+              answer = result.text;
+              if (result.isError) throw new Error(result.text);
+              return result.text;
+            })
+            .catch((error: unknown) => {
+              if (turn.signal.aborted) throw error;
+              answer = `error: ${error instanceof Error ? error.message : String(error)}`;
+            });
+          turn.say(rest.length > 0 && !answer.startsWith("error:") ? rest.join("\n") : answer);
+          return;
+        }
         case "/background": {
           const ms = Number(args[0]) || 1000;
           const description = args.slice(1).join(" ") || "background work";
@@ -158,8 +193,63 @@ export function scriptedDemoRuntime(): Runtime {
 
 const ACCOUNT = { email: "demo@example.com", plan: "demo", method: "script" };
 
-/** The person's own text: with attachments the runtime reads a list of files first (agents/input.ts). */
-function requestOf(input: string): string {
+/** One tool call through a stdio MCP server, the way a runtime makes it: initialize, then tools/call. */
+async function callMcp(
+  server: Extract<McpServer, { command: string }>,
+  cwd: string,
+  tool: string,
+  args: unknown,
+  signal: AbortSignal,
+): Promise<{ text: string; isError: boolean }> {
+  const child = spawn(server.command, [...(server.args ?? [])], {
+    cwd,
+    env: { ...process.env, ...server.env },
+    stdio: ["pipe", "pipe", "inherit"],
+    signal,
+  });
+  try {
+    const send = (message: object): void => {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+    };
+    send({
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "scripted", version: "1" },
+      },
+    });
+    send({ method: "notifications/initialized" });
+    send({ id: 2, method: "tools/call", params: { name: tool, arguments: args } });
+    for await (const line of readline.createInterface({ input: child.stdout })) {
+      const message = JSON.parse(line) as {
+        id?: number;
+        result?: { content?: { text?: string }[]; isError?: boolean };
+        error?: { message: string };
+      };
+      if (message.id !== 2) continue;
+      if (message.error !== undefined) return { text: message.error.message, isError: true };
+      return {
+        text: (message.result?.content ?? []).map((c) => c.text ?? "").join("\n"),
+        isError: message.result?.isError === true,
+      };
+    }
+    throw new Error("the MCP server closed without answering");
+  } finally {
+    child.kill();
+  }
+}
+
+/**
+ * The person's own text: Coach's runtime reads the turn's workspaces first (coach/prompt.ts), and
+ * with attachments the runtime reads a list of files first (agents/input.ts).
+ */
+function requestOf(framed: string): string {
+  const coach = "\n\nUser message:\n";
+  const input = framed.startsWith("Authorized workspace scope for this turn")
+    ? framed.slice(framed.indexOf(coach) + coach.length)
+    : framed;
   if (!input.startsWith("# Files mentioned by the user:")) return input;
   const marker = "## My request:\n\n";
   const at = input.indexOf(marker);
