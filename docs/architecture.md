@@ -114,6 +114,7 @@ tests alike.
 | `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq` | the sidebar, attention, notifications |
 | `attentionOf` | summary × seen marker → `blocked`, `done`, `working`, `idle` | everywhere a status is shown |
 | `renderText` | timeline → plain text | the CLI and debugging agents |
+| `paceOf`, `chartSegments` | a subscription window's stored readings → its cycles, its pace against an even burn, where its chart line breaks (D-040) | Settings → Subscription usage, `rowrow runtimes usage` |
 
 The transcript fold runs **in the client** over slim entries (D-006). The server folds
 summaries for every agent, because lists and notifications need them for all agents at

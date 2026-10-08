@@ -257,6 +257,51 @@ export const RuntimeInfo = z.object({
 });
 export type RuntimeInfo = z.infer<typeof RuntimeInfo>;
 
+/** One reading of a subscription window (D-040). */
+export const UsagePoint = z.object({
+  at: z.number().describe("When it was read, ms since the epoch."),
+  left: z.number().describe("Percent left, 0-100."),
+  resetsAt: z.number().nullable().describe("When the window resets, ms since the epoch (to the minute)."),
+});
+export type UsagePoint = z.infer<typeof UsagePoint>;
+
+export const UsageWindow = z.object({
+  id: z.string().describe("The runtime's key for the window, else its label: its history is kept under it."),
+  label: z.string().describe("Its name, as the runtime words it (5-hour, Weekly…)."),
+  durationMs: z.number().nullable().describe("How long one cycle is, when the runtime says."),
+  history: z
+    .array(UsagePoint)
+    .describe(
+      "Readings of the last 8 days, oldest first; the last is the latest. A run of equal readings keeps its first and last.",
+    ),
+});
+export type UsageWindow = z.infer<typeof UsageWindow>;
+
+export const RuntimeUsage = z.object({
+  runtime: z.string(),
+  checkedAt: z.number().nullable().describe("When rowrow last asked, ms since the epoch."),
+  problem: z
+    .object({
+      kind: z.enum(["signed_out", "unsupported", "failed"]),
+      detail: z.string().optional(),
+    })
+    .nullable()
+    .describe(
+      "Why the last ask didn't read the usage: signed out, not available for this sign-in, or an error.",
+    ),
+  account: z
+    .object({
+      email: z.string().optional(),
+      name: z.string().optional(),
+      plan: z.string().optional(),
+    })
+    .nullable()
+    .describe("Whose usage it is, from the last read that worked."),
+  rateLimited: z.boolean().describe("The provider says it's limiting this account now."),
+  windows: z.array(UsageWindow).describe("From the last read that worked, for this account."),
+});
+export type RuntimeUsage = z.infer<typeof RuntimeUsage>;
+
 /** Whether a newer version of a runtime is out, as its own updater would install (oar's UpdateCheck). */
 export const UpdateCheck = z.discriminatedUnion("kind", [
   z.object({

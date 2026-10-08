@@ -30,6 +30,7 @@ import type { Attention } from "../../shared/summary.ts";
 import { timelineOf } from "../../shared/timeline.ts";
 import type { AgentLog } from "../agents/log.ts";
 import type { Runtimes } from "../agents/runtimes.ts";
+import type { UsageService } from "../usage.ts";
 import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
@@ -99,6 +100,7 @@ export interface Services {
   readonly agents: AgentService;
   readonly agentLog: AgentLog;
   readonly runtimes: Runtimes;
+  readonly usage: UsageService;
   readonly devices: Devices;
   readonly push: Push;
   readonly apns: Apns;
@@ -376,6 +378,10 @@ export function createRouter(s: Services) {
         return s.runtimes.skills(input.runtime, ws.path);
       }),
       updates: os.runtimes.updates.handler(async ({ input }) => s.runtimes.updates(input.refresh ?? false)),
+      usage: os.runtimes.usage.handler(async ({ input }) => {
+        if (input.refresh === true) await s.usage.readAll();
+        return s.usage.list();
+      }),
       upgrade: os.runtimes.upgrade.handler(async ({ input }) => {
         const result = await s.runtimes.upgrade(input.runtime);
         // The new version, in every client's state.

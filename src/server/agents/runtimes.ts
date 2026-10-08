@@ -26,6 +26,7 @@ import type {
   UpgradeResult,
 } from "../../shared/schemas.ts";
 import { UserError } from "../errors.ts";
+import type { UsageReader } from "../usage.ts";
 import { log, serializeError } from "../telemetry/log.ts";
 import { scriptedDemoRuntime } from "./scripted.ts";
 
@@ -114,6 +115,16 @@ export class Runtimes {
 
   list(): RuntimeInfo[] {
     return [...this.known.values()].map((known) => known.info);
+  }
+
+  /** The runtimes that can read their account's usage now: installed, and not signed out (D-040). */
+  usageReaders(): UsageReader[] {
+    return [...this.known.values()].flatMap((known) => {
+      const reader = known.runtime.accountUsage;
+      const installation = known.installation;
+      if (reader === undefined || installation === null || known.info.auth?.kind === "logged_out") return [];
+      return [{ id: known.runtime.id, read: () => reader(installation) }];
+    });
   }
 
   /**

@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import type { AppState, Device, LoginLink } from "../../shared/schemas.ts";
 import { PageHeader } from "../components/Shell.tsx";
 import { RuntimeList, useRuntimeUpdates } from "../components/RuntimeList.tsx";
+import { UsageList, useUsage } from "../components/UsageList.tsx";
 import { UpdateStatus } from "../components/UpdateStatus.tsx";
 import { ago } from "../lib/format.ts";
 import { currentSubscription, disablePush, enablePush, pushSupport } from "../lib/push.ts";
@@ -62,6 +63,7 @@ export function SettingsPage({ route }: { route: Route }) {
   };
 
   const runtimeUpdates = useRuntimeUpdates();
+  const usage = useUsage();
   const support = pushSupport();
   const { host } = state;
   return (
@@ -214,6 +216,19 @@ export function SettingsPage({ route }: { route: Route }) {
             }
           >
             <RuntimeList runtimes={Object.values(state.runtimes)} updates={runtimeUpdates} />
+          </Section>
+
+          <Section
+            title="Subscription usage"
+            description="How much of each plan's limits is left, read every 5 minutes. The marker on each bar is where an even burn would be."
+            action={
+              <Button size="sm" variant="outline" disabled={usage.checking} onClick={usage.recheck}>
+                {usage.checking && <LoaderCircle className="animate-spin" />}
+                Check now
+              </Button>
+            }
+          >
+            <UsageList usage={usage} runtimes={state.runtimes} />
           </Section>
 
           <Section title="Server">

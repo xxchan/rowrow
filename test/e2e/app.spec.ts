@@ -322,6 +322,32 @@ test("sign a runtime in from Settings, pasting the code its sign-in page shows, 
   await expect(row.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
 });
 
+test("Settings shows how much of each subscription window is left", async ({ page, rowrow }) => {
+  // The scripted runtime reports made-up windows once it's signed in.
+  await rowrow.open(page, "/settings");
+  const usage = page.getByRole("region", { name: "Subscription usage" });
+  const row = page
+    .getByRole("region", { name: "Agent runtimes" })
+    .getByRole("listitem")
+    .filter({ hasText: "Scripted demo" });
+  await row.getByRole("button", { name: "Sign in" }).click();
+  await row.getByLabel("Code from the sign-in page").fill("rowrow");
+  await row.getByRole("button", { name: "Continue" }).click();
+  await expect(row).toContainText("Signed in as demo@example.com");
+  await usage.getByRole("button", { name: "Check now" }).click();
+  const card = page.getByRole("region", { name: "Scripted demo usage" });
+  await expect(card).toContainText("demo@example.com");
+  await expect(card.getByRole("meter", { name: "5-hour left" })).toBeVisible();
+  await expect(card.getByRole("meter", { name: "Weekly left" })).toBeVisible();
+  // It burns the 5-hour window a little faster than evenly, the weekly one slower.
+  await expect(card).toContainText(/Deficit \d+%|On pace/);
+  await expect(card).toContainText(/Reserve \d+%|On pace/);
+  const chart = card.getByRole("img", { name: /Percent left over the last two days/ });
+  const box = await chart.boundingBox();
+  await chart.hover({ position: { x: (box?.width ?? 2) - 1, y: 10 } });
+  await expect(card.getByText(/^\d+%$/).first()).toBeVisible();
+});
+
 test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({

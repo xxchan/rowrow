@@ -46,6 +46,10 @@
   --diff-del-strong: rgb(214 69 97 / 0.28);
   --diff-hunk: #e3eafa;
   --scrollbar: rgb(28 34 64 / 0.22);
+  /* chart series, in this order (checked for color blindness against --card) */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
   --scrollbar-hover: rgb(28 34 64 / 0.38);
 }
 
@@ -87,6 +91,9 @@
   --diff-del-strong: rgb(247 118 142 / 0.26);
   --diff-hunk: #1c2438;
   --scrollbar: rgb(212 217 240 / 0.26);
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
   --scrollbar-hover: rgb(212 217 240 / 0.42);
 }
 

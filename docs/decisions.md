@@ -1024,3 +1024,40 @@ copies them.
 
 **Revisit when** the pass gets slow on big logs (oar's `REDACTION_RULES.version` says when the
 rules changed, so the pass could run only then), or a client starts keeping records offline.
+
+## D-040 Read subscription usage every 5 minutes and keep the readings (2026-10-08)
+
+**Context.** People on a Claude Max or ChatGPT Pro plan run out of a 5-hour or weekly window
+in the middle of work, and nothing in rowrow said how close they were. oar's `accountUsage`
+(Claude Code, Codex, Grok, Kimi) reads how much of each window is used and when it resets,
+without spending any of it (Claude Code answers a control request, not a prompt). Ferry
+(botiverse/ferry, its D058) built this first; rowrow follows its design, on one server.
+
+**Decision.** The server asks every installed runtime that has a reader and isn't known to be
+signed out, every 5 minutes (first right after the boot probe), and stores each window's
+percent left with its reset time (to the minute) in `usage_points`: one series per account
+(runtime + email, else display name) and window (oar's `id`, else its label). Only readings
+that worked are stored, sparsely: a reading equal to the last two moves the last one forward,
+so a flat run keeps its first and last. Readings older than 45 days are deleted; the
+procedure returns 8 days. Nothing derived is stored: cycles, an even burn ("Reserve 4%",
+"Deficit 2%") and where a chart's line breaks are folds in `src/shared/usage.ts`. A cycle
+starts when the reset passes, when the reset moves by more than the time between readings plus
+5 minutes, or when a reset time appears or goes (without one, when 5 points more are left). A
+pace needs the cycle's length: the window's own, else from the cycle's first reading to its
+reset, and that only when the reading before it ended the last cycle ("Pace unknown"
+otherwise: history that starts mid-cycle shows a deficit that isn't there).
+
+`runtimes.usage` returns, per runtime, the last good read's account and windows with their
+history, and why the last ask didn't work (signed out, not for this sign-in, failed);
+`refresh` asks now. Settings → Subscription usage shows a bar per window with a marker where
+an even burn would be, the pace and the reset, and the last two days as a line per window
+with the cycle's even burn dashed. `rowrow runtimes usage [--refresh]` prints the same.
+
+**Why.** Usage is a fact about the account that only the provider knows; asking on a timer,
+not when a page opens, gives a history to see a trend in, and keeping only readings means a
+better pace rule later applies to the whole history. Asking costs one short process start
+per runtime every 5 minutes (Ferry has run it at that rate without being limited).
+
+**Revisit when** a provider limits these reads (ask less often, or only while agents run), the
+iOS app wants it (the procedure is there), or several servers share an account (Ferry merges
+an account's readings from every machine; here each server keeps its own).

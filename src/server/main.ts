@@ -10,6 +10,7 @@ import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
 import { AgentService } from "./agents/service.ts";
 import { createRouter } from "./api/router.ts";
+import { UsageService } from "./usage.ts";
 import { startHttp } from "./api/server.ts";
 import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
@@ -165,6 +166,7 @@ export async function startServer(
     });
   };
   syncRuntimes();
+  const usage = new UsageService({ db, readers: () => runtimes.usageReaders() });
   const workspaces = new Workspaces(db, state);
   workspaces.load();
   const agentLog = new AgentLog(db);
@@ -230,6 +232,7 @@ export async function startServer(
     agents,
     agentLog,
     runtimes,
+    usage,
     devices,
     push,
     apns,
@@ -281,6 +284,8 @@ export async function startServer(
   void (async (): Promise<void> => {
     if (options.probeRuntimes) await augmentPathFromLoginShell();
     await runtimes.refresh(syncRuntimes);
+    // Usage needs to know who's installed and signed in.
+    usage.start(0);
   })().catch((error: unknown) => log.error("runtime.refresh_failed", { err: serializeError(error) }));
 
   // Credentials oar recorded as they came before it redacted them (until oar 0.32.1, grok's MCP
@@ -303,6 +308,7 @@ export async function startServer(
         log.info("server.stopping", {});
         notifier.close();
         updates?.stop();
+        usage.stop();
         apns.close();
         clearInterval(pruneTimer);
         workspaces.close();

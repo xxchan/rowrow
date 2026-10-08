@@ -34,6 +34,7 @@ import {
   PullRequestStatus,
   RuntimeInfo,
   RuntimeUpdate,
+  RuntimeUsage,
   SearchKind,
   SearchResult,
   SeenFile,
@@ -351,6 +352,13 @@ const runtimes = {
     })
     .input(z.object({ refresh: z.boolean().optional() }))
     .output(z.array(RuntimeUpdate)),
+  usage: oc
+    .route({
+      summary:
+        "How much of each signed-in runtime's subscription windows (5-hour, weekly…) is left, with 8 days of readings. rowrow reads it every 5 minutes; `refresh` reads it now.",
+    })
+    .input(z.object({ refresh: z.boolean().optional() }))
+    .output(z.array(RuntimeUsage)),
   upgrade: oc
     .route({
       summary:

@@ -103,6 +103,18 @@ const MIGRATIONS: readonly string[] = [
     created_at integer not null
   );
   `,
+  // 6: subscription usage readings (D-040): one series per account and window, percent left,
+  // kept sparse (a run of equal readings keeps its first and last)
+  `
+  create table usage_points (
+    account text not null,
+    window_id text not null,
+    at integer not null,
+    left real not null,
+    resets_at integer,
+    primary key (account, window_id, at)
+  ) without rowid;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

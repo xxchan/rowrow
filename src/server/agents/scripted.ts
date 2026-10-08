@@ -18,7 +18,7 @@
 //
 // It starts signed out. Its sign-in shows a page to open and asks for the code on it, which
 // is always "rowrow".
-import type { Runtime, SkillEntry } from "@botiverse/oar";
+import { utcInstantFromDate, type AccountUsageSnapshot, type Runtime, type SkillEntry } from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -123,6 +123,7 @@ export function scriptedDemoRuntime(): Runtime {
       items: COMMANDS.map((command) => ({ ...command, source: "scripted" })),
       partial: false,
     }),
+    accountUsage: async () => (signedIn ? demoUsage(Date.now()) : { kind: "reauth_required" }),
     authStatus: async () =>
       signedIn
         ? { kind: "logged_in", account: ACCOUNT, source: "script" }
@@ -191,4 +192,33 @@ async function demo(turn: ScriptedTurn): Promise<void> {
     turn.say(`${line}\n`);
     await sleep(30, undefined, { signal: turn.signal });
   }
+}
+
+/**
+ * Made-up usage for the demo's account: a 5-hour and a weekly window, each used a little
+ * faster than an even burn, so Settings has something to show.
+ */
+function demoUsage(now: number): AccountUsageSnapshot {
+  const window = (label: string, id: string, durationMs: number, rate: number) => {
+    const resetsAt = Math.ceil((now + 1) / durationMs) * durationMs;
+    const elapsed = 1 - (resetsAt - now) / durationMs;
+    const instant = utcInstantFromDate(new Date(resetsAt));
+    return {
+      label,
+      id,
+      durationMs,
+      usedRatio: Math.min(1, elapsed * rate),
+      ...(instant === null ? {} : { resetsAt: instant }),
+    };
+  };
+  return {
+    kind: "available",
+    plan: ACCOUNT.plan,
+    email: ACCOUNT.email,
+    rateLimited: false,
+    windows: [
+      window("5-hour", "five_hour", 5 * 3_600_000, 1.05),
+      window("Weekly", "weekly", 7 * 86_400_000, 0.8),
+    ],
+  };
 }
