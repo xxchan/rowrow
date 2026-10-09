@@ -108,7 +108,9 @@ Don't change the user's data or agents while debugging unless they asked.
   caller as a `UserError` whose message says what to do.
 - **The kit** (`src/kit`, D-027) is what the iOS app runs: `src/shared`'s folds and nothing
   else, no DOM, timers or console. A change to transcript items (`src/shared/transcript-model.ts`)
-  bumps `TRANSCRIPT_MODEL_VERSION` and updates `ios/RowrowCore/Sources/RowrowCore/Transcript.swift`.
+  updates `ios/RowrowCore/Sources/RowrowCore/Transcript.swift`; it bumps `TRANSCRIPT_MODEL_VERSION`
+  only when installed apps can't read the new items (the app wants an exact match, so a bump makes
+  every phone update first). A new field is optional in Swift, so apps read old and new servers.
 - **The Mac app** shows each server's own web app and manages hosts only through their
   `rowrow` CLI with `--json` (`src/shared/host.ts` is that output's schema, D-032): a new host
   capability is a CLI command first. Its main process never imports `src/server` or `src/cli`;

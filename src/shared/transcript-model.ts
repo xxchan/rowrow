@@ -1,8 +1,8 @@
 // The transcript as a flat list of items with stable ids, for clients that render natively
 // (the iOS app, through the kit: src/kit/kit.ts, docs/decisions.md D-027). It is the same
 // timeline fold the web app renders (timeline.ts), cut into the pieces a native list redraws
-// one at a time: an input, a turn's header, each text, thought, tool call and notice in it,
-// the turn's outcome, and rowrow's own notes between runs.
+// one at a time: an input, a turn's header, each text, thought (hidden ones back to back as
+// one), tool call and notice in it, the turn's outcome, and rowrow's own notes between runs.
 //
 // `TranscriptProjector` remembers what it produced last and returns only the items that
 // changed (and the order, when it changed). The fold shares structure, so an item whose
@@ -21,6 +21,7 @@ import type { Attachment, EntryOf } from "./entries.ts";
 import { actorLabel } from "./render-text.ts";
 import { toolText } from "./tool-output.ts";
 import {
+  foldHiddenThoughts,
   held,
   landedIn,
   laneOf,
@@ -84,6 +85,8 @@ export interface ReasoningItem extends PartOf {
   readonly kind: "reasoning";
   /** null when the runtime keeps its thinking to itself. */
   readonly text: string | null;
+  /** How many thoughts it stands for: hidden ones back to back are one item (foldHiddenThoughts). */
+  readonly count: number;
   readonly streaming: boolean;
 }
 
@@ -325,18 +328,19 @@ function turnItems(
   out.push({ id: turnId, deps: [open], make: () => ({ kind: "turn", id: turnId, open }) });
   turn.sections.forEach((section, s) => {
     const lastSection = s === turn.sections.length - 1;
-    section.parts.forEach((part, p) => {
+    for (const { part, index: p, count } of foldHiddenThoughts(section.parts)) {
       // A client call the adapter answered itself (grok's terminal/*) isn't part of the conversation.
-      if (part.kind === "app_request" && appRequestKind(part.type) === "service") return;
+      if (part.kind === "app_request" && appRequestKind(part.type) === "service") continue;
       const id = `${turnId}:${s}:${p}`;
-      const streaming = open && lastSection && p === section.parts.length - 1;
+      const streaming = open && lastSection && p + count === section.parts.length;
       const where = { id, turn: turnId, lane: laneOf(section, rootSessionId) };
       out.push({
         id,
-        deps: [part, streaming, rootSessionId],
-        make: (clip) => partItem(part, where, streaming, runtime, clip),
+        // A run of hidden thoughts is made from each of them: one more changes it.
+        deps: [...section.parts.slice(p, p + count), streaming, rootSessionId],
+        make: (clip) => partItem(part, count, where, streaming, runtime, clip),
       });
-    });
+    }
   });
   const { outcome } = turn;
   if (outcome !== undefined) {
@@ -358,6 +362,7 @@ function turnItems(
 
 function partItem(
   part: ViewPart,
+  count: number,
   where: { readonly id: string; readonly turn: string; readonly lane: readonly string[] },
   streaming: boolean,
   runtime: string,
@@ -371,6 +376,7 @@ function partItem(
         kind: "reasoning",
         ...where,
         text: part.content.kind === "text" ? part.content.text : null,
+        count,
         streaming,
       };
     case "tool": {

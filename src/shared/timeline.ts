@@ -13,6 +13,7 @@ import {
   initialSessionView,
   reduceSessionView,
   type SessionView,
+  type ViewPart,
   type ViewSection,
 } from "@botiverse/oar/observe";
 import type { Entry, EntryOf } from "./entries.ts";
@@ -276,6 +277,37 @@ export function laneOf(section: ViewSection, rootSessionId: string | undefined):
   return rootSessionId === undefined || section.sessionId === rootSessionId
     ? section.agentPath
     : [section.sessionId, ...section.agentPath];
+}
+
+/** A section's part as it reads, or a run of hidden thoughts standing as one. */
+export interface PartRun<T extends ViewPart> {
+  /** The run's first part. */
+  readonly part: T;
+  /** Where the run starts in the section's parts. */
+  readonly index: number;
+  /** How many parts it stands for: more than one only for hidden thoughts back to back. */
+  readonly count: number;
+}
+
+/**
+ * A section's parts as they read: thoughts the runtime kept to itself (Claude's redacted
+ * thinking, Codex's encrypted reasoning), back to back with nothing between them, are one
+ * ("Thought (hidden) ×7"). Each says nothing alone, and a turn can have dozens; readable
+ * thoughts and everything else stay one by one.
+ */
+export function foldHiddenThoughts<T extends ViewPart>(parts: readonly T[]): PartRun<T>[] {
+  const runs: PartRun<T>[] = [];
+  parts.forEach((part, index) => {
+    const last = runs.at(-1);
+    if (last !== undefined && hiddenThought(part) && hiddenThought(last.part))
+      runs[runs.length - 1] = { ...last, count: last.count + 1 };
+    else runs.push({ part, index, count: 1 });
+  });
+  return runs;
+}
+
+function hiddenThought(part: ViewPart): boolean {
+  return part.kind === "reasoning" && part.content.kind !== "text";
 }
 
 /** The live run's view, if the latest run block has not ended. */

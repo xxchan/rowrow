@@ -36,6 +36,7 @@ import { closeCoach } from "../lib/coach.ts";
 import { navigate } from "../lib/router.ts";
 import { useApp } from "../lib/store.ts";
 import {
+  foldHiddenThoughts,
   held,
   landedIn,
   laneOf,
@@ -824,14 +825,15 @@ function Activity({ group, runtime, live }: { group: ActivityGroup; runtime: str
     out.push(<ToolGroup key={first.callId} parts={tools} runtime={runtime} />);
     tools = [];
   };
-  group.parts.forEach((part, offset) => {
+  for (const { part, index: offset, count } of foldHiddenThoughts(group.parts)) {
     if (part.kind === "tool") {
       tools.push(part);
-      return;
+      continue;
     }
     flushTools();
-    out.push(<Reasoning key={group.index + offset} part={part} live={group.index + offset === live} />);
-  });
+    const index = group.index + offset;
+    out.push(<Reasoning key={index} part={part} count={count} live={index + count - 1 === live} />);
+  }
   flushTools();
   const calls = group.parts.filter((part) => part.kind === "tool").length;
   if (calls < 2) return <>{out}</>;
@@ -856,7 +858,8 @@ function Activity({ group, runtime, live }: { group: ActivityGroup; runtime: str
   );
 }
 
-function Reasoning({ part, live }: { part: ReasoningPart; live: boolean }) {
+/** A thought, or `count` hidden ones back to back (foldHiddenThoughts). */
+function Reasoning({ part, count, live }: { part: ReasoningPart; count: number; live: boolean }) {
   return part.content.kind === "text" ? (
     <Disclosure label={live ? "Thinking…" : "Thought"}>
       <p className="border-l-2 pl-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
@@ -864,7 +867,9 @@ function Reasoning({ part, live }: { part: ReasoningPart; live: boolean }) {
       </p>
     </Disclosure>
   ) : (
-    <p className="text-xs text-muted-foreground">{live ? "Thinking…" : "Thought (hidden)"}</p>
+    <p className="text-xs text-muted-foreground">
+      {live ? "Thinking…" : count > 1 ? `Thought (hidden) ×${count}` : "Thought (hidden)"}
+    </p>
   );
 }
 

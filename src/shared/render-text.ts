@@ -4,7 +4,7 @@
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
 import { droppedWords, failureHint } from "./describe.ts";
 import type { Actor, Attachment, EntryOf } from "./entries.ts";
-import { laneOf, placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
+import { foldHiddenThoughts, laneOf, placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -112,7 +112,8 @@ function renderMessage(
         const lane = laneOf(section, rootSessionId);
         const indent = "  ".repeat(lane.length + 1);
         if (lane.length > 0) lines.push(`${"  ".repeat(lane.length)}↳ ${lane.join(" / ")}`);
-        for (const part of section.parts) lines.push(...renderPart(part, indent, cut));
+        for (const { part, count } of foldHiddenThoughts(section.parts))
+          lines.push(...renderPart(part, indent, cut, count));
       }
       const { outcome } = message;
       if (outcome !== undefined) {
@@ -137,6 +138,8 @@ function renderPart(
   part: ViewPart,
   indent: string,
   { toolChars, textChars }: { toolChars: number; textChars: number },
+  /** How many hidden thoughts it stands for (foldHiddenThoughts). */
+  count: number,
 ): string[] {
   switch (part.kind) {
     case "text":
@@ -146,7 +149,7 @@ function renderPart(
     case "reasoning":
       return part.content.kind === "text"
         ? [`${indent}(thinking) ${clip(part.content.text.replaceAll("\n", " "), 200)}`]
-        : [`${indent}(thinking)`];
+        : [`${indent}(thinking)${count > 1 ? ` ×${count}` : ""}`];
     case "tool": {
       const mark = part.result === "running" ? "…" : part.result === "failed" ? "✗" : "⏺";
       const lines = [

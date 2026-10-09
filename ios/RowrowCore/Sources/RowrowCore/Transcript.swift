@@ -69,6 +69,9 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
     public let lane: [String]
     /// nil when the runtime keeps it to itself.
     public let text: String?
+    /// How many thoughts it stands for: hidden ones back to back are one item. Absent from
+    /// servers before 0.3.61, which send each one.
+    public let count: Int?
     public let streaming: Bool
   }
 

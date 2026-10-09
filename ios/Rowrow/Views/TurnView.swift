@@ -222,7 +222,7 @@ private struct StepRow: View {
       } label: {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           Image(systemName: "brain").frame(width: 18).foregroundStyle(.secondary)
-          Text(thought.text.map { open ? $0 : oneLine($0) } ?? (thought.streaming ? "Thinking…" : "Thought (hidden)"))
+          Text(thought.text.map { open ? $0 : oneLine($0) } ?? (thought.streaming ? "Thinking…" : hidden(thought)))
             .font(.footnote)
             .italic()
             .foregroundStyle(.secondary)
@@ -256,6 +256,12 @@ private struct StepRow: View {
     default:
       EmptyView()
     }
+  }
+
+  /// Hidden thoughts back to back are one row: "Thought (hidden) ×7".
+  private func hidden(_ thought: TranscriptItem.Reasoning) -> String {
+    let count = thought.count ?? 1
+    return count > 1 ? "Thought (hidden) ×\(count)" : "Thought (hidden)"
   }
 
   private func symbol(_ action: String) -> String {
