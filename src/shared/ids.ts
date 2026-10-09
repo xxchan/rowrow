@@ -5,8 +5,8 @@
 
 const ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 
-/** tk: a Coach task (D-050); tr: one of its runs. */
-export type IdKind = "ws" | "ag" | "run" | "dev" | "link" | "tk" | "tr";
+/** tk: a Coach task (D-050); tr: one of its runs; cmd: a command run in a workspace (D-052). */
+export type IdKind = "ws" | "ag" | "run" | "dev" | "link" | "tk" | "tr" | "cmd";
 
 export function newId(kind: IdKind): string {
   const bytes = crypto.getRandomValues(new Uint8Array(10));

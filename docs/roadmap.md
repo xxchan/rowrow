@@ -12,6 +12,12 @@ file when something lands.
   phone inserts a newline; the menu button counts the agents that need you.
 - **Workspace inspector**: search (#227), PR status (#228, GitHub), history (#229), file
   previews, and stage/unstage/discard/delete on uncommitted files.
+- **Run a command in a workspace** (D-052): a Commands tab in the inspector (beside an agent, or
+  on the workspace's page) runs tests, `git status` or a dev server in the workspace's folder
+  without an agent's tokens or a terminal: output as it prints, exit code and time, Stop (the
+  whole process group), one click to run one again, and "Send to agent" fills a composer with
+  the command and the end of its output. The newest 20 runs stay while the server runs.
+  `rowrow ws run <workspace> -- <command…>` (its exit status), `ws runs`, `ws output`, `ws stop`.
 - **Revert to before the turn** (D-051): in Changes → Last turn, a file's ⋯ and right-click
   menus put it back as it was when the agent's last turn started (its old content; a file the
   turn created is deleted, one it deleted comes back, a rename moves back), once you confirm,
@@ -110,13 +116,10 @@ file when something lands.
 
 ## Next, in build order
 
-1. **Run a command in a workspace** (`commands.run`): tests, `git status`, restarting a dev
-   server, without tokens or a terminal. Streamed output, exit code, Stop, "send output to
-   agent".
-2. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
-3. **File paths open in the inspector**, from tool calls, inline code and diffs.
-4. **Notification preferences and per-agent mute.**
-5. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
+1. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
+2. **File paths open in the inspector**, from tool calls, inline code and diffs.
+3. **Notification preferences and per-agent mute.**
+4. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
 
 ## Coach, next (D-044)
@@ -141,6 +144,8 @@ file when something lands.
 2. App Intents: "start a rowrow agent" from Siri, Shortcuts and the Action button.
 3. An inbox across every paired server; a split view on iPad.
 4. Widgets and Live Activities, content-free (PRINCIPLES.md, product 7): counts, not names.
+5. Commands in a workspace (D-052): `commands.*` calls in `RowrowCore/Procedures.swift`, and a
+   Commands screen beside the workspace's inspector.
 
 ## Later (P2)
 

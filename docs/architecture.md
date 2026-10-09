@@ -26,6 +26,7 @@ exact, transcripts are structured, and the whole thing works over a phone's netw
  │  store/      SQLite: workspaces, agents, entries (the logs), devices, seen    │
  │  state/      AppState (immer) → snapshot + patches to every client            │
  │  git/        worktrees, hooks, diffs, last-turn snapshots                     │
+ │  commands/   commands run in a workspace: process groups, output in memory    │
  │  notify/     attention transitions → Web Push, APNs (sealed for the device)   │
  │  telemetry/  JSONL logs, trace context, ring buffer, client error intake      │
  └──────────────────────────────┬────────────────────────────────────────────────┘
@@ -375,6 +376,16 @@ message says what to do next.
     host's `gh`, so rowrow holds no token; every other outcome is an explicit state (D-020).
 
   All of it is in [git.md](git.md).
+- **Commands** (D-052, `src/server/commands/service.ts`; the inspector's Commands tab, `rowrow ws
+  run|runs|output|stop`): `commands.run` runs a command line in the workspace's folder, the
+  user's shell with `-c`, no input and no TTY, in its own process group, with the server's
+  environment minus rowrow's own credentials. Stop (and archiving, removing, the server
+  stopping) sends the group SIGTERM, then SIGKILL after 5 s; when the shell exits, what it left
+  in its group is stopped too. Runs live in memory, not in a log: each workspace's newest 20,
+  with the first 16 K and last 240 K characters of output. `commands.watch` streams a
+  workspace's runs, `commands.output` a run's output from a character cursor to its end.
+  "Send to agent" fills a composer with the command, how it ended and the end of its output
+  (`commandReport` in `src/shared/commands.ts`).
 
 ## Observability
 

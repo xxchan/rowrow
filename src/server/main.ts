@@ -18,6 +18,7 @@ import { claudeSettingsFile } from "./coach/claude-settings.ts";
 import { CoachService } from "./coach/service.ts";
 import { CoachTasks } from "./coach/tasks.ts";
 import { CoachTokens } from "./coach/tokens.ts";
+import { commandEnv, Commands } from "./commands/service.ts";
 import { COACH_ENV } from "./coach/tools.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
 import { prependPath, writeCliLauncher } from "./cli-launcher.ts";
@@ -181,6 +182,8 @@ export async function startServer(
   const usage = new UsageService({ db, readers: () => runtimes.usageReaders() });
   const workspaces = new Workspaces(db, state);
   workspaces.load();
+  // Commands you run in a workspace (D-052): read at each start, like an agent's PATH.
+  const commands = new Commands({ workspaces, env: () => commandEnv(process.env, options.profile) });
   const agentLog = new AgentLog(db);
   // The agents' `rowrow` is this server's own CLI, whatever else is on the PATH.
   const agentBin = writeCliLauncher(
@@ -235,12 +238,15 @@ export async function startServer(
     workspaces,
     store: snapshots,
     worktreesRoot: paths.worktrees,
-    stopAgentsIn: async (workspaceId) => agents.stopAllIn(workspaceId),
+    // Before its checkout goes: its agents' runs and the commands running there.
+    stopAgentsIn: async (workspaceId) => {
+      await Promise.all([agents.stopAllIn(workspaceId), commands.stopAllIn(workspaceId)]);
+    },
     agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
     agentWorking: (agentId) => agents.has(agentId) && agents.summary(agentId).status.kind === "running",
     ...(options.gh === undefined ? {} : { gh: options.gh }),
   });
-  const lifecycle = new WorkspaceLifecycle({ workspaces, agents, settings, git });
+  const lifecycle = new WorkspaceLifecycle({ workspaces, agents, commands, settings, git });
   coach = new CoachService({
     agents,
     log: agentLog,
@@ -309,6 +315,7 @@ export async function startServer(
     badge: () => needingYou(agents, workspaces),
     presence,
     git,
+    commands,
     uploadsDir: paths.uploads,
     loginUrl: (code) => `${publicUrl}/auth/redeem?code=${code}`,
     refreshRuntimes: async () => {
@@ -411,7 +418,7 @@ export async function startServer(
         clearInterval(pruneTimer);
         if (packTimer !== null) clearInterval(packTimer);
         workspaces.close();
-        await agents.shutdown();
+        await Promise.all([agents.shutdown(), commands.close()]);
         await http.close();
         try {
           const current = JSON.parse(fs.readFileSync(paths.serverFile, "utf8")) as ServerFile;

@@ -1,7 +1,7 @@
 // Archiving and removing workspaces, and what that does to their agents (docs/decisions.md,
 // D-047). Archiving hides a workspace, the linked worktrees under it and their agents, and
 // stops their runs; the agents' own archived flags stay as they were, so unarchiving brings
-// back exactly what was there. Removing makes rowrow forget a workspace and the worktrees
+// back exactly what was there; the commands running there are stopped too (D-052). Removing makes rowrow forget a workspace and the worktrees
 // registered under it: never a file, a checkout or a branch. Their agents are archived (their
 // logs are kept), and what rowrow kept about the workspaces goes: turn baselines, snapshots,
 // the pull request cache, Coach's permission to read it.
@@ -10,6 +10,7 @@ import type { Workspace } from "../../shared/schemas.ts";
 import { workspaceGroup } from "../../shared/workspaces.ts";
 import type { AgentService } from "../agents/service.ts";
 import type { GitOps } from "../api/router.ts";
+import type { Commands } from "../commands/service.ts";
 import { UserError } from "../errors.ts";
 import type { SettingsService } from "../settings.ts";
 import { log } from "../telemetry/log.ts";
@@ -18,6 +19,7 @@ import type { Workspaces } from "./service.ts";
 export interface LifecycleDeps {
   readonly workspaces: Workspaces;
   readonly agents: AgentService;
+  readonly commands: Pick<Commands, "stopAllIn" | "forget">;
   readonly settings: SettingsService;
   readonly git: Pick<GitOps, "forget">;
 }
@@ -29,14 +31,14 @@ export class WorkspaceLifecycle {
     this.deps = deps;
   }
 
-  /** Rename, archive or unarchive. Archiving stops the runs of the agents it hides. */
+  /** Rename, archive or unarchive. Archiving stops the runs of the agents it hides, and its commands. */
   async update(id: string, changes: { label?: string | null; archived?: boolean }): Promise<Workspace> {
-    const { workspaces, agents } = this.deps;
+    const { workspaces, agents, commands } = this.deps;
     const before = workspaces.require(id);
     const ws = workspaces.update(id, changes);
     if (changes.archived === true && !before.archived) {
       const group = workspaceGroup(this.state(), id);
-      await Promise.all(group.map(async (w) => agents.stopAllIn(w.id, "archived")));
+      await Promise.all(group.flatMap((w) => [agents.stopAllIn(w.id, "archived"), commands.stopAllIn(w.id)]));
       log.info("workspace.archived", { ws: id, worktrees: group.length - 1 });
     }
     return workspaces.get(id) ?? ws;
@@ -81,9 +83,10 @@ export class WorkspaceLifecycle {
   }
 
   private async forget(group: readonly Workspace[], by: Actor, reason: string): Promise<string[]> {
-    const { workspaces, agents, settings, git } = this.deps;
+    const { workspaces, agents, commands, settings, git } = this.deps;
     const ids = new Set(group.map((w) => w.id));
     for (const w of group) workspaces.forget(w.id);
+    await Promise.all(group.map(async (w) => commands.forget(w.id)));
     const allowed = settings.get().coach.workspaces;
     if (allowed.some((w) => ids.has(w)))
       settings.update({ coach: { ...settings.get().coach, workspaces: allowed.filter((w) => !ids.has(w)) } });

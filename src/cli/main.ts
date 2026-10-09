@@ -5,10 +5,20 @@
 import { ORPCError } from "@orpc/client";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { contract } from "../shared/contract.ts";
 import type { Attachment, Entry } from "../shared/entries.ts";
+import {
+  appendOutput,
+  droppedMarker,
+  NO_OUTPUT,
+  outputString,
+  runDuration,
+  runOutcome,
+  type CommandRun,
+} from "../shared/commands.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
 import { fastOn, fastTierOf, NO_TIER, tierWords } from "../shared/service-tier.ts";
@@ -99,6 +109,13 @@ Workspaces
   rowrow ws read <workspace> <path> [--rev COMMIT]       a file of the checkout (as of a commit)
   rowrow ws download <workspace> <path> [-o FILE]        a file, or a folder as .tar.gz (-o - for stdout)
   rowrow ws pr <workspace> [--refresh]                   the branch's GitHub pull request (via gh)
+  rowrow ws run <workspace> -- <command…>   run a command in the workspace's folder, without a
+                                   terminal or input; prints its output as it comes and exits with
+                                   its exit code (words after -- are joined with spaces, as ssh
+                                   does). Ctrl-C stops it
+  rowrow ws runs <workspace>       the commands run there lately (the server keeps 20 each)
+  rowrow ws output <run> [-f]      what a run printed (its start and end, when long); -f: follow it
+  rowrow ws stop <run>             stop a running command (SIGTERM, then SIGKILL after 5 s)
   (a <workspace> is its id, its label, or its path; file actions: rowrow call git.fileAction)
 
 Debugging
@@ -504,6 +521,8 @@ async function main(argv: string[]): Promise<void> {
           await inspectCommand(client, sub, args, { str, bool, strings, json, out, trace });
         } else if (sub !== undefined && ["rename", "archive", "unarchive", "remove"].includes(sub)) {
           await manageCommand(client, sub, args, { str, bool, strings, json, out, trace });
+        } else if (sub !== undefined && ["run", "runs", "output", "stop"].includes(sub)) {
+          await runCommand(client, sub, args, { str, bool, strings, json, out, trace });
         } else if (sub !== undefined) {
           throw new Error(`unknown ws command "${sub}"; rowrow help lists them`);
         } else {
@@ -810,6 +829,110 @@ async function manageCommand(client: Client, sub: string, args: string[], h: Hel
       return;
     }
   }
+}
+
+/** Commands run in a workspace (D-052): run one and stream it, list them, read one, stop one. */
+async function runCommand(client: Client, sub: string, args: string[], h: Helpers): Promise<void> {
+  const [ref = "", ...rest] = args;
+  if (sub === "output" || sub === "stop") {
+    if (ref === "") throw new Error(`usage: rowrow ws ${sub} <run> (rowrow ws runs <workspace> lists them)`);
+    if (sub === "stop") {
+      const run = await client.commands.stop({ runId: ref });
+      h.out(run, () =>
+        run.status === "running" ? `stopping ${run.id}` : `${run.id} already ended: ${runOutcome(run)}`,
+      );
+      return;
+    }
+    const { run, text } = await printOutput(client, ref, h.bool("follow"), h.json);
+    if (h.json) console.log(JSON.stringify({ run, output: text }, null, 2));
+    return;
+  }
+  const { state } = await client.state.get();
+  const found = findWorkspace(state, ref);
+  if (found === null) throw new Error(`no workspace matches "${ref}" (rowrow ws lists them)`);
+  if (sub === "runs") {
+    const runs = await client.commands.list({ workspaceId: found.id });
+    const now = Date.now();
+    h.out(runs, () =>
+      runs.length === 0
+        ? "No commands run here yet: rowrow ws run <workspace> -- <command>"
+        : runs
+            .map(
+              (r) =>
+                `${r.id}  ${runOutcome(r).padEnd(14)} ${runDuration((r.endedAt ?? now) - r.startedAt).padStart(7)}  ${ago(r.startedAt)} ago  ${r.command.split("\n")[0] ?? ""}`,
+            )
+            .join("\n"),
+    );
+    return;
+  }
+  // As ssh does: one word is the command line as it is, several are joined with spaces.
+  const command = rest.length === 1 ? (rest[0] ?? "") : rest.join(" ");
+  if (command.trim() === "") throw new Error("usage: rowrow ws run <workspace> -- <command…>");
+  const started = await client.commands.run({ workspaceId: found.id, command });
+  let stopping = false;
+  const interrupt = (): void => {
+    if (stopping) process.exit(130);
+    stopping = true;
+    process.stderr.write("\nrowrow: stopping it (Ctrl-C again to leave now)\n");
+    client.commands.stop({ runId: started.id }).catch((error: unknown) => {
+      process.stderr.write(
+        `rowrow: couldn't stop it: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    });
+  };
+  process.on("SIGINT", interrupt);
+  try {
+    const { run, text } = await printOutput(client, started.id, true, h.json);
+    if (h.json) console.log(JSON.stringify({ run, output: text }, null, 2));
+    else if (run.status !== "exited" || run.exitCode !== 0)
+      process.stderr.write(
+        `rowrow: ${run.status === "failed" ? `couldn't start: ${run.error ?? ""}` : `${runOutcome(run)} after ${runDuration((run.endedAt ?? Date.now()) - run.startedAt)}`}\n`,
+      );
+    process.exitCode = exitStatus(run);
+  } finally {
+    process.off("SIGINT", interrupt);
+  }
+}
+
+/**
+ * Print a run's output as it comes (or, `quiet`, only collect it), to its end when `follow`.
+ * Returns how it ended (as it is now, when not followed) and the text the server kept.
+ */
+async function printOutput(
+  client: Client,
+  runId: string,
+  follow: boolean,
+  quiet: boolean,
+): Promise<{ run: CommandRun; text: string }> {
+  let output = NO_OUTPUT;
+  let run: CommandRun | null = null;
+  for await (const event of await client.commands.output({ runId, follow })) {
+    if (event.kind === "end") {
+      run = event.run;
+      continue;
+    }
+    if (!quiet) {
+      if (event.at > output.cursor) process.stderr.write(droppedMarker(event.at - output.cursor));
+      process.stdout.write(event.text.slice(Math.max(0, output.cursor - event.at)));
+    }
+    output = appendOutput(output, event.at, event.text);
+  }
+  return {
+    run: run ?? (await client.commands.list({})).find((r) => r.id === runId) ?? missingRun(runId),
+    text: outputString(output),
+  };
+}
+
+function missingRun(runId: string): never {
+  throw new Error(`command run ${runId} is gone (the server keeps 20 per workspace, until it restarts)`);
+}
+
+/** The exit status a shell would give: the command's own, 128 + a signal's number, 127 when it couldn't start. */
+function exitStatus(run: CommandRun): number {
+  if (run.status === "failed") return 127;
+  if (run.exitCode !== null) return run.exitCode;
+  const signal = run.signal === null ? undefined : os.constants.signals[run.signal as NodeJS.Signals];
+  return signal === undefined ? 1 : 128 + signal;
 }
 
 /** The workspace inspector, read-only: history, search, files, the pull request. */

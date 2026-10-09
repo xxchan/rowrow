@@ -1458,3 +1458,60 @@ record empty folders, so one that existed before the turn doesn't come back.
 
 **Revisit when** a whole turn should be reverted at once, older turns keep snapshots, or reverting
 should also unstage what the turn staged.
+
+## D-052 Commands in a workspace: the user's shell without a terminal, kept in memory, one process group each (2026-10-09)
+
+**Context.** The real needs behind roamgate's browser terminal are running a quick command
+without spending an agent's tokens (tests, `git status`, restarting a dev server) and watching
+a long one (roamgate-parity.md, section 12). rowrow has no PTY (D-001), and roamgate has no
+"run a command" feature of its own to copy: its answer is the terminal.
+
+**Decision.** `commands.run {workspaceId, command}` (`src/server/commands/service.ts`):
+
+- **How it runs.** The user's shell (`$SHELL`, or `/bin/sh` when that isn't an absolute path
+  that exists) runs `-c <command>`, not as a login shell (the server already took the login
+  shell's PATH at boot), in the workspace's directory, with stdin from /dev/null, in a process
+  group of its own (`detached`). stdout and stderr are interleaved as they arrive. No TTY, so
+  programs that ask for input get end of file, and most leave out colors; the web app strips
+  escape sequences and keeps a carriage-returned line's last state (`terminalText`), the CLI
+  passes them through.
+- **Environment.** The server's, without the credentials of a rowrow that may have started
+  it: every `ROWROW_` variable but `ROWROW_HOME` goes (an agent's `ROWROW_TOKEN`, `ROWROW_URL`,
+  `ROWROW_AGENT_ID`…), and `ROWROW_PROFILE` names this server's profile, so `rowrow` in a
+  command acts as the CLI in your terminal does. The server holds no other secret in its
+  environment.
+- **Stopping.** Stop sends the group SIGTERM, then SIGKILL 5 s later to what is left. When the
+  shell exits, whatever it left running in its group is stopped the same way, so nothing a run
+  started goes on unseen; a long-lived process (a dev server) stays in the foreground and the
+  run stays running until you stop it. Archiving the workspace, removing its worktree or
+  removing it from rowrow stops its runs; the server stopping stops them all (and kills what
+  is left after the grace period), and a server that exits without closing kills their groups
+  from its `exit` handler. A server killed with SIGKILL can't: its runs' groups outlive it.
+- **Kept in memory, not in a log.** A run is not an agent's fact and not worth a database:
+  the server keeps each workspace's newest 20 runs (a finished one beyond them is forgotten;
+  20 running at once is the limit), with the first 16 K and the last 240 K characters of their
+  output and a marker where the middle was dropped, until it restarts. `commands.watch` streams
+  a workspace's list; `commands.output {runId, after}` resumes a run's output from a character
+  cursor, then streams it, then its end. A client keeps output the same bounded way
+  (`appendOutput`).
+- **Where.** A Commands tab in the inspector (beside the agent, or on the workspace's page,
+  where a folder that isn't a git checkout gets just this tab): type a command, the runs newest
+  first with one click to run one again, a run's output as it prints with Stop. "Send to agent"
+  fills an agent's composer with the command, how it ended and the last 200 lines (8,000
+  characters at most) of its output, to edit and send: the agent beside it, or, on the
+  workspace's page, one of the workspace's agents, pinned first. `rowrow ws run <workspace> --
+  <command…>` streams it and exits with its exit status (Ctrl-C stops it); `ws runs`, `ws
+  output <run> [-f]`, `ws stop <run>`.
+
+**Why.** Non-interactive commands cover the needs without a terminal emulator, and work the
+same from a phone and the CLI. The user's shell runs what they would type; one process group
+per run makes Stop and shutdown reliable without tracking descendants. Memory is enough for
+"what did the tests just say": nobody needs last week's `git status`, and bounding count and
+output keeps a chatty build from growing the server. Nothing is sent for you (PRINCIPLES.md,
+product 4).
+
+**Revisit when** people want runs to survive a restart or to see a run's history next to the
+agent's (then a log of their own, as the parity sketch said), need input or a TTY (`top`, a
+REPL: that is a terminal, D-001), want to keep a dev server running and see its port (a
+long-lived run with a link), or the iOS app gets a Commands screen (`RowrowCore/Procedures.swift`
+calls, a view beside the workspace's inspector).

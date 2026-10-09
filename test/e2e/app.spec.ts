@@ -584,6 +584,52 @@ test("revert a file to before the last turn, only once confirmed and if nothing 
   expect(fs.readFileSync(notes, "utf8")).toBe("before the turn\n");
 });
 
+test("run a command in a workspace: its output streams in, Stop ends a sleep, and the output goes to an agent", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "fixes the tests",
+  });
+  await rowrow.open(page, `/w/${ws.id}`);
+  const inspector = page.getByRole("region", { name: "Inspector" });
+  await inspector.getByRole("tab", { name: "Commands" }).click();
+  const command = inspector.getByRole("textbox", { name: "Command" });
+
+  await command.fill("echo hi");
+  await command.press("Enter");
+  await expect(inspector.getByLabel("Output", { exact: true })).toHaveText("hi");
+  await expect(inspector.getByText(/^exit 0 · \d/)).toBeVisible();
+
+  // A sleep runs until you stop it.
+  await command.fill("sleep 30");
+  await inspector.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(inspector.getByText(/^running · /)).toBeVisible();
+  await expect(inspector.getByText("No output yet.")).toBeVisible();
+  await inspector.getByRole("button", { name: "Stop" }).click();
+  await expect(inspector.getByText(/^stopped · /)).toBeVisible();
+
+  // Both stay after a reload, newest first; one goes to the agent's message box, to edit and send.
+  await page.reload();
+  await inspector.getByRole("tab", { name: "Commands" }).click();
+  const runs = inspector.getByRole("list", { name: "Commands run here" }).getByRole("listitem");
+  await expect(runs).toHaveCount(2);
+  await expect(runs.nth(0)).toContainText("sleep 30");
+  await runs
+    .nth(1)
+    .getByRole("button", { name: /^echo hi/ })
+    .click();
+  await inspector.getByRole("button", { name: "Send to agent" }).click();
+  await page.getByRole("menuitem", { name: "fixes the tests" }).click();
+  await expect(page).toHaveURL(new RegExp(`/a/${agent.id}$`));
+  const composer = page.getByRole("textbox", { name: "Message input" });
+  await expect(composer).toContainText("`echo hi` exited with code 0 after");
+  await expect(composer).toContainText("hi");
+});
+
 /** Commit everything in `repo` (the e2e fixture's identity, no background maintenance). */
 function commit(repo: string, message: string): void {
   for (const args of [

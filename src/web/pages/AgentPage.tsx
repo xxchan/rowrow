@@ -231,7 +231,7 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
             <SheetHeader className="border-b px-4 py-3">
               <SheetTitle>{ws.label}</SheetTitle>
               <SheetDescription className="sr-only">
-                Changes, files and history of {ws.label}
+                Changes, files, history and commands of {ws.label}
               </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-hidden">

@@ -15,6 +15,7 @@ import {
   type CoachChat,
 } from "./coach.ts";
 import { MAX_PROMPT_CHARS, type CoachActionView } from "./coach-actions.ts";
+import { MAX_COMMAND_CHARS, type CommandOutput, type CommandRun } from "./commands.ts";
 import { MAX_MENTION_LABEL, MAX_MENTIONS } from "./coach-mentions.ts";
 import { MAX_TITLE_CHARS, type CoachTask, type CoachTaskRun } from "./coach-tasks.ts";
 import type { Entry } from "./entries.ts";
@@ -609,6 +610,59 @@ const files = {
     .output(z.file()),
 };
 
+const commandRunId = z
+  .string()
+  .describe("A command run's id (cmd_…), as commands.run or commands.list gives it.");
+
+const commands = {
+  run: oc
+    .route({
+      summary:
+        "Run a shell command in a workspace's directory, the way you would in a terminal there but without one: the user's shell (sh when $SHELL isn't usable) runs `-c <command>` with no input, in its own process group, with the server's environment (without rowrow's own credentials). Returns at once with the run (status running); follow its output with commands.output, stop it with commands.stop. When the shell exits, whatever it left running in its process group is stopped. Refused in an archived workspace. The server keeps each workspace's newest 20 runs, with the first 16 K and last 240 K characters of their output, until it stops (which stops them).",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        command: z.string().min(1).max(MAX_COMMAND_CHARS).describe("A command line, e.g. `pnpm test`."),
+      }),
+    )
+    .output(z.custom<CommandRun>()),
+  list: oc
+    .route({
+      summary:
+        "The command runs the server keeps, newest first: a workspace's, or every workspace's. Each has its command, status (running, exited, stopped, failed), exit code or signal, and when it started and ended. Output: commands.output.",
+    })
+    .input(z.object({ workspaceId: workspaceId.optional() }))
+    .output(z.array(z.custom<CommandRun>())),
+  watch: oc
+    .route({
+      summary:
+        "A workspace's command runs as a stream: the list now (as commands.list gives it), then again whenever one starts, is asked to stop, ends, or is forgotten.",
+    })
+    .input(z.object({ workspaceId }))
+    .output(eventIterator(z.object({ runs: z.array(z.custom<CommandRun>()) }))),
+  output: oc
+    .route({
+      summary:
+        "A run's output after a cursor (characters since it began; 0 for all of it), then its output as it prints, then `end` with how it ended; the stream closes after `end`. Each `output` piece says where it starts (`at`): one that starts past your cursor means the middle of the output was dropped there (stdout and stderr come interleaved, as printed). Resume after a disconnect with the cursor you reached. `follow: false`: only what is kept now (and `end` if it has ended), then the stream closes.",
+    })
+    .input(
+      z.object({
+        runId: commandRunId,
+        after: z.number().int().min(0).optional(),
+        follow: z.boolean().optional(),
+      }),
+    )
+    .output(eventIterator(z.custom<CommandOutput>())),
+  stop: oc
+    .route({
+      summary:
+        "Stop a running command: SIGTERM to its process group, SIGKILL 5 s later to whatever is left. Returns the run with stopping true (or as it ended, when it already had); it ends as `stopped`.",
+    })
+    .input(z.object({ runId: commandRunId }))
+    .output(z.custom<CommandRun>()),
+};
+
 const devices = {
   whoami: oc.route({ summary: "The device (credential) making this request." }).output(Device),
   list: oc.route({ summary: "Signed-in devices." }).output(z.array(Device)),
@@ -994,6 +1048,7 @@ export const contract = {
   coach,
   git,
   files,
+  commands,
   devices,
   notify,
   presence,

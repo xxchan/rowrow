@@ -278,13 +278,14 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
               </ul>
             )}
           </Section>
-          {git !== null && !ws.missing && (
+          {!ws.missing && (
             <section
               aria-label="Inspector"
               className="h-[min(75dvh,720px)] overflow-hidden rounded-lg border bg-card"
             >
               <Inspector
                 workspaceId={ws.id}
+                git={git !== null}
                 tab={tab}
                 onTabChange={(next) => {
                   setTab(next);

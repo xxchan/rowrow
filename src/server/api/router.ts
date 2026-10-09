@@ -4,6 +4,7 @@
 // log context, an `api.call` or `api.error` log line, and errors turned into typed oRPC
 // errors whose message says what went wrong.
 import { implement, ORPCError } from "@orpc/server";
+import type { CommandOutput, CommandRun } from "../../shared/commands.ts";
 import { contract } from "../../shared/contract.ts";
 import { slimEntry, type Actor, type Attachment, type Entry } from "../../shared/entries.ts";
 import { renderText } from "../../shared/render-text.ts";
@@ -34,6 +35,7 @@ import type { Runtimes } from "../agents/runtimes.ts";
 import type { UsageService } from "../usage.ts";
 import type { AgentService } from "../agents/service.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
+import type { Commands } from "../commands/service.ts";
 import { UserError } from "../errors.ts";
 import type { UpdateChecker } from "../updates.ts";
 import type { CoachService } from "../coach/service.ts";
@@ -144,6 +146,8 @@ export interface Services {
   badge(): number;
   readonly presence: Presence;
   readonly git: GitOps;
+  /** Commands run in workspaces (D-052). */
+  readonly commands: Commands;
   readonly settings: SettingsService;
   /** Where uploaded files go. */
   readonly uploadsDir: string;
@@ -598,6 +602,64 @@ export function createRouter(s: Services) {
         s.git.readFile(input.workspaceId, input.path, input.rev),
       ),
       download: os.files.download.handler(async ({ input }) => s.git.download(input.workspaceId, input.path)),
+    },
+
+    commands: {
+      run: os.commands.run.handler(({ input, context }) =>
+        s.commands.start({ workspaceId: input.workspaceId, command: input.command, by: context.actor }),
+      ),
+      list: os.commands.list.handler(({ input }) => s.commands.list(input.workspaceId)),
+      watch: os.commands.watch.handler(({ input, signal }) => {
+        s.workspaces.require(input.workspaceId);
+        let unsubscribe = (): void => undefined;
+        const ch = channel<{ runs: CommandRun[] }>(() => unsubscribe(), signal);
+        unsubscribe = s.commands.watch(input.workspaceId, (runs) => ch.push({ runs }));
+        return ch.iterator;
+      }),
+      output: os.commands.output.handler(({ input, signal }) => {
+        s.commands.get(input.runId);
+        let unfollow = (): void => undefined;
+        let timer: NodeJS.Timeout | null = null;
+        const ch = channel<CommandOutput>(() => {
+          unfollow();
+          if (timer !== null) clearTimeout(timer);
+        }, signal);
+        // What it kept goes at once; what it prints then, in batches at most one per
+        // WATCH_GAP_MS, as agents.watch sends entries (a build prints many small pieces).
+        let pending: { at: number; text: string } | null = null;
+        let flushedAt = 0;
+        const flush = (): void => {
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+          if (pending === null) return;
+          flushedAt = Date.now();
+          ch.push({ kind: "output", ...pending });
+          pending = null;
+        };
+        let live = false;
+        unfollow = s.commands.follow(input.runId, input.after ?? 0, (event) => {
+          if (event.kind === "end") {
+            flush();
+            ch.push(event);
+            ch.close();
+          } else if (!live) ch.push(event);
+          else {
+            if (pending !== null && pending.at + pending.text.length !== event.at) flush();
+            pending =
+              pending === null
+                ? { at: event.at, text: event.text }
+                : { ...pending, text: pending.text + event.text };
+            timer ??= setTimeout(flush, Math.max(0, flushedAt + WATCH_GAP_MS - Date.now()));
+          }
+        });
+        live = true;
+        if (input.follow === false) {
+          unfollow();
+          ch.close();
+        }
+        return ch.iterator;
+      }),
+      stop: os.commands.stop.handler(({ input }) => s.commands.stop(input.runId)),
     },
 
     devices: {
