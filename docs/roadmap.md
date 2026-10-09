@@ -32,6 +32,8 @@ file when something lands.
 - **Mermaid diagrams** (#26, #159, #346, #350) in replies, Markdown previews and `.mmd` files:
   zoom, Fit, 100%, fullscreen (Escape leaves it), in the app's colors, loaded with the first
   diagram and sanitized so a diagram can't load anything.
+- **Changes as one scroll** (#340): every file's diff in one scroll, loaded as you reach it; a
+  File index to jump; generated files and big diffs wait behind View diff.
 
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.

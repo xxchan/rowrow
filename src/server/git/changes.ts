@@ -122,10 +122,79 @@ export async function listChanges(input: ChangesInput): Promise<Changes> {
       truncated = true;
     }
     if (c.kind === "worktree") files = await countUntracked(c.top, files);
+    files = await markGenerated(c.top, c.env, files);
     if (input.scope === "working" && c.kind === "worktree" && records !== null)
       files = await describeWorking(c.top, files, records);
     return { scope: input.scope, base: c.base, baseLabel: c.baseLabel, files, truncated, note: null };
   });
+}
+
+/** Lockfiles, which GitHub's linguist also counts as generated: long diffs nobody reads line by line. */
+const LOCKFILES = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "bun.lock",
+  "bun.lockb",
+  "deno.lock",
+  "Cargo.lock",
+  "go.sum",
+  "go.work.sum",
+  "Gopkg.lock",
+  "poetry.lock",
+  "Pipfile.lock",
+  "pdm.lock",
+  "uv.lock",
+  "composer.lock",
+  "Gemfile.lock",
+  "Podfile.lock",
+  "Package.resolved",
+  "pubspec.lock",
+  "mix.lock",
+  "flake.lock",
+  "packages.lock.json",
+  "gradle.lockfile",
+]);
+
+/**
+ * Flags generated files (roamgate #340), which the web app starts collapsed: those
+ * .gitattributes marks `linguist-generated` or `gitlab-generated` (as GitHub and GitLab read
+ * them), and lockfiles, unless an attribute unmarks them (`-linguist-generated`,
+ * `linguist-generated=false`). Without the attributes (git failed), lockfiles still count.
+ */
+async function markGenerated(top: string, env: Env, files: readonly ChangedFile[]): Promise<ChangedFile[]> {
+  if (files.length === 0) return [...files];
+  const result = await git(["check-attr", "-z", "--stdin", "linguist-generated", "gitlab-generated"], {
+    cwd: top,
+    env,
+    input: files.map((file) => `${file.path}\0`).join(""),
+    maxBytes: LIST_MAX_BYTES,
+  });
+  if (result.code !== 0)
+    log.warn("git.changes.check_attr_failed", { dir: top, stderr: result.stderr, timedOut: result.timedOut });
+  const marked = result.code === 0 ? parseGenerated(result.stdout) : new Map<string, boolean>();
+  return files.map((file) =>
+    (marked.get(file.path) ?? LOCKFILES.has(path.posix.basename(file.path)))
+      ? { ...file, generated: true }
+      : file,
+  );
+}
+
+/**
+ * `git check-attr -z` records (`<path>\0<attribute>\0<value>\0`): true where an attribute
+ * marks the path generated, false where one unmarks it (unmarking wins), absent otherwise.
+ */
+export function parseGenerated(out: string): Map<string, boolean> {
+  const marked = new Map<string, boolean>();
+  const fields = out.split("\0");
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    const file = fields[i] ?? "";
+    const value = (fields[i + 2] ?? "").toLowerCase();
+    if (value === "unset" || value === "false") marked.set(file, false);
+    else if ((value === "set" || value === "true") && marked.get(file) !== false) marked.set(file, true);
+  }
+  return marked;
 }
 
 /** A working-scope row's paths: the original path first for a rename or copy. */

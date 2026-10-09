@@ -171,6 +171,12 @@ are only meaningful to the store that made them.
   conflicted files) and a `stamp` for the file actions below. Both come from
   `git status --porcelain=v2 --no-renames` on the same index copy; a renamed row covers both
   of its paths.
+- **Generated files** get `generated: true` (roamgate #340): `linguist-generated` or
+  `gitlab-generated` set in `.gitattributes` (one `git check-attr --stdin` per listing), or a
+  lockfile (`package-lock.json`, `pnpm-lock.yaml`, `Cargo.lock`, `go.sum`…) that no attribute
+  unmarks (`-linguist-generated`, `=false`; an unmarking wins). The web app starts their diffs
+  collapsed, as it does diffs of 1,000 changed lines or more and, once loaded, patches of
+  128 KB or more or cut at the cap.
 - **Notes** instead of files: no snapshot yet, the current state can't be snapshotted (with
   the reason), the snapshot was pruned, no default branch, no common history, no commits.
 - **Limits**: 2000 files (`truncated: true`); patches cut at 512 KB on a line boundary

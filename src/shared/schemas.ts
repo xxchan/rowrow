@@ -551,6 +551,12 @@ export const ChangedFile = z.object({
   ]),
   additions: z.number().nullable().describe("null for binary files."),
   deletions: z.number().nullable(),
+  generated: z
+    .boolean()
+    .optional()
+    .describe(
+      "true for a generated file: linguist-generated or gitlab-generated in .gitattributes, or a lockfile (package-lock.json, pnpm-lock.yaml, Cargo.lock…) no attribute says otherwise. Absent otherwise.",
+    ),
   staged: z
     .boolean()
     .optional()

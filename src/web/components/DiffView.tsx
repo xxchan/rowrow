@@ -2,8 +2,9 @@
 // (the old number on a removed line, the new one elsewhere) and word-level emphasis on
 // changed lines. Click (or tap) a line to comment on it:
 // comments collect into review feedback for the agent (lib/annotations.ts). The server caps
-// a patch at 512 KB, and a file's diff renders only when you open it. A patch the library
-// can't take (no hunks, or one it rejects) falls back to plain rows, never a blank.
+// a patch at 512 KB, and a diff renders only once it is open and has loaded (Changes loads
+// the ones near the screen, lib/diff-loading.ts). A patch the library can't take (no hunks,
+// or one it rejects) falls back to plain rows, never a blank.
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";

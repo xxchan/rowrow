@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MAX_FILES, MAX_PATCH_BYTES, fileDiff, listChanges, parseDiff } from "./changes.ts";
+import { MAX_FILES, MAX_PATCH_BYTES, fileDiff, listChanges, parseDiff, parseGenerated } from "./changes.ts";
 import { SnapshotStore } from "./snapshots.ts";
 import { createWorktree } from "./worktrees.ts";
 import { commitAll, initRepo, isolateGit, removeDir, sh, tempDir, write } from "./testing.ts";
@@ -140,6 +140,47 @@ describe("listChanges: working", () => {
       ["loose.txt", "untracked", 1],
       ["staged.txt", "added", 1],
     ]);
+  });
+
+  it("flags generated files: marked in .gitattributes, or lockfiles nothing unmarks", async () => {
+    write(
+      repo,
+      ".gitattributes",
+      lines("gen/** linguist-generated", "*.pb.go gitlab-generated=true", "yarn.lock -linguist-generated"),
+    );
+    write(repo, "sub/.gitattributes", lines("Cargo.lock linguist-generated=false"));
+    commitAll(repo, "attributes");
+    for (const file of [
+      "gen/app.js",
+      "api.pb.go",
+      "pnpm-lock.yaml",
+      "web/package-lock.json",
+      "sub/Cargo.lock",
+      "yarn.lock",
+      "src/app.ts",
+    ])
+      write(repo, file, lines("x"));
+    const generated = async (scope: "working" | "turn", turnBaseline?: string) =>
+      (
+        await listChanges({
+          dir: repo,
+          scope,
+          store,
+          ...(turnBaseline === undefined ? {} : { turnBaseline }),
+        })
+      ).files
+        .filter((f) => f.generated === true)
+        .map((f) => f.path);
+    const expected = ["api.pb.go", "gen/app.js", "pnpm-lock.yaml", "web/package-lock.json"];
+    expect(await generated("working")).toEqual(expected);
+    // Absent, not false, on the others.
+    const changes = await listChanges({ dir: repo, scope: "working", store });
+    expect(changes.files.find((f) => f.path === "src/app.ts")).not.toHaveProperty("generated");
+
+    // Between snapshots too.
+    const start = await baseline();
+    for (const file of expected) write(repo, file, lines("x", "y"));
+    expect(await generated("turn", start)).toEqual(expected);
   });
 
   it(`caps the list at ${MAX_FILES} files`, async () => {
@@ -400,6 +441,28 @@ describe("parseDiff", () => {
       { path: "a b.txt", oldPath: null, status: "modified", additions: 3, deletions: 1 },
       { path: "new.txt", oldPath: "old.txt", status: "renamed", additions: 0, deletions: 2 },
       { path: "gone.bin", oldPath: null, status: "deleted", additions: null, deletions: null },
+    ]);
+  });
+});
+
+describe("parseGenerated", () => {
+  it("reads set and true as generated, and lets unset or false win", () => {
+    const out = [
+      ["a.js", "linguist-generated", "set"],
+      ["b.js", "gitlab-generated", "true"],
+      ["c.lock", "linguist-generated", "unset"],
+      ["d.js", "linguist-generated", "true"],
+      ["d.js", "gitlab-generated", "false"],
+      ["e.js", "linguist-generated", "unspecified"],
+    ]
+      .flat()
+      .map((field) => `${field}\0`)
+      .join("");
+    expect([...parseGenerated(out)]).toEqual([
+      ["a.js", true],
+      ["b.js", true],
+      ["c.lock", false],
+      ["d.js", false],
     ]);
   });
 });

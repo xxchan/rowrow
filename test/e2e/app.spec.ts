@@ -447,8 +447,8 @@ test("the last turn's changes are one click away", async ({ page, rowrow }, info
     info.project.name === "phone"
       ? page.getByRole("dialog")
       : page.getByRole("region", { name: "Inspector" });
+  // Its diff shows without another click.
   await expect(panel.getByText("src/hello.ts")).toBeVisible();
-  await panel.getByText("src/hello.ts").click();
   const line = panel.getByText("export const hello = 1;");
   await expect(line).toBeVisible();
 
@@ -503,7 +503,9 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   // Open a file from the tree, then back to the tree.
   await inspector.getByRole("tab", { name: "Files" }).click();
   await inspector.getByRole("treeitem", { name: /notes\.txt/ }).click();
-  await expect(inspector.getByText("the answer is 42")).toBeVisible();
+  await expect(
+    inspector.getByRole("region", { name: "File preview" }).getByText("the answer is 42"),
+  ).toBeVisible();
   await inspector.getByRole("button", { name: "Back to results" }).click();
   await expect(inspector.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
@@ -561,6 +563,64 @@ async function inspect(
   await inspector.getByRole("tab", { name: tab }).click();
   return inspector;
 }
+
+test("Changes reads as one scroll: diffs load as you reach them, the index jumps, generated and large files wait", async ({
+  page,
+  rowrow,
+}, info) => {
+  const repo = rowrow.repo();
+  const inspector = await inspect(page, rowrow, info.project.name === "phone", repo, "Changes", () => {
+    fs.writeFileSync(path.join(repo, ".gitattributes"), "gen/** linguist-generated\n");
+    fs.mkdirSync(path.join(repo, "gen"));
+    fs.writeFileSync(path.join(repo, "gen", "bundle.js"), "export const built = 1;\n");
+    fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.writeFileSync(
+      path.join(repo, "big.txt"),
+      Array.from({ length: 1200 }, (_, i) => `big ${i}\n`).join(""),
+    );
+    fs.mkdirSync(path.join(repo, "src"));
+    for (let i = 0; i < 40; i++)
+      fs.writeFileSync(
+        path.join(repo, "src", `f${String(i).padStart(2, "0")}.ts`),
+        Array.from({ length: 40 }, (_, j) => `export const v${j} = "file ${i} line ${j}";\n`).join(""),
+      );
+  });
+  await inspector.getByRole("tab", { name: "Uncommitted" }).click();
+
+  // Every file in one scroll, the first diffs already open; the far ones haven't loaded.
+  await expect(inspector.getByText('export const v0 = "file 0 line 0";')).toBeVisible();
+  await expect(inspector.getByText("file 39 line 0", { exact: false })).toHaveCount(0);
+
+  // Generated files (by .gitattributes, or a lockfile) and a big diff wait behind View diff.
+  const bundle = inspector.getByRole("group", { name: "gen/bundle.js" });
+  await expect(bundle.getByText("Generated file; diff skipped.")).toBeVisible();
+  await expect(
+    inspector.getByRole("group", { name: "pnpm-lock.yaml" }).getByText("Generated file; diff skipped."),
+  ).toBeVisible();
+  await expect(
+    inspector.getByRole("group", { name: "big.txt" }).getByText("1,200 changed lines; diff skipped."),
+  ).toBeVisible();
+  await bundle.getByRole("button", { name: "View diff" }).click();
+  await expect(bundle.getByText("export const built = 1;")).toBeVisible();
+  // Its header closes it again.
+  await bundle.getByRole("button", { name: /gen\/bundle\.js/, expanded: true }).click();
+  await expect(bundle.getByText("export const built = 1;")).toHaveCount(0);
+
+  // The index jumps to a file far down; it loads, and the index says where you are.
+  const index = inspector.getByRole("combobox", { name: "Jump to changed file" });
+  await expect(index).toContainText(".gitattributes");
+  await index.click();
+  await page.getByRole("option", { name: /src\/f39\.ts/ }).click();
+  const last = inspector.getByRole("group", { name: "src/f39.ts" });
+  await expect(last.getByText('export const v39 = "file 39 line 39";')).toBeVisible();
+  await expect(last.getByRole("button", { name: /src\/f39\.ts/, expanded: true })).toBeInViewport();
+  await expect(index).toContainText("src/f39.ts");
+
+  // Scrolling back up loads the diffs on the way, and the index follows.
+  await inspector.getByRole("group", { name: "src/f20.ts" }).scrollIntoViewIfNeeded();
+  await expect(inspector.getByText('export const v0 = "file 20 line 0";')).toBeVisible();
+  await expect(index).toContainText(/src\/f(19|20)\.ts/);
+});
 
 test("download a file or a folder from the inspector, and hear why when it can't", async ({
   page,
@@ -1586,6 +1646,8 @@ test("a .mmd file previews as a diagram, its source a tab away", async ({ page, 
   await expect(figure).toBeVisible();
 
   await inspector.getByRole("tab", { name: "Source" }).click();
-  await expect(inspector.getByText("Agent->>You: Review this")).toBeVisible();
+  await expect(
+    inspector.getByRole("region", { name: "File preview" }).getByText("Agent->>You: Review this"),
+  ).toBeVisible();
   await expect(figure).toBeHidden();
 });
