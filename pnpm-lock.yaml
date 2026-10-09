@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@botiverse/oar':
-        specifier: ^0.48.0
-        version: 0.48.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+        specifier: ^0.49.0
+        version: 0.49.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
       '@cursor/sdk':
         specifier: 1.0.37
         version: 1.0.37
@@ -285,8 +285,8 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
-  '@botiverse/oar@0.48.0':
-    resolution: {integrity: sha512-MF/haY1twVOlXQ5Ll6/7j1hJrIerjZuKFV82CzRZ7q31hHXA1Jiu8u793s/L2jDOhvwz/VEipE9Wa6gdX2X2HQ==}
+  '@botiverse/oar@0.49.0':
+    resolution: {integrity: sha512-WX77aUYKqHpJyWxseFENN9fF7BQAloTtrZ15ZP1Scu72dzNBg0+5pINPR7iKKuA6y+FKycWly0VGfgI1fnWF/w==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@cursor/sdk': 1.0.37
@@ -5313,7 +5313,7 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
-  '@botiverse/oar@0.48.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
+  '@botiverse/oar@0.49.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
       '@earendil-works/pi-ai': 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
