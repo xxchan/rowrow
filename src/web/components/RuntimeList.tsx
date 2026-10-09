@@ -258,7 +258,7 @@ export function RuntimeList({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
+              variant="destructive"
               onClick={() => {
                 const runtime = signingOut;
                 setSigningOut(null);
