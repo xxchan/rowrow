@@ -57,13 +57,13 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { canCoach, CANT_COACH, COACH_TOOLS_LEAKED, type CoachChat } from "../../shared/coach.ts";
+import { trimMentions } from "../../shared/coach-mentions.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, AppState, CoachSettings, ModelInfo } from "../../shared/schemas.ts";
 import type { Timeline } from "../../shared/timeline.ts";
@@ -76,10 +76,12 @@ import {
   PAGE_MIN_WIDTH,
   runtimeProblem,
   setCoachLayout,
+  setDraftMentions,
   showCoachView,
   STACK_WIDTH,
   toggleCoach,
   useCoach,
+  useDraftMentions,
 } from "../lib/coach.ts";
 import {
   loadOlder,
@@ -92,6 +94,7 @@ import {
 } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
+import { MentionInput } from "./CoachMentions.tsx";
 import { CoachTasksView } from "./CoachTasks.tsx";
 import { ConversationWave } from "./ConversationWave.tsx";
 import { Transcript } from "./Transcript.tsx";
@@ -758,6 +761,7 @@ function Composer({
   const client = useClient();
   const key = `coach:${chat?.id ?? "new"}`;
   const draft = useDrafts((s) => s.byAgent[key] ?? "");
+  const mentions = useDraftMentions(key);
   const [sending, setSending] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { open, view } = useCoach();
@@ -775,13 +779,21 @@ function Composer({
   }, [open, view]);
 
   const send = async (): Promise<void> => {
-    const text = draft.trim();
+    // As coach.send trims it, with its references where they are then.
+    const message = trimMentions(draft, mentions);
+    const { text } = message;
     if (client === null || text === "" || sending || working || !canSend) return;
     setSending(true);
     useCoach.setState({ error: null });
     try {
-      await client.coach.send({ inputId: newInputId(), text, chatId: chat?.id ?? null });
+      await client.coach.send({
+        inputId: newInputId(),
+        text,
+        chatId: chat?.id ?? null,
+        ...(message.mentions.length === 0 ? {} : { mentions: message.mentions }),
+      });
       setDraft(key, "");
+      setDraftMentions(key, []);
       useCoach.setState({ follow: useCoach.getState().follow + 1 });
     } catch (failure) {
       useCoach.setState({ error: failure instanceof Error ? failure.message : String(failure) });
@@ -797,12 +809,6 @@ function Composer({
     } catch (failure) {
       report("warn", "coach.stop_failed", failure);
     }
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-    event.preventDefault();
-    if (!event.repeat) void send();
   };
   const disabled = client === null || !canSend || sending || draft.trim() === "";
   const action = working ? (
@@ -854,25 +860,27 @@ function Composer({
         void send();
       }}
     >
-      <div className="relative">
-        <textarea
-          ref={inputRef}
-          aria-label="Message Coach"
-          placeholder="Ask about your agents"
-          rows={3}
-          maxLength={20_000}
-          {...(narrow ? { enterKeyHint: "send" as const } : {})}
-          value={draft}
-          onChange={(event) => setDraft(key, event.currentTarget.value)}
-          onKeyDown={onKeyDown}
-          className={cn(
-            "block max-h-40 min-h-[70px] w-full resize-y rounded-md border bg-background p-2 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring md:text-xs",
-            narrow && "pr-[58px]",
-          )}
-        />
+      {/* @ picks a workspace or agent to reference (Ranger's mentions). */}
+      <MentionInput
+        state={state}
+        draftKey={key}
+        value={draft}
+        mentions={mentions}
+        onChange={(text, next) => {
+          setDraft(key, text);
+          setDraftMentions(key, next);
+        }}
+        onSubmit={() => void send()}
+        inputRef={inputRef}
+        narrow={narrow}
+        className={cn(
+          "block max-h-40 min-h-[70px] w-full resize-y rounded-md border bg-background p-2 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring md:text-xs",
+          narrow && "pr-[58px]",
+        )}
+      >
         {/* On a phone, Send sits in the box. */}
         {narrow && action}
-      </div>
+      </MentionInput>
       {!narrow && (
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-[9px] text-muted-foreground">

@@ -41,6 +41,7 @@ import {
   type AgentsStatusResult,
   type CoachChat,
 } from "../../shared/coach.ts";
+import { mentionsValid, type CoachMention } from "../../shared/coach-mentions.ts";
 import type { CoachTask, TaskNoticeInput } from "../../shared/coach-tasks.ts";
 import { statusDot } from "../../shared/describe.ts";
 import type { Actor, EntryOf } from "../../shared/entries.ts";
@@ -173,6 +174,7 @@ export class CoachService implements TaskRunner {
     inputId: string;
     text: string;
     chatId?: string | null;
+    mentions?: readonly CoachMention[];
     by: Actor;
     trace?: string;
   }): Promise<SendResult & { chatId: string }> {
@@ -185,11 +187,13 @@ export class CoachService implements TaskRunner {
     inputId: string;
     text: string;
     chatId?: string | null;
+    mentions?: readonly CoachMention[];
     by: Actor;
     trace?: string;
   }): Promise<SendResult & { chatId: string }> {
     const { agents } = this.deps;
     let chat = agents.currentCoach();
+    const mentions = input.mentions ?? [];
     const send = async (chatId: string, scope: readonly string[], fullAccess = false) => ({
       chatId,
       ...(await agents.send(chatId, {
@@ -199,6 +203,7 @@ export class CoachService implements TaskRunner {
         by: input.by,
         scope,
         ...(fullAccess ? { fullAccess: true as const } : {}),
+        ...(mentions.length === 0 ? {} : { mentions }),
         ...(input.trace === undefined ? {} : { trace: input.trace }),
       })),
     });
@@ -210,6 +215,8 @@ export class CoachService implements TaskRunner {
         "The current Coach chat changed in another window. Look at it again before sending.",
         "CONFLICT",
       );
+    if (!mentionsValid(input.text, mentions))
+      throw new UserError("A reference doesn't match the message's text: select it again before sending.");
     const settings = this.deps.settings.get().coach;
     if (!canCoach(settings.runtime)) throw new UserError(CANT_COACH, "PRECONDITION_FAILED");
     if (this.executing !== null) throw new UserError(EXECUTING, "CONFLICT");
@@ -229,6 +236,7 @@ export class CoachService implements TaskRunner {
           : "Choose the workspaces Coach may read in its settings first.",
         "PRECONDITION_FAILED",
       );
+    this.checkMentions(mentions, scope);
     if (chat !== null && busy(chat)) throw new UserError(BUSY, "CONFLICT");
     // A chat runs on one runtime: another one starts a new chat.
     if (chat !== null && chat.summary.runtime !== settings.runtime) {
@@ -253,8 +261,36 @@ export class CoachService implements TaskRunner {
       // Idle (checked above), so the restart this takes ends no turn.
       await agents.update(chat.id, { model: settings.model, effort: settings.effort }, input.by);
     }
-    log.info("coach.send", { chat: chat.id, workspaces: scope.length, fullAccess: settings.fullAccess });
+    log.info("coach.send", {
+      chat: chat.id,
+      workspaces: scope.length,
+      fullAccess: settings.fullAccess,
+      mentions: mentions.length,
+    });
     return send(chat.id, scope, settings.fullAccess);
+  }
+
+  /**
+   * A message's references, checked against the workspaces its turn may read: a workspace among
+   * them, an agent (not archived) in one of them. They add none: one that isn't there refuses the
+   * message, saying which, so you pick it again rather than Coach reading something else by name.
+   */
+  private checkMentions(mentions: readonly CoachMention[], scope: readonly string[]): void {
+    for (const mention of mentions) {
+      const agent = mention.kind === "agent" ? this.deps.agents.get(mention.id)?.summary : undefined;
+      const there =
+        mention.kind === "workspace"
+          ? scope.includes(mention.id)
+          : agent !== undefined &&
+            agent.role === "agent" &&
+            !agent.archived &&
+            scope.includes(agent.workspaceId);
+      if (!there)
+        throw new UserError(
+          `@${mention.label} isn't available to Coach anymore: it was archived or removed, or isn't in the workspaces Coach may read. Select it again.`,
+          "PRECONDITION_FAILED",
+        );
+    }
   }
 
   /** Leave the current chat; the next message starts a new one. */
@@ -366,7 +402,41 @@ export class CoachService implements TaskRunner {
       receiptsFor(this.actions(agentId), scope),
       text,
       this.tasks?.frame(agentId) ?? null,
+      this.referenced(entry?.kind === "input" ? (entry.mentions ?? []) : []),
     );
+  }
+
+  /**
+   * What the model reads of a message's references: how the text names each, and what it is now,
+   * by id (the names are the user's and the agents', so the frame says they're data).
+   */
+  private referenced(mentions: readonly CoachMention[]): Record<string, string | null>[] {
+    const seen = new Set<string>();
+    return mentions.flatMap((mention): Record<string, string | null>[] => {
+      const key = JSON.stringify([mention.kind, mention.id, mention.label]);
+      if (seen.has(key)) return [];
+      seen.add(key);
+      if (mention.kind === "workspace")
+        return [
+          {
+            mention: `@${mention.label}`,
+            kind: "workspace",
+            workspaceId: mention.id,
+            label: this.deps.workspaces.get(mention.id)?.label ?? null,
+          },
+        ];
+      const agent = this.deps.agents.get(mention.id)?.summary;
+      return [
+        {
+          mention: `@${mention.label}`,
+          kind: "agent",
+          agentId: mention.id,
+          title: agent?.title ?? null,
+          workspaceId: agent?.workspaceId ?? null,
+          runtime: agent?.runtime ?? null,
+        },
+      ];
+    });
   }
 
   // ─── Scheduled tasks (D-050) ──────────────────────────────────────────────

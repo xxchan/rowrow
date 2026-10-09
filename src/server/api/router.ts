@@ -479,6 +479,7 @@ export function createRouter(s: Services) {
           text: input.text,
           by: context.actor,
           ...(input.chatId === undefined ? {} : { chatId: input.chatId }),
+          ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
           ...(context.trace === undefined ? {} : { trace: context.trace }),
         }),
       ),

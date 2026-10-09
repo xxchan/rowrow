@@ -92,6 +92,10 @@ file when something lands.
   once, missed ones run once. "Let Coach decide" notifies only when the outcome matters (once
   per event); Coach proposes tasks on a card. Chat | Tasks in Coach's header; `rowrow coach
   tasks`.
+- **Coach references** (roamgate #375): @ in Coach's composer picks a workspace it may read or
+  an agent in one (↑/↓, Enter or Tab; Escape closes); picks wait under the box with the chat's
+  draft, go with the message as ids the server checks against the turn's scope, and show as
+  links in the conversation.
 
 ## Parked
 

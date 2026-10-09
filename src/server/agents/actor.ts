@@ -10,6 +10,7 @@ import {
   type Session,
   type SessionOptions,
 } from "@botiverse/oar";
+import type { CoachMention } from "../../shared/coach-mentions.ts";
 import type {
   Actor,
   Attachment,
@@ -77,6 +78,8 @@ export interface SendInput {
   readonly scope?: readonly string[];
   /** Coach, with Full access: its proposals in this turn execute (D-045). */
   readonly fullAccess?: true;
+  /** Coach: the workspaces and agents the message references (checked against `scope`). */
+  readonly mentions?: readonly CoachMention[];
 }
 
 /** How rowrow passed an input to the runtime, as oar answered. */
@@ -169,6 +172,7 @@ export class AgentActor {
         ...(input.trace === undefined ? {} : { trace: input.trace }),
         ...(input.scope === undefined ? {} : { scope: input.scope }),
         ...(input.fullAccess === undefined ? {} : { fullAccess: input.fullAccess }),
+        ...(input.mentions === undefined || input.mentions.length === 0 ? {} : { mentions: input.mentions }),
       });
       const result = await this.deliver(input);
       this.append({

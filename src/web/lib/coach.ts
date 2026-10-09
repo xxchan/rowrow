@@ -4,9 +4,11 @@
 // survive closing it. Floating or pinned is remembered in this browser (and follows other tabs);
 // the width and maximizing last until the page reloads. Pinned in a narrow page (900 px or
 // less), it sits under the page instead of beside it. It shows its chat, its scheduled tasks
-// (D-050) or its settings; a notification about a task opens it on that task and run.
+// (D-050) or its settings; a notification about a task opens it on that task and run. Each chat
+// keeps its own draft, with the workspaces and agents it references (picked with @).
 import { toast } from "sonner";
 import { create } from "zustand";
+import type { CoachMention } from "../../shared/coach-mentions.ts";
 import { canCoach, CANT_COACH } from "../../shared/coach.ts";
 import type { AppState } from "../../shared/schemas.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
@@ -139,4 +141,16 @@ export function allowedWorkspaces(state: AppState): string[] {
     const ws = state.workspaces[id];
     return ws !== undefined && !workspaceArchived(state.workspaces, id) && !ws.missing;
   });
+}
+
+/** The references of each Coach draft (useDrafts keeps its text), by the draft's key: a chat's own. */
+export const useCoachMentions = create<{ byDraft: Readonly<Record<string, readonly CoachMention[]>> }>(
+  () => ({ byDraft: {} }),
+);
+const NO_MENTIONS: readonly CoachMention[] = [];
+export function useDraftMentions(key: string): readonly CoachMention[] {
+  return useCoachMentions((s) => s.byDraft[key] ?? NO_MENTIONS);
+}
+export function setDraftMentions(key: string, mentions: readonly CoachMention[]): void {
+  useCoachMentions.setState((s) => ({ byDraft: { ...s.byDraft, [key]: mentions } }));
 }

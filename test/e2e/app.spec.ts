@@ -1688,6 +1688,96 @@ test("Coach: confirm the message it proposes and read rowrow's receipt; Full acc
   expect((await rowrow.client.state.get()).state.settings.coach.fullAccess).toBe(false);
 });
 
+test("Coach: @ picks a workspace or an agent to reference, and the message links to them", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "the helper",
+  });
+  await rowrow.client.agents.create({ workspaceId: ws.id, runtime: "scripted", title: "the tester" });
+  await rowrow.client.settings.update({
+    coach: { workspaces: [ws.id], runtime: "scripted", model: null, effort: null },
+  });
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+  const coach = page.getByRole("complementary", { name: "Coach" });
+  await page.getByRole("button", { name: "Open Coach" }).click();
+  const message = coach.getByLabel("Message Coach");
+  await expect(message).toBeFocused();
+  const list = coach.getByRole("listbox", { name: "Workspace and agent references" });
+  const tray = coach.getByRole("group", { name: "Message references" });
+
+  // @ lists what Coach may read, each saying where it is and what it is; Enter picks.
+  await message.pressSequentially("/echo is @hel");
+  await expect(list.getByRole("option")).toHaveCount(1);
+  await expect(list.getByRole("option")).toContainText(`the helper${ws.label}Scripted`);
+  await message.press("Enter");
+  await expect(list).toBeHidden();
+  await expect(message).toHaveValue("/echo is @the helper ");
+  await expect(tray.getByRole("link")).toHaveText([`the helper${ws.label}`]);
+
+  // Tab picks too; editing a reference's text unbinds it, and a name typed out is plain text.
+  await message.pressSequentially("or @tes");
+  await message.press("Tab");
+  await expect(message).toHaveValue("/echo is @the helper or @the tester ");
+  await expect(tray.getByRole("link")).toHaveCount(2);
+  await message.press("Backspace");
+  await message.press("Backspace");
+  await expect(tray.getByRole("link")).toHaveCount(1);
+  await message.pressSequentially("r in ");
+  await expect(tray.getByRole("link")).toHaveCount(1);
+
+  // The @ button opens the whole list: ↑/↓ move, Enter picks.
+  await coach.getByRole("button", { name: "Mention workspace or agent" }).click();
+  await expect(list.getByRole("option")).toHaveCount(3);
+  await expect(list.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+  await message.press("ArrowDown");
+  await expect(list.getByRole("option").nth(1)).toHaveAttribute("aria-selected", "true");
+  await message.press("ArrowUp");
+  await expect(list.getByRole("option").first()).toHaveAttribute("aria-selected", "true");
+  await expect(list.getByRole("option").first()).toContainText("Workspace");
+  await message.press("Enter");
+  await expect(message).toHaveValue(`/echo is @the helper or @the tester in @${ws.label} `);
+  await expect(tray.getByRole("link")).toHaveCount(2);
+
+  // Escape closes the list, not Coach; Shift+Enter is a new line.
+  await message.pressSequentially("@");
+  await expect(list).toBeVisible();
+  await message.press("Escape");
+  await expect(list).toBeHidden();
+  await expect(coach).toBeVisible();
+  await message.press("Backspace");
+  await message.press("Shift+Enter");
+  await expect(message).toHaveValue(`/echo is @the helper or @the tester in @${ws.label} \n`);
+  await expect(list).toBeHidden();
+  await message.press("Backspace");
+
+  // Sent: the references go with it, and in the conversation they're links.
+  await message.press("Enter");
+  await expect(
+    coach.getByText(`is @the helper or @the tester in @${ws.label}`, { exact: true }),
+  ).toBeVisible();
+  await expect(tray).toBeHidden();
+  const sent = coach.getByRole("region", { name: "You message" });
+  await expect(sent.getByRole("link")).toHaveText(["@the helper", `@${ws.label}`]);
+  await expect(sent.getByRole("link", { name: `@${ws.label}` })).toHaveAttribute("href", `/w/${ws.id}`);
+  const chat = (await rowrow.client.state.get()).state.coach.chat;
+  const { entries } = await rowrow.client.agents.entries({ agentId: chat?.id ?? "" });
+  expect(entries.flatMap((entry) => (entry.kind === "input" ? (entry.mentions ?? []) : []))).toEqual([
+    { kind: "agent", id: agent.id, label: "the helper", start: 9, end: 20 },
+    { kind: "workspace", id: ws.id, label: ws.label, start: 39, end: 40 + ws.label.length },
+  ]);
+  await sent.getByRole("link", { name: "@the helper" }).click();
+  await expect(page).toHaveURL(new RegExp(`/a/${agent.id}$`));
+  if (phone) await expect(coach).toBeHidden();
+  else await expect(coach).toBeVisible();
+});
+
 test("Coach's tasks: create one, run it now, read its run's chat, and pause it", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   await rowrow.client.settings.update({

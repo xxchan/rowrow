@@ -15,6 +15,7 @@ import {
   type CoachChat,
 } from "./coach.ts";
 import { MAX_PROMPT_CHARS, type CoachActionView } from "./coach-actions.ts";
+import { MAX_MENTION_LABEL, MAX_MENTIONS } from "./coach-mentions.ts";
 import { MAX_TITLE_CHARS, type CoachTask, type CoachTaskRun } from "./coach-tasks.ts";
 import type { Entry } from "./entries.ts";
 import {
@@ -736,17 +737,31 @@ const TaskInput = z.object({
 });
 const taskId = z.string().describe("A Coach task's id (tk_…).");
 
+/** A workspace or agent picked with @ in Coach's composer (coach-mentions.ts). */
+const CoachMention = z.object({
+  kind: z.enum(["workspace", "agent"]),
+  id: z.string().min(1).max(100).describe("The workspace's id (ws_…) or the agent's (ag_…)."),
+  label: z
+    .string()
+    .min(1)
+    .max(MAX_MENTION_LABEL)
+    .describe("The name it was picked by: the text reads @<label>."),
+  start: z.number().int().min(0).describe("Where its @label starts in text (UTF-16 offset)."),
+  end: z.number().int().min(1).describe("Where it ends."),
+});
+
 const coach = {
   send: oc
     .route({
       summary:
-        "Send a message to Coach (D-044), rowrow's assistant, which reads the agents in the workspaces settings.coach allows and does no coding itself; it proposes actions you confirm (D-045). Those workspaces (with settings.coach.fullAccess, all of them) are captured now and stay fixed for the turn, and its previews still waiting are cancelled: a new question replaces them. Starts a chat when there is none (or when settings.coach.runtime differs from the current chat's), applies settings.coach's model and effort, and refuses while Coach works or one of its actions executes. `chatId`: the chat you saw, so a stale window can't send to another one (CONFLICT).",
+        "Send a message to Coach (D-044), rowrow's assistant, which reads the agents in the workspaces settings.coach allows and does no coding itself; it proposes actions you confirm (D-045). Those workspaces (with settings.coach.fullAccess, all of them) are captured now and stay fixed for the turn, and its previews still waiting are cancelled: a new question replaces them. Starts a chat when there is none (or when settings.coach.runtime differs from the current chat's), applies settings.coach's model and effort, and refuses while Coach works or one of its actions executes. `chatId`: the chat you saw, so a stale window can't send to another one (CONFLICT). `mentions`: workspaces and agents the message references, each at its exact @label in the (trimmed) text; they focus the question, never widen what Coach may read and send the agents nothing, and one that's archived, removed or outside those workspaces refuses the message (PRECONDITION_FAILED: pick it again).",
     })
     .input(
       z.object({
         inputId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
         text: z.string().trim().min(1).max(20_000),
         chatId: z.string().nullable().optional(),
+        mentions: z.array(CoachMention).max(MAX_MENTIONS).optional(),
       }),
     )
     .output(SendResult.extend({ chatId: z.string() })),

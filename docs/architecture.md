@@ -206,6 +206,16 @@ rowrow's own parts.
   still there) into the `input` entry's `scope`, fixed for the turn, and applies Coach's model,
   effort and runtime from `settings.coach`. The runtime reads the scope as a frame before your
   text (`src/server/coach/prompt.ts`); the transcript shows your text.
+- **References** (Ranger's mentions, `src/shared/coach-mentions.ts`): @ in Coach's composer
+  offers the workspaces of the next message's scope and their agents not archived, from
+  AppState (`CoachMentions.tsx`). A pick binds `{kind, id, label}` to the exact `@label` it
+  inserted; an edit inside that text unbinds it, so typed or pasted names stay text. Each
+  chat's draft keeps its own (`useCoachMentions`, in memory like the text). `coach.send` takes
+  them as `mentions` with their offsets, refuses ones that don't match the text or aren't in
+  the captured scope (archived, removed, outside it: "select it again"), and keeps them on the
+  `input` entry. The frame lists them, by id with their current names, as data after the
+  scope; they widen nothing and send the agents nothing. The transcript draws each as a link to
+  `/a/<id>` or `/w/<id>`, opened only while it still exists.
 - **A run** opens with Coach's system prompt in place of the runtime's, the runtime's built-in
   tools turned off by name (`src/server/coach/tools.ts`), and one MCP server, `rowrow mcp
   coach` (`src/cli/mcp.ts`), whose environment holds a token minted for that run. Only claude

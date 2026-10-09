@@ -3,6 +3,7 @@
 // about an agent is a fold over these entries (src/shared/timeline.ts, summary.ts).
 import type { RawEvent } from "@botiverse/oar";
 import type { CoachActionStatus, CoachProposal } from "./coach-actions.ts";
+import type { CoachMention } from "./coach-mentions.ts";
 
 /** Who caused an entry. Stamped by the server from the caller's credential, never taken from input. */
 export type Actor =
@@ -93,6 +94,9 @@ export type EntryBody =
       readonly scope?: readonly string[];
       /** Coach, with Full access when it was sent (D-045): its proposals in this turn execute. */
       readonly fullAccess?: true;
+      /** Coach: the workspaces and agents you picked with @ (coach-mentions.ts), each at its
+       * "@label" in `text`, checked against `scope` when it was sent. */
+      readonly mentions?: readonly CoachMention[];
     }
   | {
       readonly kind: "input.result";

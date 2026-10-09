@@ -27,6 +27,7 @@ import { Bell, Check, ChevronRight, CircleAlert, CircleX, ExternalLink, LoaderCi
 import { Fragment, memo, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { coachToolLabel } from "../../shared/coach.ts";
+import { mentionSegments, type CoachMention } from "../../shared/coach-mentions.ts";
 import type { Actor, Attachment, EntryOf } from "../../shared/entries.ts";
 import type { AppState } from "../../shared/schemas.ts";
 import { actorLabel } from "../../shared/render-text.ts";
@@ -56,6 +57,7 @@ import {
 } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
 import { CoachActionCard } from "./CoachActionCard.tsx";
+import { MentionLink } from "./CoachMentions.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
@@ -199,6 +201,7 @@ const Message = memo(function Message({
         return (
           <CoachYou
             text={origin?.input.text ?? input.input}
+            mentions={origin?.input.mentions}
             at={origin?.input.at}
             task={origin?.input.by.kind === "system"}
             state={
@@ -279,15 +282,20 @@ function CoachHead({ who, at }: { who: "You" | "Task prompt" | "Coach"; at?: num
   );
 }
 
-/** What you asked Coach: a scheduled task's run (D-050) asks with the task's prompt, rowrow sending it. */
+/**
+ * What you asked Coach: a scheduled task's run (D-050) asks with the task's prompt, rowrow sending
+ * it. The workspaces and agents you referenced with @ are links to them.
+ */
 function CoachYou({
   text,
+  mentions,
   at,
   state,
   reason,
   task = false,
 }: {
   text: string;
+  mentions?: readonly CoachMention[] | undefined;
   at: number | undefined;
   state: "sending" | "sent" | "error";
   reason?: string | null | undefined;
@@ -301,7 +309,13 @@ function CoachYou({
         data-preview
         className="rounded-lg bg-primary/12 px-2.5 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] md:text-xs"
       >
-        {text}
+        {mentionSegments(text, mentions).map((segment, index) =>
+          segment.mention === undefined ? (
+            <Fragment key={index}>{segment.text}</Fragment>
+          ) : (
+            <MentionLink key={index} mention={segment.mention} text={segment.text} />
+          ),
+        )}
       </p>
       {state === "sending" && <span className="text-[11px] text-muted-foreground">Sending…</span>}
       {state === "error" && (
@@ -648,6 +662,7 @@ function PendingCoachInput({ block }: { block: InputBlock }) {
   return (
     <CoachYou
       text={block.input.text}
+      mentions={block.input.mentions}
       at={block.input.at}
       task={block.input.by.kind === "system"}
       state={failed ? "error" : "sending"}
