@@ -170,6 +170,15 @@ export class AgentLog {
     return found;
   }
 
+  /** An agent's entries of these kinds, oldest first. Not for oar records (packed). */
+  ofKinds<K extends Exclude<EntryKind, "oar">>(agentId: string, kinds: readonly K[]): EntryOf<K>[] {
+    return this.rows(
+      `select body from entries where agent_id = ? and kind in (${kinds.map(() => "?").join(", ")}) order by seq`,
+      agentId,
+      ...kinds,
+    ) as EntryOf<K>[];
+  }
+
   /** An agent's entries of one kind appended since `at` (epoch ms), oldest first. Not for oar records (packed). */
   recent<K extends Exclude<EntryKind, "oar">>(agentId: string, kind: K, at: number): EntryOf<K>[] {
     return this.rows(

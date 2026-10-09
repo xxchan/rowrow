@@ -10,6 +10,7 @@ import {
   type AgentStatus,
   type TaskView,
 } from "@botiverse/oar/observe";
+import { openAction, reduceCoachActions, type CoachActionState } from "./coach-actions.ts";
 import type { Actor, Attachment, Entry, EntryOf, QueuePauseReason } from "./entries.ts";
 
 export interface PendingRequestSummary {
@@ -54,6 +55,10 @@ export interface AgentSummary {
   readonly role: "agent" | "coach";
   /** Coach: the workspaces its tools may read now, frozen with the latest input (null: none). */
   readonly scope: readonly string[] | null;
+  /** Coach: the latest input was sent with Full access, so this turn's proposals execute (D-045). */
+  readonly fullAccess: boolean;
+  /** Coach: its actions not decided yet (waiting for you, or running), oldest first (D-045). */
+  readonly coachActions: readonly CoachActionState[];
   readonly runtime: string;
   readonly title: string | null;
   /** The model you asked for; null means the runtime's default. */
@@ -135,6 +140,8 @@ export function initialSummary(): AgentSummary {
     workspaceId: "",
     role: "agent",
     scope: null,
+    fullAccess: false,
+    coachActions: [],
     runtime: "",
     title: null,
     model: null,
@@ -205,7 +212,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return {
         ...s,
         inputs: s.inputs + 1,
-        ...(s.role === "coach" ? { scope: entry.scope ?? null } : {}),
+        ...(s.role === "coach" ? { scope: entry.scope ?? null, fullAccess: entry.fullAccess === true } : {}),
         unanswered: {
           inputId: entry.inputId,
           text: entry.text,
@@ -274,6 +281,11 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         ...s,
         lastNotification: { seq: entry.seq, at: entry.at, title: entry.title, body: entry.body },
       };
+    case "coach.proposal":
+    case "coach.action": {
+      const open = reduceCoachActions(new Map(s.coachActions.map((a) => [a.proposal.id, a])), entry);
+      return { ...s, coachActions: [...open.values()].filter(openAction) };
+    }
     case "oar": {
       // A held input leaves the queue as it goes out, not a moment later with input.sent.
       const { record } = entry;

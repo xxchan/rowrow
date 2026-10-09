@@ -250,6 +250,7 @@ export async function startServer(
     cli: path.join(agentBin, "rowrow"),
     url: () => localUrl(),
   });
+  coach.recover();
   // Housekeeping: turn snapshots and uploads older than a week go.
   const housekeeping = (): void => {
     void snapshots.prune(7 * 24 * 3600_000).catch(() => undefined);

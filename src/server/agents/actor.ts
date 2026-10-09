@@ -70,6 +70,8 @@ export interface SendInput {
   readonly trace?: string;
   /** Coach: the workspaces its tools may read in this turn (D-044). */
   readonly scope?: readonly string[];
+  /** Coach, with Full access: its proposals in this turn execute (D-045). */
+  readonly fullAccess?: true;
 }
 
 /** How rowrow passed an input to the runtime, as oar answered. */
@@ -161,6 +163,7 @@ export class AgentActor {
         by: input.by,
         ...(input.trace === undefined ? {} : { trace: input.trace }),
         ...(input.scope === undefined ? {} : { scope: input.scope }),
+        ...(input.fullAccess === undefined ? {} : { fullAccess: input.fullAccess }),
       });
       const result = await this.deliver(input);
       this.append({

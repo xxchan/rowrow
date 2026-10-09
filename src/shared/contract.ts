@@ -12,6 +12,7 @@ import {
   type AgentsStatusResult,
   type CoachChat,
 } from "./coach.ts";
+import type { CoachActionView } from "./coach-actions.ts";
 import type { Entry } from "./entries.ts";
 import {
   AgentState,
@@ -684,7 +685,7 @@ const coach = {
   send: oc
     .route({
       summary:
-        "Send a message to Coach (D-044), rowrow's assistant, which reads the agents in the workspaces settings.coach allows and does no coding itself. Those workspaces are captured now and stay fixed for the turn. Starts a chat when there is none (or when settings.coach.runtime differs from the current chat's), applies settings.coach's model and effort, and refuses while Coach works. `chatId`: the chat you saw, so a stale window can't send to another one (CONFLICT).",
+        "Send a message to Coach (D-044), rowrow's assistant, which reads the agents in the workspaces settings.coach allows and does no coding itself; it proposes actions you confirm (D-045). Those workspaces (with settings.coach.fullAccess, all of them) are captured now and stay fixed for the turn, and its previews still waiting are cancelled: a new question replaces them. Starts a chat when there is none (or when settings.coach.runtime differs from the current chat's), applies settings.coach's model and effort, and refuses while Coach works or one of its actions executes. `chatId`: the chat you saw, so a stale window can't send to another one (CONFLICT).",
     })
     .input(
       z.object({
@@ -707,6 +708,45 @@ const coach = {
     .route({ summary: "Make an earlier Coach chat the current one again. Not while Coach works." })
     .input(z.object({ chatId: z.string() }))
     .output(ok),
+  stop: oc
+    .route({
+      summary:
+        "Stop Coach's answer: its proposals still waiting for you are cancelled first (they belonged to that question).",
+    })
+    .input(z.object({ chatId: z.string() }))
+    .output(z.object({ accepted: z.boolean(), reason: z.string().optional() })),
+  confirm: oc
+    .route({
+      summary:
+        "Run an action Coach proposed (D-045), exactly as its card shows it: not while Coach is still answering, and one action at a time. Recorded as executing before anything happens, then as succeeded, failed or uncertain with what rowrow checked. A second confirm of the same action is refused (CONFLICT); an action never runs twice.",
+    })
+    .input(z.object({ chatId: z.string(), actionId: z.string() }))
+    .output(z.custom<CoachActionView>()),
+  cancel: oc
+    .route({ summary: "Cancel an action Coach proposed; nothing runs. Not while Coach is still answering." })
+    .input(z.object({ chatId: z.string(), actionId: z.string() }))
+    .output(z.custom<CoachActionView>()),
+  proposeWorktree: oc
+    .route({
+      summary:
+        "Coach's tool propose_worktree_create: a pending proposal to create a worktree of a workspace in the turn's scope (with Full access, done at once: the receipt).",
+    })
+    .input(CoachToolArgs.propose_worktree_create.extend({ chatId }))
+    .output(z.custom<CoachActionView>()),
+  proposeAgent: oc
+    .route({
+      summary:
+        "Coach's tool propose_agent_start: a pending proposal to start an agent in a workspace of the turn's scope with an exact first message (with Full access, done at once: the receipt).",
+    })
+    .input(CoachToolArgs.propose_agent_start.extend({ chatId }))
+    .output(z.custom<CoachActionView>()),
+  proposePrompt: oc
+    .route({
+      summary:
+        "Coach's tool propose_agent_prompt: a pending proposal to send an exact message to an agent in the turn's scope (with Full access, done at once: the receipt).",
+    })
+    .input(CoachToolArgs.propose_agent_prompt.extend({ chatId }))
+    .output(z.custom<CoachActionView>()),
   agentsStatus: oc
     .route({
       summary:

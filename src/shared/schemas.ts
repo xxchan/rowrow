@@ -400,6 +400,12 @@ export const Settings = z.object({
       runtime: z.string().describe("The runtime a new Coach chat runs on: claude or pi."),
       model: z.string().nullable().describe("Coach's model; null is the runtime's default."),
       effort: z.string().nullable().describe("Coach's reasoning effort; null is the model's default."),
+      fullAccess: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Full access (D-045): Coach may read every current and future workspace and run its actions without asking. Off until you turn it on.",
+        ),
     })
     .describe("Coach (D-044): what it may read, and what it runs on. Applies to the next message."),
 });
@@ -415,7 +421,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ],
   checkForUpdates: true,
   instanceName: "",
-  coach: { workspaces: [], runtime: "claude", model: null, effort: null },
+  coach: { workspaces: [], runtime: "claude", model: null, effort: null, fullAccess: false },
 };
 
 /** What the app is called on this server: the page title and the installed app's name (roamgate #368). */

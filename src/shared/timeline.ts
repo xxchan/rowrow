@@ -16,6 +16,7 @@ import {
   type ViewPart,
   type ViewSection,
 } from "@botiverse/oar/observe";
+import { reduceCoachActions, type CoachActionState } from "./coach-actions.ts";
 import type { Entry, EntryOf } from "./entries.ts";
 import { echoesInput } from "./summary.ts";
 
@@ -34,6 +35,14 @@ export interface RunBlock {
   readonly selfStopped?: readonly string[];
   /** Notifications sent while it was live (placeNotes says where they go). */
   readonly notes?: readonly RunNote[];
+  /** Coach's proposals made in it, after the message that was last then (D-045). */
+  readonly proposals?: readonly RunProposal[];
+}
+
+/** A Coach proposal made during a run, after the message that was the run's last (null: none yet). */
+export interface RunProposal {
+  readonly id: string;
+  readonly after: string | null;
 }
 
 /** A notification sent during a run, after the message that was the run's last (null: none yet). */
@@ -64,13 +73,15 @@ export interface Timeline {
   readonly blocks: readonly TimelineBlock[];
   /** Every input by id, for authorship and delivery state (who sent it, from where, how it landed). */
   readonly inputs: ReadonlyMap<string, InputBlock>;
+  /** Coach's actions by id, as they stand (coach-actions.ts): where its cards get their state. */
+  readonly coachActions: ReadonlyMap<string, CoachActionState>;
   readonly firstSeq: number;
   /** seq of the last folded entry; the cursor to resume from. -1 before any. */
   readonly headSeq: number;
 }
 
 export function initialTimeline(): Timeline {
-  return { blocks: [], inputs: new Map(), firstSeq: -1, headSeq: -1 };
+  return { blocks: [], inputs: new Map(), coachActions: new Map(), firstSeq: -1, headSeq: -1 };
 }
 
 export function timelineOf(entries: Iterable<Entry>): Timeline {
@@ -174,6 +185,21 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
       const note: RunNote = { entry, after: run.view.messages.at(-1)?.id ?? null };
       return { ...t, blocks: replaceAt(t.blocks, index, { ...run, notes: [...(run.notes ?? []), note] }) };
     }
+    case "coach.proposal": {
+      // Made by a tool call mid-turn: in the run, after what Coach had said by then.
+      const coachActions = reduceCoachActions(t.coachActions, entry);
+      const index = lastRun(t.blocks);
+      if (index === -1) return { ...t, coachActions };
+      const run = t.blocks[index] as RunBlock;
+      const proposal: RunProposal = { id: entry.proposal.id, after: run.view.messages.at(-1)?.id ?? null };
+      return {
+        ...t,
+        coachActions,
+        blocks: replaceAt(t.blocks, index, { ...run, proposals: [...(run.proposals ?? []), proposal] }),
+      };
+    }
+    case "coach.action":
+      return { ...t, coachActions: reduceCoachActions(t.coachActions, entry) };
     case "agent.updated":
       // Only a model change reads as part of the conversation; renames and archiving don't.
       return entry.changes.model === undefined
@@ -219,6 +245,20 @@ export function placeNotes(run: RunBlock): {
     else after.set(at, [...(after.get(at) ?? []), note]);
   }
   return { before, after };
+}
+
+/** Where a run's Coach proposals go: after the message that was last when each was made (its turn). */
+export function placeProposals(run: RunBlock): ReadonlyMap<string | null, readonly string[]> {
+  const proposals = run.proposals ?? [];
+  if (proposals.length === 0) return new Map();
+  const ids = new Set(run.view.messages.map((message) => message.id));
+  const last = run.view.messages.at(-1)?.id ?? null;
+  const placed = new Map<string | null, string[]>();
+  for (const proposal of proposals) {
+    const at = proposal.after === null ? null : ids.has(proposal.after) ? proposal.after : last;
+    placed.set(at, [...(placed.get(at) ?? []), proposal.id]);
+  }
+  return placed;
 }
 
 function replaceAt<T>(items: readonly T[], index: number, item: T): T[] {

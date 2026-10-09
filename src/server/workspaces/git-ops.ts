@@ -138,9 +138,11 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
     target: string,
     source: string,
     cwd: string,
+    expected?: string | null,
   ): Promise<HookRun | null> => {
     const config = await resolveHooks({ target, source });
     const command = config?.worktree[event];
+    if (expected !== undefined && (command ?? null) !== expected) throw new HookMismatch(command ?? null);
     if (config === null || command === undefined) return null;
     const run = await runHook({ event, command, cwd, worktreePath: target, sourcePath: source });
     log[run.ok ? "info" : "warn"]("worktree.hook", {
@@ -164,6 +166,7 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
           root: deps.worktreesRoot,
           ...(options.branch === undefined ? {} : { branch: options.branch }),
           ...(options.base === undefined ? {} : { base: options.base }),
+          ...(options.newBranch === true ? { newBranch: true } : {}),
         });
       } catch (error) {
         throw new UserError(error instanceof Error ? error.message : String(error));
@@ -181,11 +184,34 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         branch: created.branch,
         base: created.baseLabel,
       });
-      const setup = await hook("setup", created.path, source.path, created.path);
+      let setup: HookRun | null;
+      try {
+        setup = await hook("setup", created.path, source.path, created.path, options.setup);
+      } catch (error) {
+        if (!(error instanceof HookMismatch)) throw error;
+        log.warn("worktree.hook_changed", { ws: ws.id, expected: options.setup ?? null });
+        return {
+          workspace: workspaces.get(ws.id) ?? ws,
+          hook: {
+            ran: false,
+            ok: false,
+            output: `The new worktree's setup hook (${error.command ?? "none"}) isn't the one shown (${options.setup ?? "none"}), so it didn't run.`,
+          },
+        };
+      }
       return {
         workspace: workspaces.get(ws.id) ?? ws,
         hook: setup === null ? null : { ran: true, ok: setup.ok, output: setup.output },
       };
+    },
+
+    async worktreeSetup(workspaceId) {
+      const source = gitWorkspace(workspaceId);
+      try {
+        return (await resolveHooks({ target: source.path, source: source.path }))?.worktree.setup ?? null;
+      } catch (error) {
+        throw new UserError(error instanceof Error ? error.message : String(error));
+      }
     },
 
     async removeWorktree(workspaceId, force) {
@@ -499,4 +525,13 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       }
     },
   };
+}
+
+/** A hook isn't the one the caller showed: it doesn't run. */
+class HookMismatch extends Error {
+  readonly command: string | null;
+  constructor(command: string | null) {
+    super("the hook changed");
+    this.command = command;
+  }
 }

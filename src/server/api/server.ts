@@ -38,7 +38,7 @@ import { log, serializeError } from "../telemetry/log.ts";
 import type { ApiContext, Router } from "./router.ts";
 
 export const COOKIE = "rowrow_session";
-/** Who Coach's reads come from, in the log: no device of yours. */
+/** Who Coach's tool calls come from, in the log: no device of yours. */
 const COACH_DEVICE: DeviceRecord = { id: "coach", name: "Coach", kind: "cli" };
 const TRACE_HEADER = "x-rowrow-trace";
 const AGENT_HEADER = "x-rowrow-agent";
@@ -49,7 +49,7 @@ export interface HttpOptions {
   readonly presence: Presence;
   /** The credential rowrow hands to the agents it runs; requests with it act as an agent. */
   readonly agentDeviceId: string;
-  /** The tokens of Coach's runs (D-044): the router lets them only read. */
+  /** The tokens of Coach's runs (D-044): the router lets them only read and propose (D-045). */
   readonly coachTokens?: CoachTokens;
   readonly host: string;
   readonly port: number;

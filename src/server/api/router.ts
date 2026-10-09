@@ -57,19 +57,28 @@ export interface ApiContext {
   readonly connectionId?: string;
   /** A trace id the caller brought (header `x-rowrow-trace`). */
   readonly trace?: string;
-  /** Coach's MCP server calling with its run's token (D-044): it may only read, through COACH_READS. */
+  /** Coach's MCP server calling with its run's token (D-044): it may only call COACH_CALLS. */
   readonly coach?: CoachGrant;
 }
 
 export interface GitOps {
   createWorktree(
     workspaceId: string,
-    options: { branch?: string; base?: string },
+    options: {
+      branch?: string;
+      base?: string;
+      /** Refuse a branch that already exists, rather than check it out as it is. */
+      newBranch?: boolean;
+      /** The setup hook the caller showed (Coach's card, D-045): a different one doesn't run. */
+      setup?: string | null;
+    },
   ): Promise<{
     workspace: Workspace;
     hook: { ran: boolean; ok: boolean; output: string } | null;
   }>;
   removeWorktree(workspaceId: string, force: boolean): Promise<void>;
+  /** The setup hook a worktree of this workspace's repository would run, as its checkout says; null for none. */
+  worktreeSetup(workspaceId: string): Promise<string | null>;
   changes(workspaceId: string, scope: DiffScope, agentId?: string): Promise<Changes>;
   diff(
     workspaceId: string,
@@ -133,12 +142,18 @@ const QUIET = new Set(["presence.update", "telemetry.report", "agents.markSeen",
 const DEFAULT_WAIT: Attention[] = ["blocked", "done", "idle"];
 /** agents.watch sends at most one batch per this long: ten a second while text streams. */
 const WATCH_GAP_MS = 100;
-/** All Coach's token can call: its tools' reads, each checked against its turn's workspaces. */
-const COACH_READS = new Set([
+/**
+ * All Coach's token can call: its tools, each checked against its turn's workspaces. They read,
+ * or propose an action for you to confirm (D-045); confirming is yours alone.
+ */
+const COACH_CALLS = new Set([
   "coach.agentsStatus",
   "coach.agentHistory",
   "coach.agentChanges",
   "coach.agentBackground",
+  "coach.proposeWorktree",
+  "coach.proposeAgent",
+  "coach.proposePrompt",
 ]);
 
 /** Presence of an HTTP client's state.watch stream: its own name, scoped to the device that chose it. */
@@ -165,8 +180,8 @@ export function createRouter(s: Services) {
         async () => {
           const started = Date.now();
           try {
-            if (context.coach !== undefined && !COACH_READS.has(name))
-              throw new UserError("Coach can only read, through its own tools.", "FORBIDDEN");
+            if (context.coach !== undefined && !COACH_CALLS.has(name))
+              throw new UserError("Coach can only read and propose, through its own tools.", "FORBIDDEN");
             const result = await next();
             if (!QUIET.has(name)) log.info("api.call", { proc: name, ms: Date.now() - started });
             return result;
@@ -453,6 +468,22 @@ export function createRouter(s: Services) {
         await s.coach.open(input.chatId, context.actor);
         return { ok: true as const };
       }),
+      stop: os.coach.stop.handler(async ({ input, context }) => s.coach.stop(input.chatId, context.actor)),
+      confirm: os.coach.confirm.handler(async ({ input, context }) =>
+        s.coach.confirm(input.chatId, input.actionId, context.actor),
+      ),
+      cancel: os.coach.cancel.handler(({ input, context }) =>
+        s.coach.cancel(input.chatId, input.actionId, context.actor),
+      ),
+      proposeWorktree: os.coach.proposeWorktree.handler(async ({ input, context }) =>
+        s.coach.proposeWorktree(chatOf(context, input.chatId), input, proposer(context)),
+      ),
+      proposeAgent: os.coach.proposeAgent.handler(async ({ input, context }) =>
+        s.coach.proposeAgent(chatOf(context, input.chatId), input, proposer(context)),
+      ),
+      proposePrompt: os.coach.proposePrompt.handler(async ({ input, context }) =>
+        s.coach.proposePrompt(chatOf(context, input.chatId), input, proposer(context)),
+      ),
       agentsStatus: os.coach.agentsStatus.handler(({ input, context }) =>
         s.coach.agentsStatus(chatOf(context, input.chatId), input),
       ),
@@ -672,7 +703,7 @@ export function createRouter(s: Services) {
 
 export type Router = ReturnType<typeof createRouter>;
 
-/** Whose turn a Coach read is for: Coach's own (its token says), or the chat you name. */
+/** Whose turn a Coach tool call is for: Coach's own (its token says), or the chat you name. */
 function chatOf(context: ApiContext, chatId: string | undefined): string {
   if (context.coach !== undefined) {
     if (chatId !== undefined && chatId !== context.coach.chatId)
@@ -681,6 +712,11 @@ function chatOf(context: ApiContext, chatId: string | undefined): string {
   }
   if (chatId === undefined) throw new UserError("Name the Coach chat whose turn to read as (chatId).");
   return chatId;
+}
+
+/** Who proposes: Coach, through its token's tools, or you, naming the chat. */
+function proposer(context: ApiContext): Actor {
+  return context.coach === undefined ? context.actor : { kind: "agent", agentId: context.coach.chatId };
 }
 
 /** Messages to Coach go through coach.send, which captures what it may read. */

@@ -85,6 +85,8 @@ export interface CreateWorktreeInput {
   readonly branch?: string;
   /** A commit-ish for a new branch. Defaults to origin's default branch, else local HEAD. */
   readonly base?: string;
+  /** Refuse a branch that already exists instead of checking it out. */
+  readonly newBranch?: boolean;
 }
 
 export interface CreatedWorktree {
@@ -112,6 +114,8 @@ export async function createWorktree(input: CreateWorktreeInput): Promise<Create
   const existing = await revParse(repoDir, `refs/heads/${branch}`);
   let base: string;
   let baseLabel: string;
+  if (existing !== null && input.newBranch === true)
+    throw new Error(`branch ${branch} already exists; choose another name`);
   if (existing !== null) {
     // Mirrors `git worktree add -b`: an existing branch is never moved to another base.
     if (input.base !== undefined)

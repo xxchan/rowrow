@@ -2,9 +2,17 @@
 // agent reads instead of a screenshot. Same fold as the UI, so the text is what the UI
 // showed.
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
+import { ACTION_NAMES, statusWord } from "./coach-actions.ts";
 import { droppedWords, failureHint } from "./describe.ts";
 import type { Actor, Attachment, EntryOf } from "./entries.ts";
-import { foldHiddenThoughts, laneOf, placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
+import {
+  foldHiddenThoughts,
+  laneOf,
+  placeNotes,
+  placeProposals,
+  stoppedByAgent,
+  type Timeline,
+} from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -48,13 +56,16 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
             : `── run ${s.runId} · ${s.runtime}${s.model === undefined ? "" : ` · ${s.model}`}${s.resume === undefined ? "" : " · resumed"} ──`,
         );
         const notes = placeNotes(block);
+        const proposals = placeProposals(block);
         out.push(...notes.before.map((note) => notifiedLine(note.entry)));
+        out.push(...actionLines(proposals.get(null), timeline));
         for (const message of block.view.messages) {
           const byAgent = stoppedByAgent(block, message.id);
           out.push(
             ...renderMessage(message, timeline, block.view.rootSessionId, { toolChars, textChars }, byAgent),
           );
           out.push(...(notes.after.get(message.id) ?? []).map((note) => notifiedLine(note.entry)));
+          out.push(...actionLines(proposals.get(message.id), timeline));
         }
         if (block.ended !== undefined) {
           const { reason, code, error } = block.ended;
@@ -71,6 +82,19 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
     }
   }
   return `${out.join("\n")}\n`;
+}
+
+/** Coach's actions (D-045): what each would do, and what became of it. */
+function actionLines(ids: readonly string[] | undefined, timeline: Timeline): string[] {
+  return (ids ?? []).flatMap((id) => {
+    const action = timeline.coachActions.get(id);
+    if (action === undefined) return [];
+    const { kind, agentId, agentTitle, workspaceLabel } = action.proposal;
+    const target = agentId === undefined ? workspaceLabel : `${agentTitle ?? agentId} in ${workspaceLabel}`;
+    return [
+      `· Coach proposed: ${ACTION_NAMES[kind]} (${target}) · ${statusWord(kind, action.status)}: ${action.detail}`,
+    ];
+  });
 }
 
 /** A notification sent to you: what it said, who sent it, and its dedup key. */

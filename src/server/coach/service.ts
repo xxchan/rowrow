@@ -4,9 +4,22 @@
 // the turn), how its runs open (Coach's system prompt, the runtime's built-in tools off, and
 // rowrow's MCP server with a token for that run), and the reads its tools make, each checked
 // against the turn's workspaces and bounded like roamgate's (80 items, 8,000 characters a
-// message, 32,000 a read).
+// message, 32,000 a read). Its actions (D-045) live here too: a proposal is frozen in the
+// chat's log and waits for your Confirm (or, with Full access, runs at once); each one runs
+// alone, is recorded as executing before anything happens, and ends with rowrow's receipt.
 import type { SessionOptions } from "@botiverse/oar";
 import fs from "node:fs/promises";
+import {
+  ACTION_COPY,
+  actionView,
+  coachActionsOf,
+  MAX_PROPOSALS_PER_TURN,
+  receiptsFor,
+  statusWord,
+  type CoachActionState,
+  type CoachActionView,
+  type CoachProposal,
+} from "../../shared/coach-actions.ts";
 import {
   canCoach,
   CANT_COACH,
@@ -27,7 +40,7 @@ import {
 import { statusDot } from "../../shared/describe.ts";
 import type { Actor, EntryOf } from "../../shared/entries.ts";
 import { renderText } from "../../shared/render-text.ts";
-import type { AgentState, DiffScope, SendResult } from "../../shared/schemas.ts";
+import type { AgentState, DiffScope, SendResult, Settings, Workspace } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { timelineOf } from "../../shared/timeline.ts";
 import type { AgentLog } from "../agents/log.ts";
@@ -36,9 +49,10 @@ import type { AgentService } from "../agents/service.ts";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
 import type { SettingsService } from "../settings.ts";
-import { log, withContext } from "../telemetry/log.ts";
+import { log, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
-import { COACH_SYSTEM_PROMPT, turnText } from "./prompt.ts";
+import { execute, proposeAgent, proposePrompt, proposeWorktree, type Receipt } from "./actions.ts";
+import { coachSystemPrompt, turnText } from "./prompt.ts";
 import type { CoachTokens } from "./tokens.ts";
 import { BUILTIN_TOOLS, leakedTools } from "./tools.ts";
 
@@ -48,7 +62,7 @@ export interface CoachDeps {
   readonly workspaces: Workspaces;
   readonly settings: SettingsService;
   readonly runtimes: Runtimes;
-  readonly git: () => Pick<GitOps, "changes" | "diff">;
+  readonly git: () => Pick<GitOps, "changes" | "diff" | "createWorktree" | "worktreeSetup">;
   readonly tokens: CoachTokens;
   /** The `rowrow` launcher of this server's own CLI: Coach's MCP server is `rowrow mcp coach`. */
   readonly cli: string;
@@ -58,18 +72,44 @@ export interface CoachDeps {
 
 const HISTORY_CHATS = 200;
 const BUSY = "Coach is still working on your last message: stop it, or wait for its answer.";
+const EXECUTING = "Coach is executing an action you confirmed: wait for its result.";
+const WAIT_TO_DECIDE = "Wait for Coach to finish before confirming or cancelling an action.";
+
+/** Coach itself, as the author of what it proposes (and, with Full access, does). */
+function coachActor(chatId: string): Actor {
+  return { kind: "agent", agentId: chatId };
+}
 
 export class CoachService {
   private readonly deps: CoachDeps;
   /** coach.send, one at a time: a second one sees the first's chat. */
   private sending: Promise<unknown> = Promise.resolve();
 
+  /** The action running now: one at a time, everywhere. */
+  private executing: { readonly chatId: string; readonly actionId: string } | null = null;
+  /** Full access runs its actions in the order Coach asks, one after another. */
+  private acting: Promise<unknown> = Promise.resolve();
+  /** Whether each live run opened with Full access: its prompt and tools say so. */
+  private readonly runModes = new Map<string, boolean>();
+  /** Coach's own settings change (a worktree you confirmed becomes readable) expires nothing. */
+  private ownSettingsChange = false;
+
   constructor(deps: CoachDeps) {
     this.deps = deps;
     deps.log.onAppend((agentId, entry) => {
       // A run's token works as long as the run.
-      if (entry.kind === "run.ended" || entry.kind === "run.failed") deps.tokens.revoke(entry.runId);
+      if (entry.kind === "run.ended" || entry.kind === "run.failed") {
+        deps.tokens.revoke(entry.runId);
+        this.runModes.delete(entry.runId);
+      }
       if (entry.kind === "oar") this.checkTools(agentId, entry);
+    });
+    let before = deps.settings.get().coach;
+    deps.settings.onChange((keys) => {
+      if (!keys.includes("coach")) return;
+      const after = deps.settings.get().coach;
+      if (!this.ownSettingsChange && narrowed(before, after)) this.expireCurrent(ACTION_COPY.configChanged);
+      before = after;
     });
   }
 
@@ -123,7 +163,7 @@ export class CoachService {
   }): Promise<SendResult & { chatId: string }> {
     const { agents } = this.deps;
     let chat = agents.currentCoach();
-    const send = async (chatId: string, scope: readonly string[]) => ({
+    const send = async (chatId: string, scope: readonly string[], fullAccess = false) => ({
       chatId,
       ...(await agents.send(chatId, {
         inputId: input.inputId,
@@ -131,6 +171,7 @@ export class CoachService {
         mode: "auto",
         by: input.by,
         scope,
+        ...(fullAccess ? { fullAccess: true as const } : {}),
         ...(input.trace === undefined ? {} : { trace: input.trace }),
       })),
     });
@@ -144,28 +185,36 @@ export class CoachService {
       );
     const settings = this.deps.settings.get().coach;
     if (!canCoach(settings.runtime)) throw new UserError(CANT_COACH, "PRECONDITION_FAILED");
+    if (this.executing !== null) throw new UserError(EXECUTING, "CONFLICT");
     const runtime = this.deps.runtimes.info(settings.runtime);
     if (runtime === undefined || !runtime.installed)
       throw new UserError(
         `${runtime?.name ?? settings.runtime} isn't installed here: pick another runtime in Coach's settings.`,
         "PRECONDITION_FAILED",
       );
-    // Captured now, fixed for the turn: what you allowed that still exists.
-    const scope = settings.workspaces.filter((id) => {
-      const ws = this.deps.workspaces.get(id);
-      return ws !== undefined && !ws.archived && !ws.missing;
-    });
+    // Captured now, fixed for the turn: what you allowed that still exists (with Full access,
+    // every workspace; the turn may also use ones made while it runs).
+    const scope = this.available(settings.fullAccess ? undefined : settings.workspaces);
     if (scope.length === 0)
       throw new UserError(
-        "Choose the workspaces Coach may read in its settings first.",
+        settings.fullAccess
+          ? "Add a workspace to rowrow first: Coach reads agents in workspaces."
+          : "Choose the workspaces Coach may read in its settings first.",
         "PRECONDITION_FAILED",
       );
     if (chat !== null && busy(chat)) throw new UserError(BUSY, "CONFLICT");
     // A chat runs on one runtime: another one starts a new chat.
     if (chat !== null && chat.summary.runtime !== settings.runtime) {
+      this.expire(chat.id, ACTION_COPY.left, input.by);
       await agents.update(chat.id, { archived: true }, input.by);
       chat = null;
     }
+    // A new question replaces the previews of the last one.
+    if (chat !== null) this.expire(chat.id, ACTION_COPY.replaced, input.by);
+    // A run opened with the other permission mode has the other prompt and tools: start a new one.
+    const live = chat?.summary.run?.runId;
+    if (chat !== null && live !== undefined && this.runModes.get(live) !== settings.fullAccess)
+      await agents.stop(chat.id, "restart");
     if (chat === null) {
       chat = agents.createCoach({
         runtime: settings.runtime,
@@ -177,8 +226,8 @@ export class CoachService {
       // Idle (checked above), so the restart this takes ends no turn.
       await agents.update(chat.id, { model: settings.model, effort: settings.effort }, input.by);
     }
-    log.info("coach.send", { chat: chat.id, workspaces: scope.length });
-    return send(chat.id, scope);
+    log.info("coach.send", { chat: chat.id, workspaces: scope.length, fullAccess: settings.fullAccess });
+    return send(chat.id, scope, settings.fullAccess);
   }
 
   /** Leave the current chat; the next message starts a new one. */
@@ -186,7 +235,16 @@ export class CoachService {
     const chat = this.deps.agents.currentCoach();
     if (chat === null) return;
     if (busy(chat)) throw new UserError(BUSY, "CONFLICT");
+    if (this.executing !== null) throw new UserError(EXECUTING, "CONFLICT");
+    this.expire(chat.id, ACTION_COPY.left, by);
     await this.deps.agents.update(chat.id, { archived: true }, by);
+  }
+
+  /** Stop Coach's answer; its previews still waiting belonged to that question. */
+  async stop(chatId: string, by: Actor): Promise<{ accepted: boolean; reason?: string }> {
+    this.chat(chatId);
+    this.expire(chatId, ACTION_COPY.stopped, by);
+    return this.deps.agents.abort(chatId);
   }
 
   /** Make an earlier chat the current one. */
@@ -198,7 +256,11 @@ export class CoachService {
     const chat = agents.currentCoach();
     if (chat?.id === chatId) return;
     if (chat !== null && busy(chat)) throw new UserError(BUSY, "CONFLICT");
-    if (chat !== null) await agents.update(chat.id, { archived: true }, by);
+    if (this.executing !== null) throw new UserError(EXECUTING, "CONFLICT");
+    if (chat !== null) {
+      this.expire(chat.id, ACTION_COPY.left, by);
+      await agents.update(chat.id, { archived: true }, by);
+    }
     await agents.update(chatId, { archived: false }, by);
   }
 
@@ -228,39 +290,74 @@ export class CoachService {
   ): Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers"> {
     const { summary } = this.deps.agents.get(agentId) ?? {};
     if (summary?.role !== "coach") return {};
+    // The message that opens the run is in the log already: its permission mode is the run's.
+    const fullAccess = summary.fullAccess;
+    this.runModes.set(runId, fullAccess);
     return {
-      systemPrompt: COACH_SYSTEM_PROMPT,
+      systemPrompt: coachSystemPrompt(fullAccess),
       disallowedTools: BUILTIN_TOOLS[summary.runtime] ?? [],
       mcpServers: [
         {
           name: COACH_MCP_SERVER,
           command: this.deps.cli,
           args: ["mcp", "coach"],
-          env: { ROWROW_URL: this.deps.url(), ROWROW_TOKEN: this.deps.tokens.mint(agentId, runId) },
+          env: {
+            ROWROW_URL: this.deps.url(),
+            ROWROW_TOKEN: this.deps.tokens.mint(agentId, runId),
+            ...(fullAccess ? { ROWROW_COACH_FULL_ACCESS: "1" } : {}),
+          },
         },
       ],
     };
   }
 
-  /** What the runtime reads for a message to Coach: the turn's workspaces, then the text. */
+  /**
+   * What the runtime reads for a message to Coach: the turn's workspaces, what became of its
+   * latest actions there (rowrow's receipts: how the model learns what you confirmed), then the text.
+   */
   promptText(agentId: string, inputId: string, text: string): string {
     if (this.deps.agents.get(agentId)?.summary.role !== "coach") return text;
     const entry = this.deps.log.findInput(agentId, inputId).input;
     const scope = entry?.kind === "input" ? (entry.scope ?? []) : [];
     return turnText(
       scope.map((id) => ({ workspaceId: id, label: this.deps.workspaces.get(id)?.label ?? id })),
+      receiptsFor(this.actions(agentId), scope),
       text,
     );
   }
 
   // ─── Coach's tools ────────────────────────────────────────────────────────
 
-  /** The workspaces a chat's current turn may read (still registered). */
-  private scopeOf(chatId: string): string[] {
+  private chat(chatId: string): AgentState {
     const chat = this.deps.agents.get(chatId);
     if (chat === undefined || chat.summary.role !== "coach")
       throw new UserError(`no Coach chat ${chatId}`, "NOT_FOUND");
-    return (chat.summary.scope ?? []).filter((id) => this.deps.workspaces.get(id) !== undefined);
+    return chat;
+  }
+
+  /**
+   * The workspaces a chat's current turn may read and act on (still registered): those captured
+   * when you sent it and, while Full access lasts, any made since.
+   */
+  private scopeOf(chatId: string): string[] {
+    const chat = this.chat(chatId);
+    const captured = (chat.summary.scope ?? []).filter((id) => this.deps.workspaces.get(id) !== undefined);
+    if (!this.fullAccess(chat)) return captured;
+    return [...new Set([...captured, ...this.available()])];
+  }
+
+  /** The workspaces (these ones, or all) that are there to read: not archived, not missing. */
+  private available(ids?: readonly string[]): string[] {
+    const all = ids ?? this.deps.workspaces.list().map((ws) => ws.id);
+    return all.filter((id) => {
+      const ws = this.deps.workspaces.get(id);
+      return ws !== undefined && !ws.archived && !ws.missing;
+    });
+  }
+
+  /** Its turn was sent with Full access, and you haven't turned it off since. */
+  private fullAccess(chat: AgentState): boolean {
+    return chat.summary.fullAccess && this.deps.settings.get().coach.fullAccess;
   }
 
   /** An agent this turn may read. Out of scope and unknown read the same: nothing leaks. */
@@ -330,6 +427,14 @@ export class CoachService {
           };
         }),
         agents: rows,
+        runtimes: this.deps.runtimes
+          .list()
+          .filter((runtime) => runtime.installed)
+          .map((runtime) => ({
+            runtime: runtime.id,
+            name: runtime.name,
+            signedIn: runtime.auth === null ? null : runtime.auth.kind !== "logged_out",
+          })),
       },
       cut,
       now,
@@ -423,6 +528,239 @@ export class CoachService {
     );
     return stamped({ agentId: agent.id, commands }, cut);
   }
+
+  // ─── Actions (D-045) ──────────────────────────────────────────────────────
+
+  /** A chat's actions as its log has them. */
+  private actions(chatId: string): ReadonlyMap<string, CoachActionState> {
+    return coachActionsOf(this.deps.log.ofKinds(chatId, ["coach.proposal", "coach.action"]));
+  }
+
+  private record(
+    chatId: string,
+    actionId: string,
+    status: "executing" | "cancelled" | Receipt["status"],
+    detail: string,
+    by: Actor,
+  ): void {
+    withContext({ agent: chatId }, () => {
+      this.deps.log.append(chatId, { kind: "coach.action", actionId, status, detail, by });
+      log.info("coach.action", { action: actionId, status });
+    });
+  }
+
+  /** Previews still waiting are cancelled, saying why; one that is running goes on. */
+  private expire(chatId: string, detail: string, by: Actor): void {
+    for (const action of this.deps.agents.get(chatId)?.summary.coachActions ?? [])
+      if (action.status === "pending") this.record(chatId, action.proposal.id, "cancelled", detail, by);
+  }
+
+  private expireCurrent(detail: string): void {
+    const chat = this.deps.agents.currentCoach();
+    if (chat !== null) this.expire(chat.id, detail, { kind: "system" });
+  }
+
+  /**
+   * After a restart: no preview outlives the server, and one that was running is never run
+   * again; what it did is unknown, so it is uncertain.
+   */
+  recover(): void {
+    for (const chat of this.deps.agents.coachChats())
+      for (const action of chat.summary.coachActions)
+        if (action.status === "executing")
+          this.record(chat.id, action.proposal.id, "uncertain", ACTION_COPY.restartedExecuting, {
+            kind: "system",
+          });
+        else this.record(chat.id, action.proposal.id, "cancelled", ACTION_COPY.restarted, { kind: "system" });
+  }
+
+  /** Coach's tool propose_worktree_create. */
+  async proposeWorktree(
+    chatId: string,
+    args: { workspaceId: string; branch: string },
+    by: Actor,
+  ): Promise<CoachActionView> {
+    const ws = this.workspaceIn(chatId, args.workspaceId);
+    return this.propose(chatId, await proposeWorktree(this.actionDeps(), ws, args), by);
+  }
+
+  /** Coach's tool propose_agent_start. */
+  async proposeAgent(
+    chatId: string,
+    args: { workspaceId: string; runtime: string; prompt: string; title?: string | undefined },
+    by: Actor,
+  ): Promise<CoachActionView> {
+    const ws = this.workspaceIn(chatId, args.workspaceId);
+    return this.propose(chatId, proposeAgent(this.actionDeps(), ws, args), by);
+  }
+
+  /** Coach's tool propose_agent_prompt. */
+  async proposePrompt(
+    chatId: string,
+    args: { agentId: string; prompt: string },
+    by: Actor,
+  ): Promise<CoachActionView> {
+    const agent = this.agentIn(chatId, args.agentId);
+    if (agent.summary.archived)
+      throw new UserError(`Agent ${agent.id} is archived: it takes no messages.`, "PRECONDITION_FAILED");
+    const ws = this.workspaceIn(chatId, agent.summary.workspaceId);
+    return this.propose(chatId, proposePrompt(agent, ws, args), by);
+  }
+
+  /** A workspace this turn may act on. Out of scope and unknown read the same. */
+  private workspaceIn(chatId: string, workspaceId: string): Workspace {
+    const ws = this.deps.workspaces.get(workspaceId);
+    if (ws === undefined || ws.archived || ws.missing || !this.scopeOf(chatId).includes(workspaceId))
+      throw new UserError(
+        `Workspace ${workspaceId} isn't in this turn's authorized workspaces.`,
+        "FORBIDDEN",
+      );
+    return ws;
+  }
+
+  /** Freeze a proposal in the chat's log: pending, or with Full access, run at once. */
+  private async propose(chatId: string, proposal: CoachProposal, by: Actor): Promise<CoachActionView> {
+    const chat = this.chat(chatId);
+    if (this.proposedThisTurn(chatId) >= MAX_PROPOSALS_PER_TURN)
+      throw new UserError(
+        `This turn already has ${MAX_PROPOSALS_PER_TURN} action previews.`,
+        "PRECONDITION_FAILED",
+      );
+    withContext({ agent: chatId }, () => {
+      this.deps.log.append(chatId, { kind: "coach.proposal", proposal, by });
+      log.info("coach.proposal", { action: proposal.id, kind: proposal.kind, ws: proposal.workspaceId });
+    });
+    if (!this.fullAccess(chat)) return this.view(chatId, proposal.id);
+    // In the order Coach asked, one at a time; turning Full access off meanwhile leaves it pending.
+    const run = this.acting.then(async () =>
+      this.fullAccess(this.chat(chatId))
+        ? this.run(chatId, proposal.id, coachActor(chatId))
+        : this.view(chatId, proposal.id),
+    );
+    this.acting = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Proposals since the message that started this turn. */
+  private proposedThisTurn(chatId: string): number {
+    const entries = this.deps.log.ofKinds(chatId, ["input", "coach.proposal"]);
+    const turn = entries.findLastIndex((entry) => entry.kind === "input");
+    return entries.slice(turn + 1).length;
+  }
+
+  private view(chatId: string, actionId: string): CoachActionView {
+    const action = this.actions(chatId).get(actionId);
+    if (action === undefined) throw new UserError(`no action ${actionId} in this chat`, "NOT_FOUND");
+    return actionView(action);
+  }
+
+  /** Your Confirm on a card: run it exactly as shown, once. */
+  async confirm(chatId: string, actionId: string, by: Actor): Promise<CoachActionView> {
+    this.decidable(chatId, actionId);
+    if (this.executing !== null)
+      throw new UserError("Another action is executing: wait for its result.", "CONFLICT");
+    return this.run(chatId, actionId, by);
+  }
+
+  /** Your Cancel on a card: nothing runs. */
+  cancel(chatId: string, actionId: string, by: Actor): CoachActionView {
+    this.decidable(chatId, actionId);
+    this.record(chatId, actionId, "cancelled", ACTION_COPY.cancelled, by);
+    return this.view(chatId, actionId);
+  }
+
+  /** A pending action you may decide on now: not while Coach answers. */
+  private decidable(chatId: string, actionId: string): CoachActionState {
+    const chat = this.chat(chatId);
+    const action = this.actions(chatId).get(actionId);
+    if (action === undefined) throw new UserError(`no action ${actionId} in this chat`, "NOT_FOUND");
+    if (action.status !== "pending")
+      throw new UserError(
+        `This action is ${statusWord(action.proposal.kind, action.status).toLowerCase()} already: it never runs twice.`,
+        "CONFLICT",
+      );
+    if (busy(chat)) throw new UserError(WAIT_TO_DECIDE, "CONFLICT");
+    return action;
+  }
+
+  /**
+   * Run an action: its target checked again, `executing` recorded before anything happens,
+   * then the receipt. A worktree you confirmed becomes one Coach may read.
+   */
+  private async run(chatId: string, actionId: string, by: Actor): Promise<CoachActionView> {
+    const action = this.actions(chatId).get(actionId);
+    if (action?.status !== "pending")
+      throw new UserError(`Action ${actionId} isn't waiting to run.`, "CONFLICT");
+    const { proposal } = action;
+    if (!this.targetAllowed(proposal)) {
+      this.record(chatId, actionId, "cancelled", ACTION_COPY.unavailable, by);
+      return this.view(chatId, actionId);
+    }
+    this.executing = { chatId, actionId };
+    this.record(chatId, actionId, "executing", ACTION_COPY.executing, by);
+    let receipt: Receipt;
+    try {
+      receipt = await withContext({ agent: chatId }, () => execute(this.actionDeps(), proposal, by));
+    } catch (error) {
+      log.error("coach.action_failed", { action: actionId, err: serializeError(error) });
+      receipt = {
+        status: "uncertain",
+        detail: `rowrow couldn't tell what happened (${error instanceof Error ? error.message : String(error)}). Check the target before proposing it again.`,
+      };
+    } finally {
+      this.executing = null;
+    }
+    this.record(chatId, actionId, receipt.status, receipt.detail, by);
+    if (receipt.workspaceId !== undefined) this.allow(receipt.workspaceId);
+    return this.view(chatId, actionId);
+  }
+
+  /** The target is still there, and still one Coach may act on. */
+  private targetAllowed(proposal: CoachProposal): boolean {
+    const settings = this.deps.settings.get().coach;
+    const ws = this.deps.workspaces.get(proposal.workspaceId);
+    if (ws === undefined || ws.archived || ws.missing) return false;
+    if (!settings.fullAccess && !settings.workspaces.includes(ws.id)) return false;
+    if (proposal.agentId === undefined) return true;
+    const agent = this.deps.agents.get(proposal.agentId);
+    return (
+      agent !== undefined &&
+      agent.summary.role === "agent" &&
+      !agent.summary.archived &&
+      agent.summary.workspaceId === ws.id
+    );
+  }
+
+  /** A worktree made from an allowed workspace may be read too, from your next message. */
+  private allow(workspaceId: string): void {
+    const coach = this.deps.settings.get().coach;
+    if (coach.fullAccess || coach.workspaces.includes(workspaceId)) return;
+    this.ownSettingsChange = true;
+    try {
+      this.deps.settings.update({ coach: { ...coach, workspaces: [...coach.workspaces, workspaceId] } });
+    } finally {
+      this.ownSettingsChange = false;
+    }
+  }
+
+  private actionDeps() {
+    return {
+      agents: this.deps.agents,
+      log: this.deps.log,
+      workspaces: this.deps.workspaces,
+      runtimes: this.deps.runtimes,
+      git: this.deps.git,
+    };
+  }
+}
+
+/** Coach may read less, or act differently: previews made under the old settings go. */
+function narrowed(before: Settings["coach"], after: Settings["coach"]): boolean {
+  return (
+    before.fullAccess !== after.fullAccess ||
+    before.runtime !== after.runtime ||
+    before.workspaces.some((id) => !after.workspaces.includes(id))
+  );
 }
 
 /** Working, or holding messages for after the turn. */

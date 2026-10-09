@@ -2,6 +2,7 @@
 // log per agent: rowrow's own facts plus oar's records verbatim. Everything the UI shows
 // about an agent is a fold over these entries (src/shared/timeline.ts, summary.ts).
 import type { RawEvent } from "@botiverse/oar";
+import type { CoachActionStatus, CoachProposal } from "./coach-actions.ts";
 
 /** Who caused an entry. Stamped by the server from the caller's credential, never taken from input. */
 export type Actor =
@@ -79,6 +80,8 @@ export type EntryBody =
       /** Coach (D-044): the workspaces whose agents its tools may read in the turn this input
        * starts, frozen when it was sent. The runtime reads them before the text (coach/prompt.ts). */
       readonly scope?: readonly string[];
+      /** Coach, with Full access when it was sent (D-045): its proposals in this turn execute. */
+      readonly fullAccess?: true;
     }
   | {
       readonly kind: "input.result";
@@ -138,6 +141,18 @@ export type EntryBody =
       readonly body: string;
       /** The same key again within a day is not sent (notify.send). */
       readonly dedupKey?: string;
+      readonly by: Actor;
+    }
+  /** Coach proposed an action (D-045): everything it will do, frozen. Pending until a
+   * `coach.action` says otherwise. */
+  | { readonly kind: "coach.proposal"; readonly proposal: CoachProposal; readonly by: Actor }
+  /** What became of a proposal: executing (written before anything happens), then a receipt
+   * (succeeded, failed, uncertain), or cancelled. */
+  | {
+      readonly kind: "coach.action";
+      readonly actionId: string;
+      readonly status: Exclude<CoachActionStatus, "pending">;
+      readonly detail: string;
       readonly by: Actor;
     };
 
