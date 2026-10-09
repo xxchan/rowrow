@@ -23,6 +23,7 @@ import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
 import { fastOn, fastTierOf, NO_TIER, tierWords } from "../shared/service-tier.ts";
 import {
+  byLastPersonInput,
   byPin,
   type AgentState,
   type AppState,
@@ -1086,11 +1087,7 @@ function findWorkspace(state: AppState, ref: string): { id: string } | null {
 }
 
 function byAttention(a: AgentState, b: AgentState): number {
-  return (
-    byPin(a, b) ||
-    ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
-    b.summary.lastActivityAt - a.summary.lastActivityAt
-  );
+  return byPin(a, b) || ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] || byLastPersonInput(a, b);
 }
 
 const MARK: Record<Attention, string> = { blocked: "✋", done: "✓", working: "◐", idle: "○" };

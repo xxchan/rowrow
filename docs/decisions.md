@@ -1515,3 +1515,37 @@ agent's (then a log of their own, as the parity sketch said), need input or a TT
 REPL: that is a terminal, D-001), want to keep a dev server running and see its port (a
 long-lived run with a link), or the iOS app gets a Commands screen (`RowrowCore/Procedures.swift`
 calls, a view beside the workspace's inspector).
+
+## D-053 Agent lists keep their order while agents work: by your last message, not their activity (2026-10-09)
+
+**Context.** Lists sorted by `summary.lastActivityAt`, which every entry bumps (each streamed
+token, each tool step). Two agents working at once kept swapping places, so the row you reached
+for moved away before you could click it. Ferry hit the same bug and fixed it this way.
+
+**Decision.** Within whatever groups a list already has (pins first, D-046; attention on Home, in
+⌘K, `rowrow agents` and the iOS inbox), agents sort by `summary.lastPersonInputAt`, newest first
+(`byLastPersonInput` in `src/shared/schemas.ts`): when a person last sent the agent a message, or
+when it was created until then. It is a field of the summary fold, rebuilt from the log like the
+rest, so every device and every reload shows the same order. What counts is an `input` entry
+whose `by` is a device:
+
+- **Counts:** a prompt, a steer or a message held for later from the web app, the iOS app or the
+  CLI, all of which sign in as devices; and a message Coach proposed that you confirmed, which is
+  recorded as sent by your device, since you pressed Confirm.
+- **A held message counts when you sent it.** rowrow sending it on when the turn ends
+  (`input.sent`) is no new message, nor is Send now or resuming a paused queue. Editing one takes
+  it back and sends it again: that is a new message.
+- **Doesn't count:** another agent messaging this one through `rowrow` (`by: agent`), Coach acting
+  alone under Full access (also `by: agent`, D-045), a scheduled task's prompt (`by: system`,
+  D-050, and those are Coach chats, outside agent lists anyway), and everything the agent does.
+
+**Why.** A list should move only when you act, and then the agent you just wrote to rises, which
+is where you expect it. That an agent is working already shows in its status dot and line; its
+place in the list needn't say it again. Agents messaging agents are left out on purpose: an
+agent that orchestrates others would otherwise make them jump exactly as streaming did. Moves
+between attention groups (Working to Needs you) stay: they're what attention-first is for.
+Rows still show the time of the latest activity ("2 min ago"); only the order changed.
+
+**Revisit when** people miss "most recently active" as an order (it could come back as an
+option), or work handed from agent to agent becomes common enough that the receiving agent
+should rise too.

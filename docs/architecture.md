@@ -118,7 +118,7 @@ tests alike.
 | Fold | From → to | Used by |
 | --- | --- | --- |
 | `timelineOf` | entries → timeline: one oar `SessionView` per run (`reduceSessionView`, `streamId = runId`), with rowrow's host facts between runs | the transcript, `rowrow agent view`, tests |
-| `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq`, the last notification it sent | the sidebar, attention, notifications |
+| `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq`, the last notification it sent, when a person last sent it a message (the lists' order, D-053) | the sidebar, attention, notifications |
 | `attentionOf` | summary × seen marker → `blocked`, `done`, `working`, `idle` | everywhere a status is shown |
 | `renderText` | timeline → plain text | the CLI and debugging agents |
 | `paceOf`, `chartSegments` | a subscription window's stored readings → its cycles, its pace against an even burn, where its chart line breaks (D-040) | Settings → Subscription usage, `rowrow runtimes usage` |
@@ -176,6 +176,8 @@ Status vocabulary, in priority order (a workspace shows its highest):
   seen. A client reports it only when the agent's view is visible in a focused window.
 - **Pins** (D-046) sit beside it: when you pinned the agent, or null. Pinned agents lead
   every list in pin order (`byPin` in `src/shared/schemas.ts`), before attention order.
+- **Order** (D-053): within a list's groups, the agent a person last sent a message to comes
+  first (`byLastPersonInput`, from `summary.lastPersonInputAt`); what an agent does never moves it.
 - **Notifications** fire on entering `blocked` and on a completion, after a short delay
   and a re-check (no flapping), and only if no focused client is looking at that agent.
   Channels: in-app toasts (the iOS app: its own banners), then Web Push and APNs to devices

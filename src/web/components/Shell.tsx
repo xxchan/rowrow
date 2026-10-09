@@ -29,7 +29,14 @@ import {
 import { useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { appName, byPin, type AgentState, type AppState, type Workspace } from "../../shared/schemas.ts";
+import {
+  appName,
+  byLastPersonInput,
+  byPin,
+  type AgentState,
+  type AppState,
+  type Workspace,
+} from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { useAppName } from "../lib/app-name.ts";
@@ -233,7 +240,7 @@ function Nav({ route }: { route: Route }) {
     const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id && !w.archived);
     const own = agents
       .filter((a) => a.summary.workspaceId === ws.id)
-      .sort((a, b) => byPin(a, b) || b.summary.lastActivityAt - a.summary.lastActivityAt);
+      .sort((a, b) => byPin(a, b) || byLastPersonInput(a, b));
     const worst = [
       ...own,
       ...worktrees.flatMap((c) => agents.filter((a) => a.summary.workspaceId === c.id)),

@@ -99,7 +99,14 @@ export interface AgentSummary {
    * seen marker. An aborted turn or a run someone stopped is not one: you did that.
    */
   readonly lastCompletionSeq: number;
+  /** When its latest entry was appended: the agent's own work moves it (every token, every tool step). */
   readonly lastActivityAt: number;
+  /**
+   * When a person last sent it a message, from any device or the CLI (a prompt, a steer, one
+   * held for later: when they sent it, not when rowrow passed it on); when it was created until
+   * then. Agent lists sort by it (D-053): nothing the agent does moves it, so rows stay put.
+   */
+  readonly lastPersonInputAt: number;
   /** The tail of the agent's latest text, for list rows and notifications. */
   readonly preview: string | null;
   readonly lastError: string | null;
@@ -174,6 +181,7 @@ export function initialSummary(): AgentSummary {
     lastTurn: null,
     lastCompletionSeq: -1,
     lastActivityAt: 0,
+    lastPersonInputAt: 0,
     preview: null,
     lastError: null,
     lastNotification: null,
@@ -216,6 +224,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         serviceTier: entry.serviceTier ?? null,
         title: entry.title ?? null,
         createdAt: entry.at,
+        lastPersonInputAt: entry.at,
       };
     case "agent.updated": {
       const { changes } = entry;
@@ -234,6 +243,9 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
       return {
         ...s,
         inputs: s.inputs + 1,
+        // A person's, from a device (D-053): not another agent's, nor Coach acting alone, nor a
+        // scheduled task's prompt. rowrow sending a held one later is input.sent, not this.
+        ...(entry.by.kind === "device" ? { lastPersonInputAt: entry.at } : {}),
         ...(s.role === "coach" ? { scope: entry.scope ?? null, fullAccess: entry.fullAccess === true } : {}),
         unanswered: {
           inputId: entry.inputId,

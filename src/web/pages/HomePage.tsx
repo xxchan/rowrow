@@ -1,11 +1,11 @@
 // Home: every agent, the ones that need you first (PRINCIPLES.md, product 1), after the ones
-// you pinned (D-046). On a phone this is the screen you open from the home screen icon. Above the list, a composer starts
+// you pinned (D-046); in each group, the one you last wrote to first (D-053). On a phone this is the screen you open from the home screen icon. Above the list, a composer starts
 // the next agent (D-023); on a phone that's the New agent button at the bottom.
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Bot, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
+import { byLastPersonInput, byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -30,11 +30,7 @@ export function HomePage({ route }: { route: Route }) {
     () =>
       Object.values(state.agents)
         .filter((a) => agentListed(state.workspaces, a))
-        .sort(
-          (a, b) =>
-            ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
-            b.summary.lastActivityAt - a.summary.lastActivityAt,
-        ),
+        .sort((a, b) => ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] || byLastPersonInput(a, b)),
     [state.agents, state.workspaces],
   );
   const rest = agents.filter((a) => a.pinnedAt === null);

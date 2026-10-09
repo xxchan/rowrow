@@ -400,6 +400,70 @@ test("a finished agent is listed under Needs you until you look at it", async ({
   await expect(page.getByText("finishes").first()).toBeVisible();
 });
 
+test("agents keep their places while they work; a message you send one moves it up", async ({
+  page,
+  rowrow,
+}, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const running = async (id: string): Promise<void> =>
+    expect
+      .poll(async () => (await rowrow.client.state.get()).state.agents[id]?.summary.status.kind)
+      .toBe("running");
+  const { agent: talks } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "talks",
+    input: { inputId: randomUUID(), text: "/stream 1500" },
+  });
+  await running(talks.id);
+  // Written to after the first, so it leads, however much the first one says meanwhile.
+  const { agent: thinks } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "thinks",
+    input: { inputId: randomUUID(), text: "/sleep 60000" },
+  });
+  await running(thinks.id);
+  await rowrow.open(page);
+  await expect(page.getByText("Working · 2")).toBeVisible();
+
+  // Home's list, and the side nav's workspace beside it on a desktop (a sheet on a phone).
+  const lists = [page.getByRole("main")];
+  if (info.project.name !== "phone")
+    lists.push(page.getByRole("navigation", { name: "Agents and workspaces" }));
+  const order = async (): Promise<string[][]> =>
+    Promise.all(
+      lists.map((list) =>
+        list
+          .locator('a[href^="/a/"]')
+          .evaluateAll((links) => links.map((link) => link.getAttribute("href")?.slice(3) ?? "")),
+      ),
+    );
+  // The one talking is the more recently active: by activity it would jump ahead.
+  await expect
+    .poll(async () => {
+      const { agents } = (await rowrow.client.state.get()).state;
+      return (
+        (agents[talks.id]?.summary.lastActivityAt ?? 0) - (agents[thinks.id]?.summary.lastActivityAt ?? 0)
+      );
+    })
+    .toBeGreaterThan(1000);
+  for (let i = 0; i < 8; i++) {
+    expect(await order()).toEqual(lists.map(() => [thinks.id, talks.id]));
+    await page.waitForTimeout(250);
+  }
+  expect((await rowrow.client.state.get()).state.agents[talks.id]?.summary.status.kind).toBe("running");
+
+  // A message to it, held until its turn ends, counts when you sent it.
+  await rowrow.client.agents.send({
+    agentId: talks.id,
+    inputId: randomUUID(),
+    text: "/echo next",
+    mode: "queue",
+  });
+  await expect.poll(order).toEqual(lists.map(() => [talks.id, thinks.id]));
+});
+
 test("an agent's notification pops up where you are, opens the agent, and stays in its transcript", async ({
   page,
   rowrow,

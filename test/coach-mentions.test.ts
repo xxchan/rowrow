@@ -135,7 +135,7 @@ describe("a message's references", () => {
 });
 
 describe("what @ offers", () => {
-  it("the workspaces Coach may read, then their agents not archived, latest first, with where and what", () => {
+  it("the workspaces Coach may read, then their agents not archived, last messaged first, with where and what", () => {
     const summary = (id: string, workspaceId: string, at: number, extra: object = {}) => ({
       id,
       summary: {
@@ -144,7 +144,7 @@ describe("what @ offers", () => {
         title: id,
         runtime: "claude",
         workspaceId,
-        lastActivityAt: at,
+        lastPersonInputAt: at,
         ...extra,
       },
     });

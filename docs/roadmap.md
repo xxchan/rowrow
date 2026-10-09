@@ -8,6 +8,9 @@ file when something lands.
 
 ## Done recently
 
+- **Lists that hold still** (D-053): agents sort by when you last sent them a message, not by
+  their activity, so two agents at work no longer swap places under your finger; the same order
+  on every device, the iOS app and `rowrow agents` included.
 - **New web UI** (D-017): Tailwind and components we own, dense and dark-first; Return on a
   phone inserts a newline; the menu button counts the agents that need you.
 - **Workspace inspector**: search (#227), PR status (#228, GitHub), history (#229), file

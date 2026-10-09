@@ -29,7 +29,7 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
+import { byLastPersonInput, byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { agentListed, workspaceArchived, workspaceLabel } from "../../shared/workspaces.ts";
 import { statusDot, title } from "../lib/format.ts";
@@ -48,15 +48,11 @@ export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean)
   setOpen: (isOpen) => set({ isOpen }),
 }));
 
-/** Agents that need you, most urgent first (blocked, then done), newest first within a kind. */
+/** Agents that need you, most urgent first (blocked, then done), then by your last message (D-053). */
 export function needsYou(state: AppState): AgentState[] {
   return Object.values(state.agents)
     .filter((a) => agentListed(state.workspaces, a) && (a.attention === "blocked" || a.attention === "done"))
-    .sort(
-      (a, b) =>
-        ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
-        b.summary.lastActivityAt - a.summary.lastActivityAt,
-    );
+    .sort((a, b) => ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] || byLastPersonInput(a, b));
 }
 
 /** Where a bare key is someone typing, or belongs to something open, not a shortcut. */
@@ -164,7 +160,7 @@ export function CommandMenu({ route }: { route: Route }) {
             (a, b) =>
               byPin(a, b) ||
               ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
-              b.summary.lastActivityAt - a.summary.lastActivityAt,
+              byLastPersonInput(a, b),
           );
   const workspaces =
     state === null
