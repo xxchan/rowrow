@@ -35,10 +35,10 @@ import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
-import { onAttention, onNotification, useApp } from "../lib/store.ts";
+import { onAttention, onNotification, onTaskNotice, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { AgentContextMenu, AgentDialogs, openAgentDialog, WorkspaceContextMenu } from "./AgentActions.tsx";
-import { useCoach } from "../lib/coach.ts";
+import { openCoachTask, useCoach } from "../lib/coach.ts";
 import { CoachButton, CoachDock } from "./Coach.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
@@ -533,9 +533,19 @@ function useAttentionToasts(route: Route): void {
         ...(here ? {} : { action: { label: "Open", onClick: () => navigate(`/a/${agent.id}`) } }),
       });
     });
+    // Coach's tasks (D-050): their notifications open Coach on the task and the run.
+    const stopTaskNotices = onTaskNotice((task, notice) => {
+      toast.info(notice.title, {
+        id: `task-notice-${notice.id}`,
+        description: notice.body,
+        duration: 15_000,
+        action: { label: "Open Coach task", onClick: () => openCoachTask(task.id, notice.runId) },
+      });
+    });
     return () => {
       stopAttention();
       stopNotifications();
+      stopTaskNotices();
     };
   }, [route]);
 }

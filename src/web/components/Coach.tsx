@@ -69,11 +69,14 @@ import type { AgentState, AppState, CoachSettings, ModelInfo } from "../../share
 import type { Timeline } from "../../shared/timeline.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
 import {
+  allowedWorkspaces,
   closeCoach,
   COACH_MIN_WIDTH,
   COACH_WIDTH,
   PAGE_MIN_WIDTH,
+  runtimeProblem,
   setCoachLayout,
+  showCoachView,
   STACK_WIDTH,
   toggleCoach,
   useCoach,
@@ -89,6 +92,7 @@ import {
 } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
+import { CoachTasksView } from "./CoachTasks.tsx";
 import { ConversationWave } from "./ConversationWave.tsx";
 import { Transcript } from "./Transcript.tsx";
 
@@ -226,7 +230,7 @@ function Resizer({ dock }: { dock: RefObject<HTMLElement | null> }) {
 function CoachPanel({ narrow }: { narrow: boolean }) {
   const state = useApp((s) => s.state) as AppState;
   const connection = useConnection((s) => s.status);
-  const { open, maximized, layout, view, error } = useCoach();
+  const { open, maximized, layout, view, main, error } = useCoach();
   const chat = state.coach.chat;
   const working = chat?.summary.status.kind === "running";
   const acting = chat?.summary.coachActions.some((action) => action.status === "executing") === true;
@@ -243,7 +247,7 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
   useEffect(() => {
     if (!open || opened.current) return;
     opened.current = true;
-    if (!usable) useCoach.setState({ view: "settings" });
+    if (!usable) showCoachView("settings");
   }, [open, usable]);
 
   return (
@@ -275,9 +279,25 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
               </span>
             )}
           </div>
-          <span role="status" className="truncate text-[10px] text-muted-foreground" title={status}>
-            {status}
-          </span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            {/* Chat | Tasks, as Ranger's header has them (D-050). */}
+            <nav aria-label="Coach views" className="flex shrink-0 items-center gap-0.5">
+              {(["chat", "tasks"] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  aria-pressed={view === item}
+                  onClick={() => showCoachView(item)}
+                  className="h-[26px] rounded-full px-2 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground aria-pressed:bg-primary/12 aria-pressed:text-primary"
+                >
+                  {item === "chat" ? "Chat" : "Tasks"}
+                </button>
+              ))}
+            </nav>
+            <span role="status" className="truncate text-[10px] text-muted-foreground" title={status}>
+              {status}
+            </span>
+          </div>
         </div>
         {!narrow && !maximized && (
           <HeaderButton
@@ -303,7 +323,7 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
           label="Coach settings"
           tip="Runtime and workspace permissions"
           pressed={view === "settings"}
-          onClick={() => useCoach.setState({ view: view === "settings" ? "chat" : "settings" })}
+          onClick={() => showCoachView(view === "settings" ? main : "settings")}
         >
           <Settings />
         </HeaderButton>
@@ -329,6 +349,8 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
       )}
       {view === "settings" ? (
         <CoachSettingsView state={state} wide={maximized && !narrow} narrow={narrow} onLayer={layer} />
+      ) : view === "tasks" ? (
+        <CoachTasksView state={state} wide={maximized && !narrow} onLayer={layer} />
       ) : (
         <CoachChatView
           state={state}
@@ -376,24 +398,6 @@ function HeaderButton({
 }
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
-
-/** Why Coach can't run on what its settings say, or null. */
-function runtimeProblem(state: AppState): string | null {
-  const id = state.settings.coach.runtime;
-  const info = state.runtimes[id];
-  if (!canCoach(id)) return CANT_COACH;
-  if (info === undefined || !info.installed) return `${info?.name ?? id} isn't installed here.`;
-  return null;
-}
-
-/** The allowed workspaces that are still there (with Full access, all): what the next message may read. */
-function allowedWorkspaces(state: AppState): string[] {
-  const { fullAccess, workspaces } = state.settings.coach;
-  return (fullAccess ? Object.keys(state.workspaces) : workspaces).filter((id) => {
-    const ws = state.workspaces[id];
-    return ws !== undefined && !workspaceArchived(state.workspaces, id) && !ws.missing;
-  });
-}
 
 function CoachChatView({
   state,
@@ -485,7 +489,7 @@ function CoachChatView({
             variant="ghost"
             size="xs"
             className="min-h-11 shrink-0 text-[11px] md:min-h-6 [&_svg]:size-[13px]"
-            onClick={() => useCoach.setState({ view: "settings" })}
+            onClick={() => showCoachView("settings")}
           >
             <Settings /> Coach settings
           </Button>
@@ -711,7 +715,14 @@ function HistoryDrawer({ current }: { current: string | null }) {
                     isCurrent && "border-primary/40 bg-primary/10",
                   )}
                 >
-                  <span className="truncate text-[11px] font-medium">{chat.title ?? "New chat"}</span>
+                  <span className="flex min-w-0 items-center gap-1 text-[11px] font-medium">
+                    {chat.taskId !== null && (
+                      <span className="shrink-0 rounded border bg-muted/60 px-1 text-[9px] font-normal text-muted-foreground">
+                        Task
+                      </span>
+                    )}
+                    <span className="truncate">{chat.title ?? "New chat"}</span>
+                  </span>
                   <span className="text-[10px] text-muted-foreground">
                     {isCurrent
                       ? "Current"
@@ -1098,6 +1109,7 @@ function CoachSettingsView({
   const client = useClient();
   const connected = useConnection((s) => s.status.kind === "open");
   const working = state.coach.chat?.summary.status.kind === "running";
+  const main = useCoach((s) => s.main);
   const [draft, setDraftSettings] = useState<CoachSettings>(state.settings.coach);
   const [saving, setSaving] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -1135,7 +1147,7 @@ function CoachSettingsView({
           ...(changedRuntime ? { model: null, effort: null } : {}),
         },
       });
-      useCoach.setState({ view: "chat" });
+      showCoachView(main);
     } catch (error) {
       useCoach.setState({ error: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -1156,9 +1168,9 @@ function CoachSettingsView({
             variant="ghost"
             size="xs"
             className="min-h-11 text-[11px] text-muted-foreground md:min-h-6"
-            onClick={() => useCoach.setState({ view: "chat" })}
+            onClick={() => showCoachView(main)}
           >
-            <ChevronLeft /> Chat
+            <ChevronLeft /> {main === "chat" ? "Chat" : "Tasks"}
           </Button>
         </div>
         <p className="text-[11px] leading-normal text-muted-foreground">

@@ -5,6 +5,7 @@
 import { applyPatches, enablePatches } from "immer";
 import { useEffect } from "react";
 import { create } from "zustand";
+import type { CoachTask, TaskNotice } from "../../shared/coach-tasks.ts";
 import type { Attachment, Entry } from "../../shared/entries.ts";
 import type { AgentState, AppState, StateMessage } from "../../shared/schemas.ts";
 import type { Attention } from "../../shared/summary.ts";
@@ -51,6 +52,13 @@ export function onNotification(listener: (agent: AgentState) => void): () => voi
   return () => notificationListeners.delete(listener);
 }
 
+/** A notification about a Coach task's run (D-050), as it arrives. */
+const taskNoticeListeners = new Set<(task: CoachTask, notice: TaskNotice) => void>();
+export function onTaskNotice(listener: (task: CoachTask, notice: TaskNotice) => void): () => void {
+  taskNoticeListeners.add(listener);
+  return () => taskNoticeListeners.delete(listener);
+}
+
 function apply(message: StateMessage): void {
   const before = useApp.getState().state;
   const next =
@@ -71,6 +79,12 @@ function apply(message: StateMessage): void {
     if (sent !== null && sent.seq !== previous?.summary.lastNotification?.seq) {
       for (const listener of notificationListeners) listener(agent);
     }
+  }
+  for (const task of next.coach.tasks) {
+    const notice = task.lastNotice;
+    const previous = before.coach.tasks.find((t) => t.id === task.id)?.lastNotice;
+    if (notice !== null && notice.id !== previous?.id)
+      for (const listener of taskNoticeListeners) listener(task, notice);
   }
 }
 

@@ -1688,6 +1688,62 @@ test("Coach: confirm the message it proposes and read rowrow's receipt; Full acc
   expect((await rowrow.client.state.get()).state.settings.coach.fullAccess).toBe(false);
 });
 
+test("Coach's tasks: create one, run it now, read its run's chat, and pause it", async ({ page, rowrow }) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.client.settings.update({
+    coach: { workspaces: [ws.id], runtime: "scripted", model: null, effort: null },
+  });
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+  const coach = page.getByRole("complementary", { name: "Coach" });
+  await page.getByRole("button", { name: "Open Coach" }).click();
+  const views = coach.getByRole("navigation", { name: "Coach views" });
+  await views.getByRole("button", { name: "Tasks" }).click();
+  await expect(coach.getByText("No tasks yet")).toBeVisible();
+
+  // A prompt in your words and a schedule.
+  await coach.getByRole("button", { name: "New task" }).click();
+  const form = coach.getByRole("form", { name: "Create task" });
+  await expect(form.getByLabel("Task name")).toBeFocused();
+  await form.getByLabel("Task name").fill("Check the helper");
+  await form.getByLabel("Task prompt").fill("/echo All quiet in the workspace.");
+  await form.getByRole("combobox", { name: "Task schedule" }).click();
+  await page.getByRole("option", { name: "Interval" }).click();
+  await form.getByLabel("Interval minutes").fill("30");
+  await form.getByRole("button", { name: "Save and enable" }).click();
+  await expect(coach.getByRole("heading", { name: "Check the helper" })).toBeVisible();
+  await expect(coach.getByText(/^Every 30 minutes \/ Next: /)).toBeVisible();
+  await expect(coach.getByText("Manual permission: operations need confirmation")).toBeVisible();
+  await expect(coach.getByText("No runs yet.")).toBeVisible();
+
+  // Run now: a fresh Coach chat on the prompt, read right here, and a notification when it's done.
+  await coach.getByRole("button", { name: "Run now" }).click();
+  const output = coach.getByLabel("Task run output");
+  await expect(output.getByText("All quiet in the workspace.", { exact: true })).toBeVisible();
+  await expect(output.getByText(/^Run succeeded \/ Started /)).toBeVisible();
+  await expect(output.getByRole("region", { name: "Task prompt message" })).toContainText(
+    "/echo All quiet in the workspace.",
+  );
+  await expect(page.getByText("Coach task completed")).toBeVisible();
+  await expect(coach.getByRole("combobox", { name: "Task run" })).toContainText("succeeded");
+
+  // Paused, it won't run until you resume it.
+  await coach.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(coach.getByRole("button", { name: "Resume" })).toBeVisible();
+  await expect(coach.getByText(/Paused: no upcoming run/)).toBeVisible();
+  expect((await rowrow.client.coach.tasks())[0]?.status).toBe("paused");
+
+  // Its run is a chat of its own, kept in History, that opens in Chat.
+  await output.getByRole("button", { name: "Open in chat" }).click();
+  await expect(views.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
+  await expect(coach.getByText("All quiet in the workspace.", { exact: true })).toBeVisible();
+  await views.getByRole("button", { name: "Tasks" }).click();
+  await coach.getByRole("button", { name: "All tasks" }).click();
+  const row = coach.getByRole("button", { name: /Check the helper/ });
+  await expect(row).toContainText("paused");
+  await expect(row).toContainText("Last: succeeded");
+});
+
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
 async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
   if (!phone) return row.getByRole("button", { name }).click();
