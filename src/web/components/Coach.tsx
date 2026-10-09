@@ -256,15 +256,9 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
       <header className="flex min-h-12 shrink-0 items-center gap-1.5 border-b bg-muted/40 px-2.5 py-2">
         <div className="grid min-w-0 flex-1 gap-[3px]">
           <div className="flex flex-wrap items-center gap-1.5">
-            <strong
-              className="text-[13px] leading-4 font-semibold"
-              title="Experimental assistant for your agents"
-            >
+            <strong className="text-[13px] leading-4 font-semibold" title="An assistant for your agents">
               Coach
             </strong>
-            <span className="rounded-[4px] border px-[5px] py-px text-[9px] leading-[1.3] whitespace-nowrap text-muted-foreground">
-              Experimental
-            </span>
           </div>
           <span role="status" className="truncate text-[10px] text-muted-foreground" title={status}>
             {status}
