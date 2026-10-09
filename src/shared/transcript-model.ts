@@ -28,6 +28,7 @@ import {
   outcomeOf,
   placeNotes,
   steerUnread,
+  switches,
   type InputBlock,
   type RunBlock,
   type RunNote,
@@ -473,13 +474,8 @@ function hostNotice(
       return note(id, `Couldn't start the agent: ${entry.error}`, { tone: "error" });
     case "host.error":
       return note(id, entry.message, { tone: "error" });
-    case "agent.updated": {
-      const parts = [
-        entry.changes.model === undefined ? null : `model: ${entry.changes.model ?? "default"}`,
-        entry.changes.effort === undefined ? null : `effort: ${entry.changes.effort ?? "default"}`,
-      ].filter((part) => part !== null);
-      return note(id, `Switched ${parts.join(", ")}`, { divider: true });
-    }
+    case "agent.updated":
+      return note(id, `Switched ${switches(entry.changes) ?? ""}`, { divider: true });
   }
 }
 

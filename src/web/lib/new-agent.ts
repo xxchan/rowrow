@@ -69,6 +69,7 @@ export async function startAgent(client: Client, request: StartRequest): Promise
     runtime: request.runtime,
     ...(request.model === null ? {} : { model: request.model }),
     ...(request.effort === null ? {} : { effort: request.effort }),
+    ...(request.serviceTier === null ? {} : { serviceTier: request.serviceTier }),
     ...(request.text === "" && (request.attachments?.length ?? 0) === 0
       ? {}
       : {
@@ -91,6 +92,7 @@ export async function startAgent(client: Client, request: StartRequest): Promise
       runtime: request.runtime,
       model: request.model,
       effort: request.effort,
+      serviceTier: request.serviceTier,
       isolate: request.isolate,
     }),
   );

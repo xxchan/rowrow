@@ -382,6 +382,74 @@ describe("agents", () => {
       /unarchive it to pin it/,
     );
   });
+
+  it("opens each run on the agent's service tier (Fast mode, D-049), switched from the next message", async () => {
+    t = await startTestServer();
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { agent, sent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      serviceTier: "fast",
+      input: input("/options"),
+    });
+    expect(agent.summary.serviceTier).toBe("fast");
+    let waited = await t.client.agents.wait({
+      agentId: agent.id,
+      afterSeq: sent?.seq ?? -1,
+      timeoutMs: 5000,
+    });
+    expect(JSON.parse(waited.agent.summary.preview ?? "")).toEqual({ serviceTier: "fast", resumed: false });
+
+    // Off is explicit: the run restarts and the next message opens it with `default`.
+    const off = await t.client.agents.update({ agentId: agent.id, serviceTier: "default" });
+    expect(off.summary.serviceTier).toBe("default");
+    expect(off.summary.run).toBeNull();
+    let next = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/options",
+      mode: "auto",
+    });
+    waited = await t.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 5000 });
+    expect(JSON.parse(waited.agent.summary.preview ?? "")).toEqual({ serviceTier: "default", resumed: true });
+
+    // null hands it back to the runtime's own setting: the option isn't given at all.
+    await t.client.agents.update({ agentId: agent.id, serviceTier: null });
+    next = await t.client.agents.send({
+      agentId: agent.id,
+      inputId: newInputId(),
+      text: "/options",
+      mode: "auto",
+    });
+    waited = await t.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 5000 });
+    expect(JSON.parse(waited.agent.summary.preview ?? "")).toEqual({ resumed: true });
+
+    const view = await t.client.agents.view({ agentId: agent.id });
+    expect(view.text).toMatch(/── run \S+ · scripted · Fast mode on ──/);
+    expect(view.text).toContain("· switched Fast mode off");
+    expect(view.text).toContain("· switched Fast mode as the runtime is set");
+  });
+
+  it("refuses a tier for a runtime that has none, instead of failing its next run", async () => {
+    const none = {
+      ...scriptedDemoRuntime(),
+      id: "tierless",
+      refusedSessionOptions: { serviceTier: "no tiers here" },
+    };
+    t = await startTestServer({ extraRuntimes: [none] });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    await expect(
+      t.client.agents.create({ workspaceId: ws.id, runtime: "tierless", serviceTier: "fast" }),
+    ).rejects.toThrow(/has no Fast mode .*no tiers here/);
+    const { agent } = await t.client.agents.create({ workspaceId: ws.id, runtime: "tierless" });
+    await expect(t.client.agents.update({ agentId: agent.id, serviceTier: "default" })).rejects.toThrow(
+      /has no Fast mode/,
+    );
+    // Back to the runtime's own setting is always fine.
+    expect(
+      (await t.client.agents.update({ agentId: agent.id, serviceTier: null })).summary.serviceTier,
+    ).toBeNull();
+  });
 });
 
 describe("the queue (D-035)", () => {

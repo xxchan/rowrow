@@ -208,6 +208,9 @@ const workspaces = {
     .output(ok),
 };
 
+const SERVICE_TIER =
+  "Service tier, one of the model's serviceTiers (runtimes.models), or `default` for none (D-049). Fast mode is codex's `priority` and claude's `fast`; other runtimes have none. The runtime's own setting decides when omitted.";
+
 const agents = {
   create: oc
     .route({
@@ -229,6 +232,7 @@ const agents = {
           .describe(
             "Reasoning effort, one of the model's effortLevels (runtimes.models); the runtime's default when omitted.",
           ),
+        serviceTier: z.string().optional().describe(SERVICE_TIER),
         title: z.string().max(200).optional(),
         input: z
           .object({ inputId: z.string().uuid(), text: z.string().max(200_000), attachments: Attachments })
@@ -291,7 +295,7 @@ const agents = {
   update: oc
     .route({
       summary:
-        "Rename an agent, change its model or reasoning effort (the live run restarts with them, resuming the conversation), archive it (stops its run), or pin it.",
+        "Rename an agent, change its model, reasoning effort or service tier (Fast mode; the live run restarts with them, resuming the conversation), archive it (stops its run), or pin it.",
     })
     .input(
       z.object({
@@ -299,6 +303,11 @@ const agents = {
         title: z.string().max(200).nullable().optional(),
         model: z.string().nullable().optional(),
         effort: z.string().nullable().optional(),
+        serviceTier: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(`${SERVICE_TIER} null: back to the runtime's own setting.`),
         archived: z.boolean().optional(),
         pinned: z
           .boolean()

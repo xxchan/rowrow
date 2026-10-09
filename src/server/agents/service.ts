@@ -210,6 +210,7 @@ export class AgentService {
     runtime: string;
     model?: string;
     effort?: string;
+    serviceTier?: string;
     title?: string;
     by: Actor;
   }): AgentState {
@@ -221,6 +222,7 @@ export class AgentService {
       );
     if (this.deps.runtimes.info(input.runtime) === undefined)
       throw new UserError(`unknown runtime "${input.runtime}"`);
+    if (input.serviceTier !== undefined) this.takesServiceTier(input.runtime);
     const id = newId("ag");
     const now = Date.now();
     this.deps.db.run("insert into agents (id, workspace_id, created_at) values (?, ?, ?)", id, ws.id, now);
@@ -233,9 +235,15 @@ export class AgentService {
         by: input.by,
         ...(input.model === undefined ? {} : { model: input.model }),
         ...(input.effort === undefined ? {} : { effort: input.effort }),
+        ...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
         ...(input.title === undefined ? {} : { title: input.title }),
       });
-      log.info("agent.created", { runtime: input.runtime, model: input.model, effort: input.effort });
+      log.info("agent.created", {
+        runtime: input.runtime,
+        model: input.model,
+        effort: input.effort,
+        serviceTier: input.serviceTier,
+      });
     });
     return stateOf(agent);
   }
@@ -333,6 +341,7 @@ export class AgentService {
       title?: string | null;
       model?: string | null;
       effort?: string | null;
+      serviceTier?: string | null;
       archived?: boolean;
       pinned?: boolean;
     },
@@ -341,6 +350,7 @@ export class AgentService {
   ): Promise<AgentState> {
     const agent = this.require(agentId);
     const s = agent.summary;
+    if (changes.serviceTier !== undefined && changes.serviceTier !== null) this.takesServiceTier(s.runtime);
     // A pin keeps an agent in sight, so it can't also be archived (roamgate's pinned tabs can't close).
     if (changes.pinned === true && s.role === "coach")
       throw new UserError("Coach's chats aren't in the agent lists, so they can't be pinned");
@@ -361,6 +371,9 @@ export class AgentService {
       ...(changes.title === undefined || changes.title === s.title ? {} : { title: changes.title }),
       ...(changes.model === undefined || changes.model === s.model ? {} : { model: changes.model }),
       ...(changes.effort === undefined || changes.effort === s.effort ? {} : { effort: changes.effort }),
+      ...(changes.serviceTier === undefined || changes.serviceTier === s.serviceTier
+        ? {}
+        : { serviceTier: changes.serviceTier }),
       ...(changes.archived === undefined || changes.archived === s.archived
         ? {}
         : { archived: changes.archived }),
@@ -372,10 +385,24 @@ export class AgentService {
         by,
         ...(reason === undefined ? {} : { reason }),
       });
-    // A new model or effort takes effect in a new run, resuming the conversation on the next input.
-    if (effective.model !== undefined || effective.effort !== undefined) await agent.actor.stop("restart");
+    // A new model, effort or tier takes effect in a new run, resuming the conversation on the next input.
+    if (
+      effective.model !== undefined ||
+      effective.effort !== undefined ||
+      effective.serviceTier !== undefined
+    )
+      await agent.actor.stop("restart");
     if (effective.archived === true) await agent.actor.stop("archived");
     return stateOf(agent);
+  }
+
+  /** Refuse a tier for a runtime that can't take one now, rather than fail its next run. */
+  private takesServiceTier(runtime: string): void {
+    const refusal = this.deps.runtimes.refusal(runtime, "serviceTier");
+    if (refusal !== null)
+      throw new UserError(
+        `${this.deps.runtimes.info(runtime)?.name ?? runtime} has no Fast mode or other service tier, so leave serviceTier out (${refusal})`,
+      );
   }
 
   markSeen(agentId: string, seq: number): void {
@@ -551,6 +578,7 @@ function noticeable(a: AgentSummary, b: AgentSummary): boolean {
     a.title !== b.title ||
     a.model !== b.model ||
     a.effort !== b.effort ||
+    a.serviceTier !== b.serviceTier ||
     a.archived !== b.archived ||
     a.inputs !== b.inputs ||
     a.queued !== b.queued ||

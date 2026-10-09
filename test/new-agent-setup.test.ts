@@ -44,20 +44,31 @@ function state(): AppState {
       ws_old: workspace("ws_old", "aaa-archived", { archived: true }),
     },
     agents: {
-      ag_api: agent("ag_api", "ws_api", { runtime: "codex", model: "gpt-5", effort: "high" }),
-      ag_tree: agent("ag_tree", "ws_tree", { runtime: "claude", model: "opus", effort: null }),
+      ag_api: agent("ag_api", "ws_api", {
+        runtime: "codex",
+        model: "gpt-5",
+        effort: "high",
+        serviceTier: "priority",
+      }),
+      ag_tree: agent("ag_tree", "ws_tree", {
+        runtime: "claude",
+        model: "opus",
+        effort: null,
+        serviceTier: null,
+      }),
     },
     runtimes: { claude: runtime("claude"), codex: runtime("codex"), kimi: runtime("kimi", false) },
   } as unknown as AppState;
 }
 
 describe("resolveSetup", () => {
-  test("from an agent: its workspace, runtime, model and effort", () => {
+  test("from an agent: its workspace, runtime, model, effort and Fast mode", () => {
     expect(resolveSetup(state(), { kind: "agent", agentId: "ag_api" }, NO_PREFS)).toEqual({
       workspaceId: "ws_api",
       runtime: "codex",
       model: "gpt-5",
       effort: "high",
+      serviceTier: "priority",
       isolate: false,
     });
   });
@@ -76,6 +87,7 @@ describe("resolveSetup", () => {
       runtime: "codex",
       model: "o3",
       effort: "low",
+      serviceTier: "default",
       isolate: true,
     });
     expect(resolveSetup(state(), { kind: "workspace", workspaceId: "ws_api" }, prefs)).toEqual({
@@ -83,6 +95,7 @@ describe("resolveSetup", () => {
       runtime: "codex",
       model: "o3",
       effort: "low",
+      serviceTier: "default",
       isolate: true,
     });
   });
@@ -92,6 +105,7 @@ describe("resolveSetup", () => {
       runtime: "codex",
       model: null,
       effort: null,
+      serviceTier: null,
       isolate: false,
     });
     expect(resolveSetup(state(), { kind: "anywhere" }, prefs).workspaceId).toBe("ws_web");
@@ -100,6 +114,7 @@ describe("resolveSetup", () => {
       runtime: "claude",
       model: null,
       effort: null,
+      serviceTier: null,
       isolate: false,
     });
   });
@@ -109,19 +124,27 @@ describe("resolveSetup", () => {
       runtime: "codex",
       model: "o3",
       effort: "low",
+      serviceTier: "priority",
       isolate: false,
     });
     expect(resolveSetup(state(), { kind: "workspace", workspaceId: "ws_api" }, prefs)).toMatchObject({
       runtime: "codex",
       model: null,
       effort: null,
+      serviceTier: null,
     });
   });
 
   test("what no longer applies falls back to the default", () => {
     // An uninstalled runtime, and a worktree remembered for a directory that isn't a git repository.
     const prefs = {
-      ...remember(NO_PREFS, "ws_web", { runtime: "kimi", model: "k2", effort: null, isolate: true }),
+      ...remember(NO_PREFS, "ws_web", {
+        runtime: "kimi",
+        model: "k2",
+        effort: null,
+        serviceTier: null,
+        isolate: true,
+      }),
       lastRuntime: "kimi",
     };
     expect(resolveSetup(state(), { kind: "workspace", workspaceId: "ws_web" }, prefs)).toEqual({
@@ -129,6 +152,7 @@ describe("resolveSetup", () => {
       runtime: "claude",
       model: null,
       effort: null,
+      serviceTier: null,
       isolate: false,
     });
     // An archived workspace, or one that's gone, isn't offered.
@@ -152,6 +176,7 @@ describe("resolveSetup", () => {
       runtime: null,
       model: null,
       effort: null,
+      serviceTier: null,
       isolate: false,
     });
   });
@@ -163,6 +188,7 @@ describe("parsePrefs", () => {
       runtime: "codex",
       model: "o3",
       effort: null,
+      serviceTier: "priority",
       isolate: true,
     });
     expect(parsePrefs(JSON.stringify(prefs), "claude")).toEqual(prefs);
@@ -176,7 +202,7 @@ describe("parsePrefs", () => {
     });
     expect(parsePrefs(raw, null)).toEqual({
       lastWorkspaceId: null,
-      workspaces: { b: { runtime: null, model: null, effort: null, isolate: false } },
+      workspaces: { b: { runtime: null, model: null, effort: null, serviceTier: null, isolate: false } },
       lastRuntime: null,
     });
   });

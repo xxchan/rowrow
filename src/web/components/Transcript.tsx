@@ -45,6 +45,7 @@ import {
   placeNotes,
   placeProposals,
   steerUnread,
+  switches,
   type InputBlock,
   type NoticeBlock,
   type RunBlock,
@@ -691,13 +692,8 @@ function Notice({ block }: { block: NoticeBlock }) {
       return <SystemLine tone="error">{`Couldn't start the agent: ${entry.error}`}</SystemLine>;
     case "host.error":
       return <SystemLine tone="error">{entry.message}</SystemLine>;
-    case "agent.updated": {
-      const parts = [
-        entry.changes.model === undefined ? null : `model: ${entry.changes.model ?? "default"}`,
-        entry.changes.effort === undefined ? null : `effort: ${entry.changes.effort ?? "default"}`,
-      ].filter((p) => p !== null);
-      return <SystemLine divider>{`Switched ${parts.join(", ")}`}</SystemLine>;
-    }
+    case "agent.updated":
+      return <SystemLine divider>{`Switched ${switches(entry.changes) ?? ""}`}</SystemLine>;
   }
 }
 

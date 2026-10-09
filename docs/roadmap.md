@@ -18,6 +18,9 @@ file when something lands.
 - **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
 - **Model and effort switcher**, **one tap to the next agent that needs you** (and the Home
   Screen badge), and **quick replies** kept on the server for every device.
+- **Fast mode** (D-049): codex's `/fast` and claude's fast mode as a switch beside the model and
+  effort (web, the new-agent dialog, iOS), per agent and from the next message; the composer
+  says when it's on; `rowrow agent fast <agent> [on|off]` and `agent new --fast`.
 - **The / command picker** (#226): the runtime's own skills and commands, read by oar in the
   workspace; and **agent icons** (each runtime's mark, with its state on the corner).
 

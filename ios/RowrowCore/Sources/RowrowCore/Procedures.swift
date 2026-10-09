@@ -64,23 +64,27 @@ extension APIClient {
 
   /// Change what's given (a `.some(nil)` resets it to the default; nil leaves it).
   public func updateAgent(
-    _ agentId: String, title: String?? = nil, model: String?? = nil, effort: String?? = nil, archived: Bool? = nil
+    _ agentId: String, title: String?? = nil, model: String?? = nil, effort: String?? = nil,
+    serviceTier: String?? = nil, archived: Bool? = nil
   ) async throws {
     var fields: [String: JSONValue] = ["agentId": .string(agentId)]
     if let title { fields["title"] = title.map(JSONValue.string) ?? .null }
     if let model { fields["model"] = model.map(JSONValue.string) ?? .null }
     if let effort { fields["effort"] = effort.map(JSONValue.string) ?? .null }
+    if let serviceTier { fields["serviceTier"] = serviceTier.map(JSONValue.string) ?? .null }
     if let archived { fields["archived"] = .bool(archived) }
     _ = try await raw("agents.update", JSONValue.object(fields))
   }
 
   /// Start an agent, with a first message when there's text or an attachment.
   public func createAgent(
-    workspaceId: String, runtime: String, model: String?, effort: String?, text: String, attachments: [Attachment] = []
+    workspaceId: String, runtime: String, model: String?, effort: String?, serviceTier: String? = nil, text: String,
+    attachments: [Attachment] = []
   ) async throws -> AgentCreated {
     var fields: [String: JSONValue] = ["workspaceId": .string(workspaceId), "runtime": .string(runtime)]
     if let model { fields["model"] = .string(model) }
     if let effort { fields["effort"] = .string(effort) }
+    if let serviceTier { fields["serviceTier"] = .string(serviceTier) }
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     if !trimmed.isEmpty || !attachments.isEmpty {
       let files = try JSONValue.parse(JSONEncoder().encode(attachments))

@@ -15,6 +15,9 @@
 //   /mcp <tool> [json]      call <tool> of the session's first MCP server (Coach's, D-044) with
 //                           the JSON arguments, as a tool call, and say what it returned (or
 //                           the lines that follow, when there are any)
+//   /options                say what the session was opened with: model, effort, service tier
+// Its one model, script-1, lists a Fast tier (`fast`, as claude's do), so the Fast switch has
+// something to switch; it takes `fast` and `default` but, unlike claude, never reports one.
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
 // attachments, commands are read from the request after the list of files, and the answer
 // says which files and images arrived.
@@ -48,14 +51,18 @@ const COMMANDS: readonly SkillEntry[] = [
     description: "Run a command (and one per following line) as tool calls that take that many milliseconds",
   },
   { name: "mcp", description: "Call a tool of the session's MCP server with JSON arguments" },
+  { name: "options", description: "Say what the session was opened with: model, effort, service tier" },
 ];
+
+const MODEL = "script-1";
+const TIERS = ["fast"];
 
 export function scriptedDemoRuntime(): Runtime {
   let signedIn = false;
   const runtime = scriptedRuntime({
     id: "scripted",
     brand: { name: "Scripted demo", icon: null },
-    model: "script-1",
+    model: MODEL,
     turn: async (turn) => {
       const [first = "", ...rest] = requestOf(turn.input).split("\n");
       const [command = "", ...args] = first.trim().split(/\s+/);
@@ -135,6 +142,11 @@ export function scriptedDemoRuntime(): Runtime {
           turn.say(rest.length > 0 && !answer.startsWith("error:") ? rest.join("\n") : answer);
           return;
         }
+        case "/options": {
+          const { model, effort, serviceTier, resume } = turn.options;
+          turn.say(JSON.stringify({ model, effort, serviceTier, resumed: resume !== undefined }));
+          return;
+        }
         case "/background": {
           const ms = Number(args[0]) || 1000;
           const description = args.slice(1).join(" ") || "background work";
@@ -150,6 +162,17 @@ export function scriptedDemoRuntime(): Runtime {
   });
   return {
     ...runtime,
+    // What it lists, it takes, and it refuses the rest (oar's SessionOptions.serviceTier).
+    session: async (installation, options) => {
+      const tier = options.serviceTier;
+      if (tier !== undefined && tier !== "default" && !TIERS.includes(tier))
+        throw new Error(`scripted has no service tier "${tier}"; it has ${TIERS.join(", ")} (or default)`);
+      return runtime.session(installation, options);
+    },
+    listModels: async () => ({
+      kind: "ok",
+      models: [{ id: MODEL, displayName: "Script 1", serviceTiers: TIERS }],
+    }),
     skills: async (_installation, options) => ({
       kind: "ok",
       scope: { kind: "workspace", cwd: options?.cwd ?? process.cwd() },

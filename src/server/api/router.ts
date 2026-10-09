@@ -307,6 +307,7 @@ export function createRouter(s: Services) {
           by: context.actor,
           ...(input.model === undefined ? {} : { model: input.model }),
           ...(input.effort === undefined ? {} : { effort: input.effort }),
+          ...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
           ...(input.title === undefined ? {} : { title: input.title }),
         });
         const sent =
@@ -358,6 +359,7 @@ export function createRouter(s: Services) {
             ...(input.title === undefined ? {} : { title: input.title }),
             ...(input.model === undefined ? {} : { model: input.model }),
             ...(input.effort === undefined ? {} : { effort: input.effort }),
+            ...(input.serviceTier === undefined ? {} : { serviceTier: input.serviceTier }),
             ...(input.archived === undefined ? {} : { archived: input.archived }),
             ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
           },

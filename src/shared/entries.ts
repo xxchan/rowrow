@@ -51,6 +51,8 @@ export interface AgentChanges {
   readonly model?: string | null;
   /** Runtime-native reasoning effort; null returns to the runtime's default. */
   readonly effort?: string | null;
+  /** Runtime-native service tier (Fast mode, D-049), `default` for none; null returns to the runtime's own setting. */
+  readonly serviceTier?: string | null;
   readonly archived?: boolean;
 }
 
@@ -64,6 +66,7 @@ export type EntryBody =
       readonly role?: "coach";
       readonly model?: string;
       readonly effort?: string;
+      readonly serviceTier?: string;
       readonly title?: string;
       readonly by: Actor;
     }
@@ -123,6 +126,7 @@ export type EntryBody =
       readonly runtime: string;
       readonly model?: string;
       readonly effort?: string;
+      readonly serviceTier?: string;
       readonly cwd: string;
       /** The runtime session this run resumed, when it did. */
       readonly resume?: string;

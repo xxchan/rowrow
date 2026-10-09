@@ -17,6 +17,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { Check, Cpu, Folder, FolderGit2, GitBranch, LoaderCircle, Paperclip, Plus } from "lucide-react";
@@ -31,6 +32,7 @@ import {
 } from "react";
 import { create } from "zustand";
 import type { ModelInfo } from "../../shared/schemas.ts";
+import { fastTier, NO_TIER } from "../../shared/service-tier.ts";
 import { attachFiles, clearFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
 import { defaultNote, versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
@@ -146,6 +148,7 @@ export function NewAgentForm({
   const [runtime, setRuntime] = useState(initial?.runtime ?? null);
   const [model, setModel] = useState(initial?.model ?? null);
   const [effort, setEffort] = useState(initial?.effort ?? null);
+  const [serviceTier, setServiceTier] = useState(initial?.serviceTier ?? null);
   // One agent per worktree keeps parallel work apart (docs/decisions.md, D-007).
   const [isolate, setIsolate] = useState(initial?.isolate ?? false);
   const [branch, setBranch] = useState("");
@@ -167,6 +170,7 @@ export function NewAgentForm({
       setRuntime(setup.runtime);
       setModel(setup.model);
       setEffort(setup.effort);
+      setServiceTier(setup.serviceTier);
     }
   }
   const [chip, setChipState] = useState<ChipName | null>(null);
@@ -233,6 +237,16 @@ export function NewAgentForm({
   // A remembered effort the model doesn't take is dropped; with a model we can't look up, it's kept.
   const effectiveEffort =
     modelInfo !== undefined && effort !== null && !efforts.includes(effort) ? null : effort;
+  // Fast, when the model has it. A remembered tier the model doesn't take is dropped the same way
+  // (off too: a runtime without tiers refuses even that).
+  const tier = runtime === null || loaded === null ? null : fastTier(runtime, loaded.models, model);
+  const effectiveTier =
+    loaded !== null &&
+    serviceTier !== null &&
+    (tier === null || (serviceTier !== NO_TIER && serviceTier !== tier))
+      ? null
+      : serviceTier;
+  const fast = tier !== null && effectiveTier === tier;
 
   /** Picking another workspace brings the setup you last used there. */
   const pickWorkspace = (id: string): void => {
@@ -242,6 +256,7 @@ export function NewAgentForm({
     setRuntime(setup.runtime);
     setModel(setup.model);
     setEffort(setup.effort);
+    setServiceTier(setup.serviceTier);
     setIsolate(setup.isolate);
   };
 
@@ -262,6 +277,7 @@ export function NewAgentForm({
         runtime,
         model,
         effort: effectiveEffort,
+        serviceTier: effectiveTier,
         isolate: canIsolate && (isolate || forceIsolate),
         branch: branch.trim(),
         text,
@@ -416,6 +432,7 @@ export function NewAgentForm({
                         setRuntime(r.id);
                         setModel(null);
                         setEffort(null);
+                        setServiceTier(null);
                       }
                       setChip(null);
                     }}
@@ -446,14 +463,15 @@ export function NewAgentForm({
         <Popover {...chipMenu("model")}>
           <PopoverTrigger asChild>
             <Chip
-              aria-label={`Model: ${model === null ? "default" : (modelInfo?.name ?? model)}${effectiveEffort === null ? "" : `, ${effectiveEffort} effort`}`}
-              title="Model and effort (⌥M)"
+              aria-label={`Model: ${model === null ? "default" : (modelInfo?.name ?? model)}${effectiveEffort === null ? "" : `, ${effectiveEffort} effort`}${fast ? ", Fast" : ""}`}
+              title="Model, effort and Fast mode (⌥M)"
             >
               <Cpu />
               <span className="truncate">
                 {model === null ? "Default model" : (modelInfo?.name ?? model)}
               </span>
               {effectiveEffort !== null && <span className="text-muted-foreground">· {effectiveEffort}</span>}
+              {fast && <span className="text-muted-foreground">· fast</span>}
             </Chip>
           </PopoverTrigger>
           <PopoverContent
@@ -479,6 +497,9 @@ export function NewAgentForm({
                 setEffort(level);
                 if (done) setChip(null);
               }}
+              fast={tier === null ? null : fast}
+              // Turned off, it stays off rather than going back to the runtime's setting (D-049).
+              onFast={(on) => setServiceTier(on ? tier : NO_TIER)}
             />
           </PopoverContent>
         </Popover>
@@ -677,7 +698,10 @@ function Chip({ className, ...props }: ComponentProps<typeof Button>) {
   );
 }
 
-/** Models, then the chosen model's effort levels. ←/→ change the effort while the filter is empty. */
+/**
+ * Models, then the chosen model's effort levels and its Fast switch. ←/→ change the effort while
+ * the filter is empty.
+ */
 function ModelMenu({
   runtimeName,
   loaded,
@@ -686,6 +710,8 @@ function ModelMenu({
   efforts,
   onModel,
   onEffort,
+  fast,
+  onFast,
 }: {
   runtimeName: string;
   loaded: { models: ModelInfo[]; error: string | null } | null;
@@ -695,6 +721,9 @@ function ModelMenu({
   /** `done`: close the menu (there's no effort to pick, or it was picked again). */
   onModel: (model: string | null, done: boolean) => void;
   onEffort: (effort: string | null, done: boolean) => void;
+  /** null: the model has no Fast mode. */
+  fast: boolean | null;
+  onFast: (on: boolean) => void;
 }) {
   const [filter, setFilter] = useState("");
   const levels: (string | null)[] = [null, ...efforts];
@@ -767,6 +796,23 @@ function ModelMenu({
               </button>
             ))}
           </div>
+        </div>
+      )}
+      {fast !== null && (
+        // One line: on a phone the menu has little height, and the models need it.
+        <div className="flex items-center gap-2 border-t px-3 py-2 text-xs">
+          <Label htmlFor="new-agent-fast" className="text-xs">
+            Fast
+          </Label>
+          <span id="new-agent-fast-note" className="min-w-0 flex-1 truncate text-muted-foreground">
+            Faster answers that cost more
+          </span>
+          <Switch
+            id="new-agent-fast"
+            aria-describedby="new-agent-fast-note"
+            checked={fast}
+            onCheckedChange={onFast}
+          />
         </div>
       )}
     </Command>

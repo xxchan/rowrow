@@ -230,14 +230,19 @@ public struct AgentSetup: Codable, Sendable, Equatable {
   public var runtime: String?
   public var model: String?
   public var effort: String?
+  /// Fast mode's tier, or "default" for off (D-049); nil leaves it to the runtime's settings.
+  public var serviceTier: String?
   /// In a new worktree of the workspace.
   public var isolate: Bool
 
-  public init(workspaceId: String?, runtime: String?, model: String?, effort: String?, isolate: Bool) {
+  public init(
+    workspaceId: String?, runtime: String?, model: String?, effort: String?, serviceTier: String? = nil, isolate: Bool
+  ) {
     self.workspaceId = workspaceId
     self.runtime = runtime
     self.model = model
     self.effort = effort
+    self.serviceTier = serviceTier
     self.isolate = isolate
   }
 }

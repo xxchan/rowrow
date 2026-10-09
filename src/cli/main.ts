@@ -11,6 +11,7 @@ import { contract } from "../shared/contract.ts";
 import type { Attachment, Entry } from "../shared/entries.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
+import { fastOn, fastTierOf, NO_TIER, tierWords } from "../shared/service-tier.ts";
 import {
   byPin,
   type AgentState,
@@ -62,13 +63,16 @@ Service (keeps the server running: starts at login, restarts after a crash)
 Agents
   rowrow agents [--all] [--coach]  list agents: pinned, then the ones that need you; --all: archived
                                    ones too; --coach: Coach's chats
-  rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
+  rowrow agent new <workspace> [--runtime claude] [--model M] [--fast | --no-fast] [--title T] [prompt…]
+                   [--attach FILE]… [--wait]
   rowrow agent send <agent> <text…> [--attach FILE]… [--steer | --interrupt] [--wait]
                                    while it works: queued for after the turn; --steer: into it now
   rowrow agent wait <agent> [--until done,blocked,idle] [--timeout 10m]
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
   rowrow agent abort|stop|archive|seen|pin|unpin <agent>
+  rowrow agent fast <agent> [on|off]   Fast mode from the next message (codex's /fast; claude's
+                                   fast mode); without on|off it toggles
   rowrow notify <title> [body] [--key K] [--agent <agent>]
                                    notify the user on every device, even while they look at the
                                    agent (from inside an agent: about that agent); --key K: once
@@ -140,6 +144,8 @@ async function main(argv: string[]): Promise<void> {
       open: { type: "boolean" },
       runtime: { type: "string" },
       model: { type: "string" },
+      fast: { type: "boolean" },
+      "no-fast": { type: "boolean" },
       title: { type: "string" },
       label: { type: "string" },
       wait: { type: "boolean" },
@@ -589,10 +595,14 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
     const ws = findWorkspace(state, ref) ?? (await client.workspaces.add({ path: path.resolve(ref) }));
     const text = rest.join(" ");
     const attachments = await upload(client, h.strings("attach"));
+    const runtime = h.str("runtime") ?? "claude";
+    // Unsaid, the runtime's own setting decides (D-049).
+    const serviceTier = h.bool("fast") ? fastTierOf(runtime) : h.bool("no-fast") ? NO_TIER : undefined;
     const { agent, sent } = await client.agents.create({
       workspaceId: ws.id,
-      runtime: h.str("runtime") ?? "claude",
+      runtime,
       ...(h.str("model") === undefined ? {} : { model: h.str("model") }),
+      ...(serviceTier === undefined ? {} : { serviceTier }),
       ...(h.str("title") === undefined ? {} : { title: h.str("title") }),
       ...(text === "" && attachments.length === 0
         ? {}
@@ -702,6 +712,19 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
       await client.agents.update({ agentId, archived: true });
       h.out({ ok: true }, () => "archived");
       return;
+    case "fast": {
+      const word = rest[0] ?? (fastOn(agent.summary) ? "off" : "on");
+      if (word !== "on" && word !== "off") throw new Error("usage: rowrow agent fast <agent> [on|off]");
+      const { summary } = await client.agents.update({
+        agentId,
+        serviceTier: word === "on" ? fastTierOf(agent.summary.runtime) : NO_TIER,
+      });
+      h.out(
+        { serviceTier: summary.serviceTier },
+        () => `${tierWords(summary.serviceTier)} from the next message`,
+      );
+      return;
+    }
     case "pin":
     case "unpin":
       await client.agents.update({ agentId, pinned: sub === "pin" });

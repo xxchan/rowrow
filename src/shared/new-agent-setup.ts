@@ -10,6 +10,8 @@ export interface AgentSetup {
   readonly runtime: string | null;
   readonly model: string | null;
   readonly effort: string | null;
+  /** Its service tier (Fast mode, D-049); null leaves it to the runtime's settings. */
+  readonly serviceTier: string | null;
   /** Start it in a new worktree of the workspace (D-007). */
   readonly isolate: boolean;
 }
@@ -44,10 +46,10 @@ function usable(state: AppState, id: string | null | undefined): Workspace | nul
 /**
  * The workspace and setup a new agent starts with:
  * - from an agent: its workspace (the repository, with a new worktree, when it works in one)
- *   and its runtime, model and effort;
+ *   and its runtime, model, effort and Fast mode;
  * - from a workspace: that workspace;
  * - from anywhere else: the workspace you last started one in, else the first.
- * The runtime, model, effort and worktree choice come from the last agent you started in that
+ * The runtime, model, effort, Fast mode and worktree choice come from the last agent you started in that
  * workspace. Anything no longer valid (an uninstalled runtime, a workspace that isn't a git
  * repository) falls back to the default.
  */
@@ -73,6 +75,7 @@ export function resolveSetup(state: AppState, context: NewAgentContext, prefs: N
         runtime: agent.summary.runtime,
         model: agent.summary.model,
         effort: agent.summary.effort,
+        serviceTier: agent.summary.serviceTier,
         isolate: parent !== null,
       };
   } else if (context.kind === "workspace") ws = usable(state, context.workspaceId);
@@ -92,6 +95,7 @@ export function resolveSetup(state: AppState, context: NewAgentContext, prefs: N
       runtime: fallbackRuntime,
       model: null,
       effort: null,
+      serviceTier: null,
       isolate: canIsolate && (setup?.isolate ?? false),
     };
   return {
@@ -99,6 +103,7 @@ export function resolveSetup(state: AppState, context: NewAgentContext, prefs: N
     runtime: setup.runtime,
     model: setup.model,
     effort: setup.effort,
+    serviceTier: setup.serviceTier,
     isolate: canIsolate && setup.isolate,
   };
 }
@@ -133,6 +138,7 @@ export function parsePrefs(raw: string | null, legacyRuntime: string | null): Ne
       runtime: str(s.runtime),
       model: str(s.model),
       effort: str(s.effort),
+      serviceTier: str(s.serviceTier),
       isolate: s.isolate === true,
     };
   }

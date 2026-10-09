@@ -14,6 +14,8 @@ struct NewAgentView: View {
   @State private var runtime: String?
   @State private var modelId: String?
   @State private var effort: String?
+  /// Fast mode's tier, or "default" once turned off; nil leaves it to the runtime (D-049).
+  @State private var serviceTier: String?
   @State private var isolate = false
   @State private var branch = ""
   @State private var models: [ModelInfo] = []
@@ -33,6 +35,7 @@ struct NewAgentView: View {
     let workspace = workspaceId.flatMap { state?.workspaces[$0] }
     let runtimes = (state?.runtimes.values.filter(\.installed) ?? []).sorted { $0.name < $1.name }
     let chosenModel = models.first { $0.id == modelId }
+    let fastTier = runtime.flatMap { FastMode.tier(runtime: $0, models: models, model: modelId) }
     NavigationStack {
       Form {
         Section {
@@ -101,6 +104,11 @@ struct NewAgentView: View {
               Label("Effort", systemImage: "gauge.with.dots.needle.50percent")
             }
           }
+          if let fastTier {
+            Toggle(isOn: Binding(get: { serviceTier == fastTier }, set: { serviceTier = $0 ? fastTier : FastMode.off })) {
+              Label("Fast", systemImage: "hare")
+            }
+          }
         } footer: {
           if let modelsError { Text(modelsError) }
         }
@@ -156,6 +164,7 @@ struct NewAgentView: View {
     runtime = setup.runtime
     modelId = setup.model
     effort = setup.effort
+    serviceTier = setup.serviceTier
     isolate = setup.isolate
   }
 
@@ -189,14 +198,19 @@ struct NewAgentView: View {
         target = created.workspace.id
       }
       let effortToUse = models.first { $0.id == modelId }?.effortLevels.isEmpty == false ? effort : nil
+      // A remembered tier the model doesn't have is dropped, like the effort.
+      let fastTier = FastMode.tier(runtime: runtime, models: models, model: modelId)
+      let tierToUse = fastTier != nil && (serviceTier == FastMode.off || serviceTier == fastTier) ? serviceTier : nil
       let created = try await session.api.createAgent(
-        workspaceId: target, runtime: runtime, model: modelId, effort: effortToUse, text: text, attachments: files)
+        workspaceId: target, runtime: runtime, model: modelId, effort: effortToUse, serviceTier: tierToUse, text: text,
+        attachments: files)
       model.attachments[filesKey] = nil
       if let sent = created.sent, sent.landed == .failed || sent.landed == .rejected {
         model.drafts[created.agent.id] = text
       }
       let kit = await session.readyKit()
-      let setup = AgentSetup(workspaceId: nil, runtime: runtime, model: modelId, effort: effortToUse, isolate: isolate)
+      let setup = AgentSetup(
+        workspaceId: nil, runtime: runtime, model: modelId, effort: effortToUse, serviceTier: tierToUse, isolate: isolate)
       if let prefs = try? await kit.remember(prefs: UserDefaults.standard.string(forKey: prefsKey), workspaceId: workspaceId, setup: setup) {
         UserDefaults.standard.set(prefs, forKey: prefsKey)
       }

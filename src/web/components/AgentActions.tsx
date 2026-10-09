@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   Archive,
@@ -41,6 +42,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import type { AgentState, ModelInfo, Workspace } from "../../shared/schemas.ts";
+import { fastOn, fastTier, NO_TIER } from "../../shared/service-tier.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
 import { defaultNote, title } from "../lib/format.ts";
 import { navigate } from "../lib/router.ts";
@@ -246,8 +248,15 @@ export function AgentDialogs() {
           agent={agent}
           runtimeName={runtimeName}
           onClose={close}
-          onApply={(model, effort) =>
-            act("Switch model", () => client.agents.update({ agentId: agent.id, model, effort }))
+          onApply={(model, effort, serviceTier) =>
+            act("Switch model", () =>
+              client.agents.update({
+                agentId: agent.id,
+                model,
+                effort,
+                ...(serviceTier === undefined ? {} : { serviceTier }),
+              }),
+            )
           }
         />
       )}
@@ -311,7 +320,11 @@ function RenameDialog({
 /** Radix Select items can't have an empty value; this one means "the runtime's default". */
 const DEFAULT = "__default";
 
-/** Switch the agent's model or effort: its run restarts with them and the conversation carries on. */
+/**
+ * Switch the agent's model, effort or Fast mode: its run restarts with them and the
+ * conversation carries on. Fast shows when the model has a Fast tier; until you flip it, the
+ * runtime's own setting keeps deciding (D-049).
+ */
 function ModelDialog({
   agent,
   runtimeName,
@@ -321,13 +334,16 @@ function ModelDialog({
   agent: AgentState;
   runtimeName: string;
   onClose: () => void;
-  onApply: (model: string | null, effort: string | null) => void;
+  /** `serviceTier` undefined: leave it as it is. */
+  onApply: (model: string | null, effort: string | null, serviceTier?: string | null) => void;
 }) {
   const client = useClient();
   const { summary } = agent;
   const [models, setModels] = useState<{ list: ModelInfo[]; error: string | null } | null>(null);
   const [model, setModel] = useState(summary.model ?? DEFAULT);
   const [effort, setEffort] = useState(summary.effort ?? DEFAULT);
+  const wasFast = fastOn(summary);
+  const [fast, setFast] = useState(wasFast);
 
   useEffect(() => {
     if (client === null) return;
@@ -347,6 +363,15 @@ function ModelDialog({
   }, [client, summary.runtime]);
 
   const efforts = models?.list.find((m) => m.id === model)?.effortLevels ?? [];
+  const list = models?.list ?? [];
+  const chosen = model === DEFAULT ? null : model;
+  const tier = fastTier(summary.runtime, list, chosen, summary.model === null ? summary.reportedModel : null);
+  const serviceTier = (): string | null | undefined => {
+    if (tier !== null) return fast === wasFast ? undefined : fast ? tier : NO_TIER;
+    // A model without that tier would refuse to run with it: back to the runtime's setting.
+    const asked = summary.serviceTier;
+    return list.length > 0 && asked !== null && asked !== NO_TIER ? null : undefined;
+  };
   const current = summary.reportedModel ?? summary.model ?? "the default model";
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
@@ -406,6 +431,24 @@ function ModelDialog({
             </div>
           )}
         </div>
+        {tier !== null && (
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <Label htmlFor="switch-fast">Fast</Label>
+              <p id="switch-fast-note" className="text-xs text-muted-foreground">
+                {summary.serviceTier === null && fast === wasFast
+                  ? `Faster answers that cost more. Now as ${runtimeName}'s settings have it.`
+                  : "Faster answers that cost more."}
+              </p>
+            </div>
+            <Switch
+              id="switch-fast"
+              aria-describedby="switch-fast-note"
+              checked={fast}
+              onCheckedChange={setFast}
+            />
+          </div>
+        )}
         {(model === DEFAULT || effort === DEFAULT) && (
           <p className="text-xs text-muted-foreground">Default: {defaultNote(runtimeName)}.</p>
         )}
@@ -421,7 +464,7 @@ function ModelDialog({
           </Button>
           <Button
             onClick={() => {
-              onApply(model === DEFAULT ? null : model, effort === DEFAULT ? null : effort);
+              onApply(chosen, effort === DEFAULT ? null : effort, serviceTier());
               onClose();
             }}
           >

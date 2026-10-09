@@ -107,6 +107,36 @@ describe("runtimes", () => {
     expect(seen["other"]?.env).toEqual(options.env);
   });
 
+  it("lists each model's service tiers, and says which runtimes refuse one (Fast mode, D-049)", async () => {
+    const codexLike = {
+      ...scriptedRuntime({ id: "tiers", turn: () => {} }),
+      listModels: async () =>
+        ({
+          kind: "ok",
+          models: [
+            { id: "gpt-5.5", serviceTiers: ["priority", "flex"], defaultServiceTier: "flex" },
+            { id: "gpt-5-mini" },
+          ],
+        }) as const,
+    };
+    const refusing = {
+      ...scriptedRuntime({ id: "none", turn: () => {} }),
+      refusedSessionOptions: { serviceTier: "none exposes no service tier" },
+    };
+    const runtimes = new Runtimes({ testRuntime: true, probe: false, extra: [codexLike, refusing] });
+    await runtimes.refresh();
+    const { models } = await runtimes.listModels("tiers");
+    expect(models.map((m) => [m.id, m.serviceTiers])).toEqual([
+      ["gpt-5.5", ["priority", "flex"]],
+      ["gpt-5-mini", []],
+    ]);
+    expect((await runtimes.listModels("scripted")).models).toMatchObject([
+      { id: "script-1", serviceTiers: ["fast"] },
+    ]);
+    expect(runtimes.refusal("none", "serviceTier")).toBe("none exposes no service tier");
+    expect(runtimes.refusal("tiers", "serviceTier")).toBeNull();
+  });
+
   it("signs a runtime in: progress in its info, the answer to its question, then who it is", async () => {
     let changes = 0;
     const runtimes = new Runtimes({ testRuntime: true, probe: false, changed: () => changes++ });

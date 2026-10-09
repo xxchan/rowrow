@@ -1007,6 +1007,62 @@ test("the model and context sit by the composer, the rest of the session one tap
   await expect(page.getByRole("dialog", { name: "Model and effort" })).toBeVisible();
 });
 
+test("Fast mode: switched on beside the model, it shows by the composer and the next message runs fast", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "fast",
+    input: { inputId: randomUUID(), text: "/echo hi" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const details = page.getByRole("button", { name: "Session details" });
+  await expect(details).toContainText("script-1");
+  await expect(details).not.toContainText("fast");
+  await details.click();
+  await page.getByRole("dialog").getByRole("button", { name: "Change model and effort" }).click();
+  const dialog = page.getByRole("dialog", { name: "Model and effort" });
+  const fast = dialog.getByRole("switch", { name: "Fast" });
+  await expect(fast).not.toBeChecked();
+  await fast.click();
+  await dialog.getByRole("button", { name: "Switch", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(details).toContainText("fast");
+  await expect(page.getByText("Switched Fast mode on")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Message input" }).fill("/options");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(/serviceTier.{1,3}fast/)).toBeVisible();
+});
+
+test("a new agent can start in Fast mode, set beside its model", async ({ page, rowrow }) => {
+  await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.open(page);
+  await page.getByRole("button", { name: "New agent" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "New agent" });
+  await dialog.getByRole("button", { name: /^Agent: / }).click();
+  await page.getByRole("option", { name: /Scripted demo/ }).click();
+  await dialog.getByRole("button", { name: /^Model: / }).click();
+  const fast = page.getByRole("switch", { name: "Fast" });
+  await expect(fast).not.toBeChecked();
+  await fast.click();
+  await expect(fast).toBeChecked();
+  // The menu hides the rest of the dialog while it's open.
+  await page.keyboard.press("Escape");
+  await expect(fast).toBeHidden();
+  await expect(dialog.getByRole("button", { name: "Model: default, Fast" })).toBeVisible();
+
+  await dialog.getByLabel("First message").fill("/options");
+  await dialog.getByRole("button", { name: "Create and send" }).click();
+  await expect(page).toHaveURL(/\/a\/ag_/);
+  await expect(page.getByText(/serviceTier.{1,3}fast/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Session details" })).toContainText("fast");
+});
+
 test("on a phone, the header folds away while you type", async ({ page, rowrow }, info) => {
   test.skip(info.project.name !== "phone", "a phone's keyboard takes half its screen; a desktop's doesn't");
   await page.setViewportSize({ width: 375, height: 667 });

@@ -11,8 +11,10 @@ import {
   placeNotes,
   placeProposals,
   stoppedByAgent,
+  switches,
   type Timeline,
 } from "./timeline.ts";
+import { tierWords } from "./service-tier.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -45,7 +47,7 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         if (entry.kind === "run.failed") out.push(`! run ${entry.runId} failed to start: ${entry.error}`);
         else if (entry.kind === "host.error") out.push(`! ${entry.code}: ${entry.message}`);
         else if (entry.kind === "notification.sent") out.push(notifiedLine(entry));
-        else out.push(`· model → ${entry.changes.model ?? "default"} (${actorLabel(entry.by)})`);
+        else out.push(`· switched ${switches(entry.changes) ?? ""} (${actorLabel(entry.by)})`);
         break;
       }
       case "run": {
@@ -53,7 +55,7 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         out.push(
           s === undefined
             ? `── run ${block.runId} (started before this window) ──`
-            : `── run ${s.runId} · ${s.runtime}${s.model === undefined ? "" : ` · ${s.model}`}${s.resume === undefined ? "" : " · resumed"} ──`,
+            : `── run ${s.runId} · ${[s.runtime, s.model, s.effort, s.serviceTier === undefined ? undefined : tierWords(s.serviceTier), s.resume === undefined ? undefined : "resumed"].filter((part) => part !== undefined).join(" · ")} ──`,
         );
         const notes = placeNotes(block);
         const proposals = placeProposals(block);

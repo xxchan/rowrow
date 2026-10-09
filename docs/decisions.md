@@ -1327,3 +1327,41 @@ promise that logs are facts (PRINCIPLES.md, engineering 1).
 **Revisit when** people want rowrow to delete the folder too (then a separate, explicit act
 with its own confirmation, like Remove this worktree), or want a removed workspace's agents
 to come back when its folder is added again.
+
+## D-049 Fast mode is the agent's service tier, and the runtime's own setting until you flip it (2026-10-09)
+
+**Context.** codex's `/fast` ("Turn Fast mode on or off") and claude's fast mode run the same
+model faster for more money. oar 0.45 models them as `SessionOptions.serviceTier`: the tier id
+the runtime itself uses (codex lists `priority` and `flex`, and Fast is `priority`: asking for
+`fast` reads back as `priority`, so oar refuses it; claude lists `fast` for the models that
+have it), or `default` to turn a tier off. Omitted, the runtime's own configuration decides
+(codex's `service_tier`, claude's `fastMode` setting). The other runtimes refuse the option.
+
+**Decision.** An agent keeps a service tier beside its model and effort (`serviceTier` in
+`agent.created`, `agent.updated` and `run.started`; `agents.create` / `agents.update`), in
+the runtime's own spelling, and every run opens with it. Changing it restarts the run like a
+model switch, so it applies from the next message.
+
+- **Tri-state, shown as a switch.** null (never set) leaves the option out, so the user's own
+  config files keep working; the switch then shows what the runtime reported (`service_tier`,
+  folded into `reportedServiceTier`) and says the runtime's settings decide. Flipping it sends
+  the Fast tier, or `default` for off: once you've said, it's explicit. Leaving it alone sends
+  nothing. `agents.update {serviceTier: null}` hands it back to the runtime.
+- **Which tier is Fast** is per runtime (`fastTierOf`: codex `priority`, everyone else
+  `fast`), and the switch shows only when the chosen model lists it (`runtimes.models` now
+  carries `serviceTiers`). With the default model, that's the model the runtime reported
+  running when it's listed, else the first listed (as Coach's pickers assume). A model that
+  doesn't list the tier drops an on-tier back to null rather than fail its run.
+- **What you see** is the runtime's report over what you asked: a switch clears the old run's
+  report, since the next run reports its own. The composer's session details say "fast", the
+  transcript says "Switched Fast mode on/off", and `rowrow agent view` shows the tier on each run.
+- The server refuses a tier for a runtime that declares it refuses one, rather than fail the
+  next run. Other tiers (codex `flex`) are reachable through the contract, not the UI.
+
+**Why.** The runtime's tier id, not a boolean, because that's what oar checks against the
+runtime's report and what a later tier (flex) needs; the boolean lives in one place
+(`src/shared/service-tier.ts`, and its Swift twin). Omitting it until you flip it, because a
+user who set Fast in their codex or claude config expects rowrow's agents to honor it.
+
+**Revisit when** another runtime gets service tiers (its Fast tier may need its own name), a
+runtime lets a live session switch tiers without a restart, or people want flex in the UI.

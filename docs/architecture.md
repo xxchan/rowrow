@@ -79,11 +79,11 @@ to the agent; everything the UI shows about an agent is computed from it.
 
 ```ts
 type Entry = { seq: number; at: number } & (
-  | { kind: "agent.created"; workspaceId; runtime; model?; title?; role?; by } // role "coach": D-044
-  | { kind: "agent.updated"; changes; by; reason? }     // title, model, archived; reason: D-047
+  | { kind: "agent.created"; workspaceId; runtime; model?; effort?; serviceTier?; title?; role?; by } // role "coach": D-044
+  | { kind: "agent.updated"; changes; by; reason? }     // title, model, effort, serviceTier (D-049), archived; reason: D-047
   | { kind: "input"; inputId; text; mode; by; scope?; fullAccess? } // what you sent, before delivery
   | { kind: "input.result"; inputId; landed; code?; reason? } // where it landed
-  | { kind: "run.started"; runId; runtime; model?; cwd; resume?; sessionId }
+  | { kind: "run.started"; runId; runtime; model?; effort?; serviceTier?; cwd; resume?; sessionId }
   | { kind: "run.failed"; runId; error }                // could not start
   | { kind: "oar"; runId; record: RawEvent }            // oar's record, verbatim
   | { kind: "run.ended"; runId; reason; code? }         // idle, stopped, exited, shutdown, crashed

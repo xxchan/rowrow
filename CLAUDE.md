@@ -58,7 +58,8 @@ The scripted runtime (`src/server/agents/scripted.ts`) is a real oar session wit
 `/echo <text>`, `/write <path>` (then the file's lines), `/sleep <ms>`, `/stream <n>`,
 `/fail <reason>`, `/run <ms> <command>` (a Bash tool call that takes that long; each
 following line is one more call, and `false` fails),
-`/background <ms> <text>` (a background command that outlives the turn). It starts signed
+`/background <ms> <text>` (a background command that outlives the turn), `/options` (what the
+session opened with: model, effort, service tier; its model lists a Fast tier). It starts signed
 out; its sign-in (Settings → Agent runtimes) asks for a code, which is always `rowrow`, and
 Sign out signs it out again.
 Real runtimes spend the user's quota: use them only on purpose.

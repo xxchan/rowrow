@@ -17,7 +17,8 @@ import {
   type ViewSection,
 } from "@botiverse/oar/observe";
 import { reduceCoachActions, type CoachActionState } from "./coach-actions.ts";
-import type { Entry, EntryOf } from "./entries.ts";
+import type { AgentChanges, Entry, EntryOf } from "./entries.ts";
+import { tierWords } from "./service-tier.ts";
 import { echoesInput } from "./summary.ts";
 
 export interface RunBlock {
@@ -201,8 +202,8 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
     case "coach.action":
       return { ...t, coachActions: reduceCoachActions(t.coachActions, entry) };
     case "agent.updated":
-      // Only a model change reads as part of the conversation; renames and archiving don't.
-      return entry.changes.model === undefined
+      // What it runs on reads as part of the conversation; renames and archiving don't.
+      return switches(entry.changes) === null
         ? t
         : { ...t, blocks: [...t.blocks, { kind: "notice", entry }] };
     case "agent.created":
@@ -210,6 +211,16 @@ function foldEntry(t: Timeline, entry: Entry): Timeline {
     case "queue.resumed":
       return t;
   }
+}
+
+/** What a switch changed that the next message runs on ("model: opus, Fast mode on"); null for none. */
+export function switches(changes: AgentChanges): string | null {
+  const parts = [
+    changes.model === undefined ? null : `model: ${changes.model ?? "default"}`,
+    changes.effort === undefined ? null : `effort: ${changes.effort ?? "default"}`,
+    changes.serviceTier === undefined ? null : tierWords(changes.serviceTier),
+  ].filter((part) => part !== null);
+  return parts.length === 0 ? null : parts.join(", ");
 }
 
 function findRun(blocks: readonly TimelineBlock[], runId: string): number {

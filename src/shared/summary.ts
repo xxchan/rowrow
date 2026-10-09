@@ -65,6 +65,11 @@ export interface AgentSummary {
   readonly model: string | null;
   /** The reasoning effort you asked for; null means the runtime's default. */
   readonly effort: string | null;
+  /**
+   * The service tier you asked for (D-049): Fast mode is codex's `priority`, claude's `fast`;
+   * `default` turns it off. null leaves it to the runtime's own settings.
+   */
+  readonly serviceTier: string | null;
   readonly archived: boolean;
   readonly createdAt: number;
   /** The live run, while one is attached. */
@@ -77,6 +82,11 @@ export interface AgentSummary {
   readonly reportedModel: string | null;
   /** The reasoning effort the runtime reported (claude reports none). */
   readonly reportedEffort: string | null;
+  /**
+   * The service tier the runtime reported in effect (`default`: none). Cleared when you ask for
+   * another: it was the old run's, and the next run reports its own.
+   */
+  readonly reportedServiceTier: string | null;
   /** Runtime→app requests (an approval, a question) of the live run that nobody answered yet. */
   readonly pending: readonly PendingRequestSummary[];
   /** The latest turn the runtime ended, with its own outcome. */
@@ -134,6 +144,8 @@ export interface AgentSummary {
 }
 
 const PREVIEW_CHARS = 280;
+/** What the runtime reports about itself, not what the agent says. */
+const REPORTS = new Set(["usage", "model", "effort", "service_tier"]);
 
 export function initialSummary(): AgentSummary {
   return {
@@ -146,6 +158,7 @@ export function initialSummary(): AgentSummary {
     title: null,
     model: null,
     effort: null,
+    serviceTier: null,
     archived: false,
     createdAt: 0,
     run: null,
@@ -153,6 +166,7 @@ export function initialSummary(): AgentSummary {
     status: initialStatus,
     reportedModel: null,
     reportedEffort: null,
+    reportedServiceTier: null,
     pending: [],
     lastTurn: null,
     lastCompletionSeq: -1,
@@ -195,6 +209,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         runtime: entry.runtime,
         model: entry.model ?? null,
         effort: entry.effort ?? null,
+        serviceTier: entry.serviceTier ?? null,
         title: entry.title ?? null,
         createdAt: entry.at,
       };
@@ -205,6 +220,9 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         ...(changes.title === undefined ? {} : { title: changes.title }),
         ...(changes.model === undefined ? {} : { model: changes.model }),
         ...(changes.effort === undefined ? {} : { effort: changes.effort }),
+        ...(changes.serviceTier === undefined
+          ? {}
+          : { serviceTier: changes.serviceTier, reportedServiceTier: null }),
         ...(changes.archived === undefined ? {} : { archived: changes.archived }),
       };
     }
@@ -455,6 +473,9 @@ function foldRecord(
           case "effort":
             next = { ...next, reportedEffort: event.effort };
             break;
+          case "service_tier":
+            next = { ...next, reportedServiceTier: event.serviceTier };
+            break;
           case "usage":
             if (event.usage.tokens !== undefined) next = { ...next, usage: event.usage.tokens };
             if (event.usage.context !== undefined) next = { ...next, context: event.usage.context };
@@ -467,7 +488,6 @@ function foldRecord(
           case "compaction_started":
           case "compaction_ended":
           case "retry":
-          case "service_tier":
           // Folded by foldTasks, every agent's, not just the root's.
           case "task_started":
           case "task_updated":
@@ -475,8 +495,7 @@ function foldRecord(
             break;
         }
         // Usage and model reports interleave with text on some runtimes; they don't end a text run.
-        if (event.kind !== "usage" && event.kind !== "model" && event.kind !== "effort" && next.textOpen)
-          next = { ...next, textOpen: false };
+        if (!REPORTS.has(event.kind) && next.textOpen) next = { ...next, textOpen: false };
       }
       return next;
   }

@@ -209,6 +209,8 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   /// The model you asked for; nil is the runtime's default.
   public let model: String?
   public let effort: String?
+  /// The service tier you asked for (Fast mode, D-049); nil leaves it to the runtime's settings.
+  public let serviceTier: String?
   public let archived: Bool
   public let createdAt: Millis
   /// The live run, while one is attached.
@@ -217,6 +219,8 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   /// The model the runtime reported it uses.
   public let reportedModel: String?
   public let reportedEffort: String?
+  /// The service tier the runtime reported in effect ("default": none).
+  public let reportedServiceTier: String?
   public let pending: [Pending]
   public let lastTurn: LastTurn?
   public let lastCompletionSeq: Int
@@ -421,6 +425,37 @@ public struct ModelInfo: Codable, Sendable, Equatable, Identifiable, Hashable {
   public let name: String
   public let effortLevels: [String]
   public let defaultEffort: String?
+  /// Its service tiers besides "default" (codex: priority, flex; claude: fast); nil from a server before Fast mode.
+  public let serviceTiers: [String]?
+}
+
+/// Fast mode (D-049), as src/shared/service-tier.ts decides it.
+public enum FastMode {
+  /// Turns a tier off, rather than leaving it to the runtime's settings.
+  public static let off = "default"
+
+  /// The tier that is a runtime's Fast mode: codex's is "priority", claude's "fast".
+  public static func tier(runtime: String) -> String {
+    runtime == "codex" ? "priority" : "fast"
+  }
+
+  /// The tier Fast asks for with this model, or nil when it has none. A nil `model` is the
+  /// runtime's default: the model it reported running when it's listed, else the first listed.
+  public static func tier(runtime: String, models: [ModelInfo], model: String?, reportedModel: String? = nil) -> String? {
+    let entry: ModelInfo?
+    if let model {
+      entry = models.first { $0.id == model }
+    } else {
+      entry = models.first { $0.id == reportedModel } ?? models.first
+    }
+    let fast = tier(runtime: runtime)
+    return entry?.serviceTiers?.contains(fast) == true ? fast : nil
+  }
+
+  /// Whether Fast mode is on: the tier the runtime reported, else the one you asked for.
+  public static func isOn(_ summary: AgentSummary) -> Bool {
+    (summary.reportedServiceTier ?? summary.serviceTier) == tier(runtime: summary.runtime)
+  }
 }
 
 public struct ModelList: Codable, Sendable {

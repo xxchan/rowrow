@@ -389,6 +389,11 @@ export const ModelInfo = z.object({
     .array(z.string())
     .describe("What `effort` accepts with this model; empty when the runtime has no effort setting."),
   defaultEffort: z.string().nullable(),
+  serviceTiers: z
+    .array(z.string())
+    .describe(
+      "What `serviceTier` accepts with this model besides `default` (codex: priority, flex; claude: fast); empty when it has none.",
+    ),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 

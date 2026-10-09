@@ -398,6 +398,7 @@ export class AgentActor {
       env: { ...more.env, ...this.deps.env(this.id) },
       ...(summary.model === null ? {} : { model: summary.model }),
       ...(summary.effort === null ? {} : { effort: summary.effort }),
+      ...(summary.serviceTier === null ? {} : { serviceTier: summary.serviceTier }),
     };
     let session: Session;
     let resumed: string | undefined;
@@ -440,6 +441,7 @@ export class AgentActor {
       sessionId: session.id,
       ...(summary.model === null ? {} : { model: summary.model }),
       ...(summary.effort === null ? {} : { effort: summary.effort }),
+      ...(summary.serviceTier === null ? {} : { serviceTier: summary.serviceTier }),
       ...(resumed === undefined ? {} : { resume: resumed }),
     });
     log.info("agent.run.started", {

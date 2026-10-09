@@ -1,7 +1,7 @@
 // What the next message runs on, next to where you write it. At a glance: the model, the
-// effort, and how full the context is (the one value that moves, and the one that asks you
-// to act: quiet until it fills up). One tap: the same three in full, a way to change the
-// model, and the fine print. Who and where (runtime, workspace, status) are the header's.
+// effort, Fast mode when it's on, and how full the context is (the one value that moves, and
+// the one that asks you to act: quiet until it fills up). One tap: the same in full, a way to
+// change them, and the fine print. Who and where (runtime, workspace, status) are the header's.
 // Each value is what the runtime reported, else what you asked for; nobody's guess.
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,6 +10,7 @@ import { Copy } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { AgentState } from "../../shared/schemas.ts";
+import { fastOn } from "../../shared/service-tier.ts";
 import { cacheWords, formatTokens } from "../lib/format.ts";
 import { report } from "../lib/telemetry.ts";
 
@@ -18,6 +19,7 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
   const [open, setOpen] = useState(false);
   const model = summary.reportedModel ?? summary.model;
   const effort = summary.reportedEffort ?? summary.effort;
+  const fast = fastOn(summary);
   const context = summary.context;
   const percent = context?.percent ?? null;
 
@@ -38,6 +40,14 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
               {effort}
             </span>
           )}
+          {fast && (
+            <span className="shrink-0">
+              <span aria-hidden className="pr-1.5">
+                ·
+              </span>
+              fast
+            </span>
+          )}
           {percent !== null && (
             <span className={cn("flex shrink-0 items-center gap-1", fullness(percent))}>
               <ContextRing percent={percent} />
@@ -53,6 +63,7 @@ export function SessionInfo({ agent, onSwitchModel }: { agent: AgentState; onSwi
               <p className="text-sm font-medium break-all">{model ?? "Default model"}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {provenance(summary.model, model, effort)}
+                {fast && " · Fast mode"}
               </p>
             </div>
             {!summary.archived && (

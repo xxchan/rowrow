@@ -152,7 +152,8 @@ struct AgentMenuItems: View {
   }
 }
 
-/// Switch an agent's model and reasoning effort; the live run restarts with them, resuming the conversation.
+/// Switch an agent's model, reasoning effort and Fast mode; the live run restarts with them, resuming the
+/// conversation. Until you flip Fast, the runtime's own setting keeps deciding (D-049).
 struct ModelSheet: View {
   let agent: AgentState
   let session: Session
@@ -162,11 +163,15 @@ struct ModelSheet: View {
   @State private var loading = true
   @State private var model: String?
   @State private var effort: String?
+  @State private var fast = false
   @State private var failure = Failure()
 
   var body: some View {
     let runtime = session.state?.runtimeName(agent.summary.runtime) ?? agent.summary.runtime
     let chosen = models.first { $0.id == model }
+    let fastTier = FastMode.tier(
+      runtime: agent.summary.runtime, models: models, model: model,
+      reportedModel: agent.summary.model == nil ? agent.summary.reportedModel : nil)
     NavigationStack {
       Form {
         Section {
@@ -196,6 +201,13 @@ struct ModelSheet: View {
             .pickerStyle(.segmented)
           }
         }
+        if fastTier != nil {
+          Section {
+            Toggle("Fast", isOn: $fast)
+          } footer: {
+            Text("Faster answers that cost more.")
+          }
+        }
       }
       .navigationTitle("Model and Effort")
       .navigationBarTitleDisplayMode(.inline)
@@ -205,17 +217,20 @@ struct ModelSheet: View {
           Button("Switch") {
             Task {
               await failure.run("Switch the model") {
-                try await session.api.updateAgent(agent.id, model: .some(model), effort: .some(chosen?.effortLevels.isEmpty == false ? effort : nil))
+                try await session.api.updateAgent(
+                  agent.id, model: .some(model), effort: .some(chosen?.effortLevels.isEmpty == false ? effort : nil),
+                  serviceTier: tierChange(fastTier))
                 dismiss()
               }
             }
           }
-          .disabled(model == agent.summary.model && effort == agent.summary.effort)
+          .disabled(model == agent.summary.model && effort == agent.summary.effort && fast == FastMode.isOn(agent.summary))
         }
       }
       .task {
         model = agent.summary.model
         effort = agent.summary.effort
+        fast = FastMode.isOn(agent.summary)
         do {
           let list = try await session.api.models(runtime: agent.summary.runtime)
           models = list.models
@@ -228,5 +243,15 @@ struct ModelSheet: View {
       .failureAlert(failure)
     }
     .presentationDetents([.medium, .large])
+  }
+
+  /// The tier to send: nothing while Fast is as it was; nil (the runtime's setting) for a model without it.
+  private func tierChange(_ fastTier: String?) -> String?? {
+    if let fastTier {
+      if fast == FastMode.isOn(agent.summary) { return .none }
+      return .some(.some(fast ? fastTier : FastMode.off))
+    }
+    if let asked = agent.summary.serviceTier, asked != FastMode.off, !models.isEmpty { return .some(.none) }
+    return .none
   }
 }

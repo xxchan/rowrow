@@ -8,6 +8,7 @@ import {
   defaultRuntimes as builtins,
   type AvailableInstallation,
   type ProviderLoginPrompt,
+  type RefusableSessionOption,
   type Runtime,
   type Session,
   type SessionOptions,
@@ -478,6 +479,11 @@ export class Runtimes {
     return this.known.get(id)?.info;
   }
 
+  /** Why the runtime refuses this session option (oar's refusedSessionOptions); null when it takes it. */
+  refusal(id: string, option: RefusableSessionOption): string | null {
+    return this.known.get(id)?.runtime.refusedSessionOptions?.[option] ?? null;
+  }
+
   /** Open a session. Throws with a message a person can act on. */
   async start(id: string, options: SessionOptions): Promise<Session> {
     const known = this.known.get(id);
@@ -518,6 +524,7 @@ export class Runtimes {
                     name: model.displayName ?? model.id,
                     effortLevels: [...(model.effortLevels ?? [])],
                     defaultEffort: model.defaultEffort ?? null,
+                    serviceTiers: [...(model.serviceTiers ?? [])],
                   })),
                 error: null,
               }
