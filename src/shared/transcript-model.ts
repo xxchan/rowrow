@@ -123,6 +123,8 @@ export interface RequestItem extends PartOf {
   readonly kind: "request";
   readonly type: string;
   readonly answered: boolean;
+  /** The runtime took it back before anyone answered. */
+  readonly cancelled?: boolean;
 }
 
 export interface NoticeItem {
@@ -458,7 +460,13 @@ function partItem(
         divider: false,
       };
     case "app_request":
-      return { kind: "request", ...where, type: part.type, answered: part.answered };
+      return {
+        kind: "request",
+        ...where,
+        type: part.type,
+        answered: part.answered,
+        ...(part.cancelled === true ? { cancelled: true } : {}),
+      };
   }
 }
 

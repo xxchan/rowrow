@@ -195,7 +195,9 @@ function renderPart(
       return [`${indent}· ${noticeText(part.notice)}`];
     case "app_request":
       if (appRequestKind(part.type) === "service") return [];
-      return [`${indent}? ${part.type}${part.answered ? " (answered)" : " (waiting for an answer)"}`];
+      return [
+        `${indent}? ${part.type}${part.answered ? " (answered)" : part.cancelled === true ? " (withdrawn)" : " (waiting for an answer)"}`,
+      ];
   }
 }
 

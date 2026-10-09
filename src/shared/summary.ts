@@ -438,6 +438,11 @@ function foldRecord(
       }
       return next;
     case "frame":
+      // A request the runtime took back (claude's control_cancel_request, codex resolving its own)
+      // waits on nobody, whichever agent asked.
+      for (const event of record.body.events)
+        if (event.kind === "app_request_cancelled")
+          next = { ...next, pending: next.pending.filter((p) => p.requestId !== event.requestId) };
       if (!root) return next;
       for (const event of record.body.events) {
         if (event.kind === "text_delta") {
@@ -496,6 +501,8 @@ function foldRecord(
           case "task_started":
           case "task_updated":
           case "task_ended":
+          // Folded above, any agent's.
+          case "app_request_cancelled":
             break;
         }
         // Usage and model reports interleave with text on some runtimes; they don't end a text run.

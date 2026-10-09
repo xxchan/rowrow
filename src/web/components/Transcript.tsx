@@ -810,7 +810,9 @@ function Section({
           <div key={index} className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
             {part.answered
               ? `The agent asked (${part.type}); rowrow answered.`
-              : `The agent is asking for something rowrow can't answer yet (${part.type}).`}
+              : part.cancelled === true
+                ? `The agent asked (${part.type}), then took it back.`
+                : `The agent is asking for something rowrow can't answer yet (${part.type}).`}
           </div>,
         );
         break;
