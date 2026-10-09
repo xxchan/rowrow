@@ -1153,6 +1153,8 @@ test("Coach: allow a workspace, ask, and read its answer and the work it did", a
     await expect(coach).toBeHidden();
     // Pinned stays pinned in this browser.
     await page.reload();
+    // The shortcut is heard once the app is up.
+    await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
     await page.keyboard.press("ControlOrMeta+Alt+Shift+KeyA");
     await expect(coach.getByRole("button", { name: "Float Coach" })).toBeVisible();
     await expect(coach.getByText("hi from Coach", { exact: true })).toBeVisible();
