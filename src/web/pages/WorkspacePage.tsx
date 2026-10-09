@@ -26,10 +26,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ORPCError } from "@orpc/client";
-import { Ellipsis, GitBranch, LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Ellipsis, GitBranch, LoaderCircle, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import type { AppState, Workspace } from "../../shared/schemas.ts";
+import { byPin, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
 import {
@@ -65,7 +65,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
   const now = useNow(15_000);
   const agents = Object.values(state.agents)
     .filter((a) => a.summary.workspaceId === ws.id && !a.summary.archived)
-    .sort((a, b) => b.summary.lastActivityAt - a.summary.lastActivityAt);
+    .sort((a, b) => byPin(a, b) || b.summary.lastActivityAt - a.summary.lastActivityAt);
   const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id);
   const git = ws.git;
 
@@ -195,7 +195,15 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
                           ring="ring-card"
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{title(agent)}</div>
+                          <div className="flex items-center gap-1.5 text-sm font-medium">
+                            <span className="truncate">{title(agent)}</span>
+                            {agent.pinnedAt !== null && (
+                              <Pin
+                                aria-label="Pinned"
+                                className="size-3 shrink-0 fill-current text-muted-foreground"
+                              />
+                            )}
+                          </div>
                           <div className="truncate text-xs text-muted-foreground">
                             {`${dot.label} · ${state.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime}`}
                           </div>

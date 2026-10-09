@@ -11,7 +11,7 @@ import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
 import { TranscriptProjector } from "../src/shared/transcript-model.ts";
-import type { StateMessage } from "../src/shared/schemas.ts";
+import { byPin, type StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
 import type {
   ControlOutcome,
@@ -348,6 +348,37 @@ describe("agents", () => {
     expect(loaded?.attention).toBe("done");
     expect(loaded?.summary.lastError).toBe("rowrow stopped while this agent was running");
     fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("keeps pins (D-046) across restarts, outside the log, and won't archive a pinned agent", async () => {
+    t = await startTestServer();
+    const { agent: first } = await agentIn(t);
+    const { agent: second } = await agentIn(t);
+    const head = first.summary.headSeq;
+    const pinned = await t.client.agents.update({ agentId: second.id, pinned: true });
+    expect(pinned.pinnedAt).toBeGreaterThan(0);
+    await t.client.agents.update({ agentId: first.id, pinned: true });
+    // A pin is yours, like the seen marker: no entry, so it isn't activity either.
+    expect((await t.client.agents.entries({ agentId: first.id, after: -1 })).headSeq).toBe(head);
+
+    await expect(t.client.agents.update({ agentId: first.id, archived: true })).rejects.toThrow(
+      /unpin it before archiving it/,
+    );
+    t = await t.restart();
+    const { state } = await t.client.state.get();
+    const order = Object.values(state.agents)
+      .sort(byPin)
+      .map((a) => a.id);
+    expect(order).toEqual([second.id, first.id]);
+    expect(state.agents[second.id]?.pinnedAt).toBe(pinned.pinnedAt);
+
+    await t.client.agents.update({ agentId: first.id, pinned: false });
+    const archived = await t.client.agents.update({ agentId: first.id, archived: true });
+    expect(archived.pinnedAt).toBeNull();
+    expect(archived.summary.archived).toBe(true);
+    await expect(t.client.agents.update({ agentId: first.id, pinned: true })).rejects.toThrow(
+      /unarchive it to pin it/,
+    );
   });
 });
 

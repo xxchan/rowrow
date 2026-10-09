@@ -11,7 +11,13 @@ import { contract } from "../shared/contract.ts";
 import type { Attachment, Entry } from "../shared/entries.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
-import type { AgentState, AppState, LogEntry, UpgradeResult } from "../shared/schemas.ts";
+import {
+  byPin,
+  type AgentState,
+  type AppState,
+  type LogEntry,
+  type UpgradeResult,
+} from "../shared/schemas.ts";
 import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
@@ -53,14 +59,14 @@ Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service status|start|stop|restart|uninstall
 
 Agents
-  rowrow agents [--all] [--coach]  list agents, the ones that need you first; --coach: Coach's chats
+  rowrow agents [--all] [--coach]  list agents: pinned, then the ones that need you; --coach: Coach's chats
   rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
   rowrow agent send <agent> <text…> [--attach FILE]… [--steer | --interrupt] [--wait]
                                    while it works: queued for after the turn; --steer: into it now
   rowrow agent wait <agent> [--until done,blocked,idle] [--timeout 10m]
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
-  rowrow agent abort|stop|archive|seen <agent>
+  rowrow agent abort|stop|archive|seen|pin|unpin <agent>
   rowrow notify <title> [body] [--key K] [--agent <agent>]
                                    notify the user on every device, even while they look at the
                                    agent (from inside an agent: about that agent); --key K: once
@@ -680,6 +686,11 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
       await client.agents.update({ agentId, archived: true });
       h.out({ ok: true }, () => "archived");
       return;
+    case "pin":
+    case "unpin":
+      await client.agents.update({ agentId, pinned: sub === "pin" });
+      h.out({ ok: true }, () => `${sub}ned`);
+      return;
     case "seen":
       await client.agents.markSeen({ agentId, seq: agent.summary.headSeq });
       h.out({ ok: true }, () => "marked seen");
@@ -841,6 +852,7 @@ function findWorkspace(state: AppState, ref: string): { id: string } | null {
 
 function byAttention(a: AgentState, b: AgentState): number {
   return (
+    byPin(a, b) ||
     ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
     b.summary.lastActivityAt - a.summary.lastActivityAt
   );
@@ -856,7 +868,8 @@ function formatAgent(a: AgentState, state: AppState): string {
       ? ` ${typeof s.status.phase === "string" ? s.status.phase : s.status.phase.tool}`
       : "";
   const preview = (s.lastError ?? s.preview ?? "").replaceAll(/\s+/g, " ").slice(0, 80);
-  return `${MARK[a.attention]} ${a.id}  ${(s.title ?? "(untitled)").padEnd(30).slice(0, 30)} ${a.attention}${phase}  ${s.runtime}@${ws}\n     ${preview}`;
+  const pin = a.pinnedAt === null ? "" : " pinned";
+  return `${MARK[a.attention]} ${a.id}  ${(s.title ?? "(untitled)").padEnd(30).slice(0, 30)} ${a.attention}${phase}${pin}  ${s.runtime}@${ws}\n     ${preview}`;
 }
 
 function formatStatus(status: Awaited<ReturnType<Client["app"]["status"]>>): string {

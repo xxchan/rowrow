@@ -32,6 +32,8 @@ interface Agent {
   summary: AgentSummary;
   seenSeq: number;
   attention: Attention;
+  /** When you pinned it (D-046): kept beside the seen marker, not in the log. */
+  pinnedAt: number | null;
   /** When the summary was last copied into AppState. */
   publishedAt: number;
   publishTimer: NodeJS.Timeout | null;
@@ -80,12 +82,12 @@ export class AgentService {
 
   /** Load every agent: fold its log, and close any run the last server left open (it crashed). */
   load(): void {
-    const rows = this.deps.db.all<{ id: string; seen_seq: number }>(
-      "select id, seen_seq from agents order by created_at",
+    const rows = this.deps.db.all<{ id: string; seen_seq: number; pinned_at: number | null }>(
+      "select id, seen_seq, pinned_at from agents order by created_at",
     );
     for (const row of rows) {
       const summary = summaryOf(this.deps.log.iterate(row.id));
-      this.register(row.id, summary, row.seen_seq);
+      this.register(row.id, summary, row.seen_seq, row.pinned_at);
       // Inputs held when the last server went away wait for you, not for a turn nobody asked for.
       if (waiting(summary))
         withContext({ agent: row.id }, () =>
@@ -105,7 +107,12 @@ export class AgentService {
     log.info("agents.loaded", { count: rows.length });
   }
 
-  private register(id: string, summary: AgentSummary, seenSeq: number): Agent {
+  private register(
+    id: string,
+    summary: AgentSummary,
+    seenSeq: number,
+    pinnedAt: number | null = null,
+  ): Agent {
     const actor = new AgentActor(id, {
       log: this.deps.log,
       runtimes: this.deps.runtimes,
@@ -132,6 +139,7 @@ export class AgentService {
       summary,
       seenSeq,
       attention: attentionOf(summary, seenSeq),
+      pinnedAt,
       publishedAt: 0,
       publishTimer: null,
     };
@@ -306,11 +314,33 @@ export class AgentService {
 
   async update(
     agentId: string,
-    changes: { title?: string | null; model?: string | null; effort?: string | null; archived?: boolean },
+    changes: {
+      title?: string | null;
+      model?: string | null;
+      effort?: string | null;
+      archived?: boolean;
+      pinned?: boolean;
+    },
     by: Actor,
   ): Promise<AgentState> {
     const agent = this.require(agentId);
     const s = agent.summary;
+    // A pin keeps an agent in sight, so it can't also be archived (roamgate's pinned tabs can't close).
+    if (changes.pinned === true && s.role === "coach")
+      throw new UserError("Coach's chats aren't in the agent lists, so they can't be pinned");
+    if ((changes.pinned ?? agent.pinnedAt !== null) && (changes.archived ?? s.archived))
+      throw new UserError(
+        changes.pinned === true
+          ? "this agent is archived; unarchive it to pin it"
+          : "this agent is pinned; unpin it before archiving it",
+        "PRECONDITION_FAILED",
+      );
+    if (changes.pinned !== undefined && changes.pinned !== (agent.pinnedAt !== null)) {
+      agent.pinnedAt = changes.pinned ? Date.now() : null;
+      this.deps.db.run("update agents set pinned_at = ? where id = ?", agent.pinnedAt, agentId);
+      log.info("agent.pinned", { agent: agentId, pinned: changes.pinned });
+      this.publish(agent);
+    }
     const effective = {
       ...(changes.title === undefined || changes.title === s.title ? {} : { title: changes.title }),
       ...(changes.model === undefined || changes.model === s.model ? {} : { model: changes.model }),
@@ -478,7 +508,13 @@ function reachedAfter(s: AgentSummary, attention: Attention, afterSeq: number): 
 }
 
 function stateOf(agent: Agent): AgentState {
-  return { id: agent.id, summary: agent.summary, seenSeq: agent.seenSeq, attention: agent.attention };
+  return {
+    id: agent.id,
+    summary: agent.summary,
+    seenSeq: agent.seenSeq,
+    attention: agent.attention,
+    pinnedAt: agent.pinnedAt,
+  };
 }
 
 /** Changes a person would notice right away in a list; everything else can wait a second. */

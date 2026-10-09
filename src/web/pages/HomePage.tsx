@@ -1,10 +1,11 @@
-// Home: every agent, the ones that need you first (PRINCIPLES.md, product 1). On a phone
-// this is the screen you open from the home screen icon. Above the list, a composer starts
+// Home: every agent, the ones that need you first (PRINCIPLES.md, product 1), after the ones
+// you pinned (D-046). On a phone this is the screen you open from the home screen icon. Above the list, a composer starts
 // the next agent (D-023); on a phone that's the New agent button at the bottom.
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Bot, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { AgentState, AppState } from "../../shared/schemas.ts";
+import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { NewAgentForm, useNewAgent } from "../components/NewAgentDialog.tsx";
@@ -12,7 +13,7 @@ import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
 import { RouterLink, type Route } from "../lib/router.ts";
-import { AgentContextMenu } from "../components/AgentActions.tsx";
+import { AgentContextMenu, UnpinButton } from "../components/AgentActions.tsx";
 import { useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { useNow } from "../lib/use-now.ts";
@@ -35,10 +36,12 @@ export function HomePage({ route }: { route: Route }) {
         ),
     [state.agents],
   );
+  const rest = agents.filter((a) => a.pinnedAt === null);
   const groups: [string, AgentState[]][] = [
-    ["Needs you", agents.filter((a) => a.attention === "blocked" || a.attention === "done")],
-    ["Working", agents.filter((a) => a.attention === "working")],
-    ["Idle", agents.filter((a) => a.attention === "idle")],
+    ["Pinned", agents.filter((a) => a.pinnedAt !== null).sort(byPin)],
+    ["Needs you", rest.filter((a) => a.attention === "blocked" || a.attention === "done")],
+    ["Working", rest.filter((a) => a.attention === "working")],
+    ["Idle", rest.filter((a) => a.attention === "idle")],
   ];
 
   return (
@@ -119,12 +122,16 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
     agent.attention === "done" && agent.summary.lastError !== null
       ? agent.summary.lastError
       : (agent.summary.preview ?? "");
+  const pinned = agent.pinnedAt !== null;
   return (
-    <li>
+    <li className="relative">
       <AgentContextMenu agent={agent}>
         <RouterLink
           href={`/a/${agent.id}`}
-          className="flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none"
+          className={cn(
+            "flex items-start gap-3 px-3 py-2.5 hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:outline-none",
+            pinned && "pr-11",
+          )}
         >
           <span className="mt-0.5">
             <AgentAvatar
@@ -161,6 +168,7 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
           </div>
         </RouterLink>
       </AgentContextMenu>
+      {pinned && <UnpinButton agent={agent} className="absolute top-1.5 right-1.5" />}
     </li>
   );
 }

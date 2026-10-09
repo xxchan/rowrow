@@ -113,6 +113,47 @@ test("right-click an agent or a workspace for what you can do to it", async ({
   await expect(main.getByRole("link", { name: /new name/ })).toBeHidden();
 });
 
+test("pin an agent: it leads every list, can't be archived, and unpins in one tap", async ({
+  page,
+  rowrow,
+}, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "beta",
+  });
+  // Newer, so it would come first without the pin.
+  await rowrow.client.agents.create({ workspaceId: ws.id, runtime: "scripted", title: "alpha" });
+  await rowrow.open(page, `/a/${agent.id}`);
+
+  await page.getByRole("button", { name: "Agent actions" }).click();
+  await page.getByRole("menuitem", { name: "Pin agent" }).click();
+  await page.getByRole("button", { name: "Agent actions" }).click();
+  // Like roamgate's pinned tab that can't be closed, it says why.
+  await expect(page.getByRole("menuitem", { name: /^Archive/ })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /^Archive/ })).toContainText(
+    "Unpin this agent before archiving it.",
+  );
+  await page.keyboard.press("Escape");
+
+  // First in the side nav, above Needs you and the workspaces.
+  if (info.project.name === "phone") await page.getByRole("button", { name: /Open navigation/ }).click();
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  await expect(nav.getByRole("heading", { name: "Pinned" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /beta/ }).first()).toHaveAttribute("href", `/a/${agent.id}`);
+  await nav.getByRole("link", { name: "All agents" }).click();
+
+  // And first on Home, in its own group, with the pin to unpin it.
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading", { name: "Pinned · 1" })).toBeVisible();
+  await expect(main.getByRole("link", { name: /alpha|beta/ }).first()).toContainText("beta");
+  await main.getByRole("button", { name: "Unpin beta" }).click();
+  await expect(main.getByRole("heading", { name: /^Pinned/ })).toBeHidden();
+  await expect(nav.getByRole("heading", { name: "Pinned" })).toBeHidden();
+  expect((await rowrow.client.state.get()).state.agents[agent.id]?.pinnedAt).toBeNull();
+});
+
 test("double-click an agent's title to rename it", async ({ page, rowrow }, info) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({

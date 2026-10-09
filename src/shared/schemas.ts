@@ -90,8 +90,20 @@ export interface AgentState {
   /** The log position you have seen (docs/decisions.md, D-008). */
   readonly seenSeq: number;
   readonly attention: Attention;
+  /** When you pinned it, null when you didn't (D-046): pinned agents lead every list. */
+  readonly pinnedAt: number | null;
 }
 export const AgentState = z.custom<AgentState>();
+
+/**
+ * Pinned agents first, in the order you pinned them (D-046). 0 between two unpinned ones, so
+ * a list keeps its own order after them: `byPin(a, b) || byAttention(a, b)`.
+ */
+export function byPin(a: AgentState, b: AgentState): number {
+  if (a.pinnedAt === null || b.pinnedAt === null)
+    return (a.pinnedAt === null ? 1 : 0) - (b.pinnedAt === null ? 1 : 0);
+  return a.pinnedAt - b.pinnedAt;
+}
 
 export const InputMode = z.enum(["auto", "queue", "steer", "interrupt"]);
 

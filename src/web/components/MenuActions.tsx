@@ -4,14 +4,19 @@ import type { ComponentType, ReactNode } from "react";
 import { toast } from "sonner";
 import { report } from "../lib/telemetry.ts";
 
-/** One entry of a menu, or a divider. */
+/** One entry of a menu, or a divider. `disabled`: why it can't be done now, shown under it. */
 export type MenuAction =
-  | { label: string; icon: ReactNode; run: () => void; destructive?: boolean }
+  | { label: string; icon: ReactNode; run: () => void; destructive?: boolean; disabled?: string }
   | "separator";
 
 /** A menu's item and separator components: DropdownMenu's or ContextMenu's. */
 export interface MenuParts {
-  Item: ComponentType<{ onSelect: () => void; variant?: "default" | "destructive"; children: ReactNode }>;
+  Item: ComponentType<{
+    onSelect: () => void;
+    variant?: "default" | "destructive";
+    disabled?: boolean;
+    children: ReactNode;
+  }>;
   Separator: ComponentType;
 }
 
@@ -26,9 +31,21 @@ export function MenuActions({ actions, parts }: { actions: MenuAction[]; parts: 
     action === "separator" ? (
       <Separator key={`separator-${i}`} />
     ) : (
-      <Item key={action.label} onSelect={action.run} variant={action.destructive ? "destructive" : "default"}>
+      <Item
+        key={action.label}
+        onSelect={action.run}
+        variant={action.destructive ? "destructive" : "default"}
+        disabled={action.disabled !== undefined}
+      >
         {action.icon}
-        {action.label}
+        {action.disabled === undefined ? (
+          action.label
+        ) : (
+          <span className="flex flex-col">
+            {action.label}
+            <span className="text-xs text-muted-foreground">{action.disabled}</span>
+          </span>
+        )}
       </Item>
     ),
   );

@@ -55,6 +55,9 @@ file when something lands.
   inside an agent reaches every device and the transcript, once per `--key` a day, for
   watchers that should stay quiet until what they watch happens (roamgate's "Let Ranger
   decide").
+- **Pinned agents** (#295, D-046): Pin agent in an agent's menu puts it first in the side nav,
+  on Home, in its workspace and in ⌘K, on every device; a pin on its row unpins it, and a
+  pinned agent can't be archived. `rowrow agent pin|unpin`.
 - **Coach, phase 1** (D-044): an assistant that reads your crew of agents (status,
   conversations, changes, background output) in the workspaces you allow, on your own claude or
   pi with its tools turned off and rowrow's read-only tools instead; a window floating, pinned

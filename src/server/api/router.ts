@@ -345,6 +345,7 @@ export function createRouter(s: Services) {
             ...(input.model === undefined ? {} : { model: input.model }),
             ...(input.effort === undefined ? {} : { effort: input.effort }),
             ...(input.archived === undefined ? {} : { archived: input.archived }),
+            ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
           },
           context.actor,
         ),

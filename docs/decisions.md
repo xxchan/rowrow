@@ -1259,3 +1259,29 @@ Full access is the owner's explicit, revocable choice, made in rowrow, never by 
 **Revisit when** an operation can't be frozen at proposal time (it would need a second
 confirmation), when Coach gains scheduled runs (whether they may act under Full access), or when
 a receipt needs a check rowrow can't make itself (a runtime that can't say it took the input).
+
+## D-046 Pin agents, on the server, first in every list (2026-10-09)
+
+**Context.** roamgate pins tabs (#295): a pinned tab leads the tab strip and can't be closed,
+and the pins are kept per browser. rowrow has no tabs; its unit is the agent (D-007). Until now
+the answer was no pins: the parity doc said "No pinning" for workspaces and "skip manual
+order, which fights attention-first" for agents. The owner asked for pins.
+
+**Decision.** You pin agents. A pin is `pinned_at` beside the seen marker in the `agents`
+table, published as `AgentState.pinnedAt` and set with `agents.update {pinned}` (`rowrow agent
+pin|unpin`): one per agent for you, on every device, the iOS app included, like "seen"
+(D-008). It isn't a log entry, since it says nothing about the agent's work (and an entry
+would count as its latest activity). Pinned agents lead every agent list in the order you
+pinned them (the side nav's Pinned section, Home's Pinned group, a workspace's agents, ⌘K,
+`rowrow agents`); the rest keep their attention order, and a pinned agent that needs you
+still shows it with its dot and in the counts (the menu badge, ⌘J). Like roamgate's pinned
+tabs, a pinned agent can't be archived until it's unpinned (the menu says so; the server
+refuses), and pins move nothing else.
+
+**Why.** On the server, because rowrow's promise is "any window picks up where another left
+off" (PRINCIPLES.md, product 2): a pin made on the desktop should hold on the phone.
+Pin order rather than attention order inside the group, because a pin is a place you go back
+to, and places that move aren't places; attention stays visible on every row.
+
+**Revisit when** people pin so many agents that the Pinned group pushes "Needs you" off the
+first screen, or want to pin workspaces too.

@@ -129,6 +129,10 @@ const MIGRATIONS: readonly string[] = [
     primary key (agent_id, first_seq)
   ) without rowid;
   `,
+  // 8: pinned agents (D-046): when you pinned it; null when it isn't
+  `
+  alter table agents add column pinned_at integer;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

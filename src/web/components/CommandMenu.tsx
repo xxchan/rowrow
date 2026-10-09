@@ -17,7 +17,7 @@ import { Folder, House, Keyboard, Pencil, Plus, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import type { AgentState, AppState } from "../../shared/schemas.ts";
+import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
@@ -147,6 +147,7 @@ export function CommandMenu({ route }: { route: Route }) {
           .filter((a) => !a.summary.archived && !urgentIds.has(a.id))
           .sort(
             (a, b) =>
+              byPin(a, b) ||
               ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
               b.summary.lastActivityAt - a.summary.lastActivityAt,
           );

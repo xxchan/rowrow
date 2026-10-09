@@ -268,7 +268,7 @@ const agents = {
   update: oc
     .route({
       summary:
-        "Rename an agent, change its model or reasoning effort (the live run restarts with them, resuming the conversation), or archive it (stops its run).",
+        "Rename an agent, change its model or reasoning effort (the live run restarts with them, resuming the conversation), archive it (stops its run), or pin it.",
     })
     .input(
       z.object({
@@ -277,6 +277,12 @@ const agents = {
         model: z.string().nullable().optional(),
         effort: z.string().nullable().optional(),
         archived: z.boolean().optional(),
+        pinned: z
+          .boolean()
+          .optional()
+          .describe(
+            "Pinned agents lead every agent list, in the order they were pinned, on every device. A pinned agent can't be archived until it's unpinned.",
+          ),
       }),
     )
     .output(AgentState),

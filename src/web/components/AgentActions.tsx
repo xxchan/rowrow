@@ -2,6 +2,8 @@
 // long-press) menu on its rows in the side nav and on Home show the same actions. Rename and
 // Model and effort open dialogs that live in the Shell, so any row can start them (Rename also
 // opens when you double-click the agent's title in its header or its row in the side nav).
+// Pinning (D-046) puts it first in every list and, like roamgate's pinned tabs, protects it:
+// Archive waits until it's unpinned.
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -20,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import {
   Archive,
   ArchiveRestore,
@@ -30,6 +33,8 @@ import {
   Link,
   LoaderCircle,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Power,
 } from "lucide-react";
@@ -60,6 +65,7 @@ export function useAgentActions(agent: AgentState, { here = false } = {}): MenuA
   const ws = useApp((s) => s.state?.workspaces[agent.summary.workspaceId]);
   const openNewAgent = useNewAgent((s) => s.open);
   const { summary } = agent;
+  const pinned = agent.pinnedAt !== null;
   const href = `/a/${agent.id}`;
   const act = (label: string, run: (c: NonNullable<typeof client>) => Promise<unknown>) => () => {
     if (client === null) return;
@@ -81,6 +87,17 @@ export function useAgentActions(agent: AgentState, { here = false } = {}): MenuA
     { label: "Rename…", icon: <Pencil />, run: () => openAgentDialog("rename", agent.id) },
     ...(summary.archived
       ? []
+      : [
+          {
+            label: pinned ? "Unpin agent" : "Pin agent",
+            icon: pinned ? <PinOff /> : <Pin />,
+            run: act(pinned ? "Unpin" : "Pin", (c) =>
+              c.agents.update({ agentId: agent.id, pinned: !pinned }),
+            ),
+          },
+        ]),
+    ...(summary.archived
+      ? []
       : [{ label: "Model and effort…", icon: <Cpu />, run: () => openAgentDialog("model", agent.id) }]),
     ...(summary.run === null
       ? []
@@ -100,6 +117,7 @@ export function useAgentActions(agent: AgentState, { here = false } = {}): MenuA
       run: act(summary.archived ? "Unarchive" : "Archive", (c) =>
         c.agents.update({ agentId: agent.id, archived: !summary.archived }),
       ),
+      ...(pinned ? { disabled: "Unpin this agent before archiving it." } : {}),
     },
   ];
 }
@@ -113,6 +131,31 @@ function workspaceItems(
     { label: `New agent in ${ws.label}`, icon: <Plus />, run: () => openNewAgent({ workspaceId: ws.id }) },
     { label: `Open workspace ${ws.label}`, icon: <FolderOpen />, run: () => navigate(`/w/${ws.id}`) },
   ];
+}
+
+/**
+ * A pinned agent's pin, as a button that unpins it: in place of roamgate's close button on a
+ * pinned tab in its phone tab sheet, one tap instead of a long press and a menu.
+ */
+export function UnpinButton({ agent, className }: { agent: AgentState; className?: string }) {
+  const client = useClient();
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn("text-muted-foreground", className)}
+      aria-label={`Unpin ${title(agent)}`}
+      title="Unpin agent"
+      onClick={() => {
+        client?.agents.update({ agentId: agent.id, pinned: false }).catch((error: unknown) => {
+          toast.error(`Unpin failed: ${error instanceof Error ? error.message : String(error)}`);
+          report("warn", "agent.action_failed", error, { action: "Unpin", agentId: agent.id });
+        });
+      }}
+    >
+      <Pin className="fill-current" />
+    </Button>
+  );
 }
 
 /** Right-click (or long-press) an agent's row for its actions. `children` is the row itself. */

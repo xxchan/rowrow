@@ -1,6 +1,7 @@
 // The frame every page lives in: an attention-first side nav (PRINCIPLES.md, product 1).
-// "Needs you" lists the agents that are blocked or finished unseen; below it, workspaces
-// hold their agents, and linked worktrees nest under their repository. On a phone the
+// The agents you pinned come first (D-046); "Needs you" lists the others that are blocked or
+// finished unseen; below it, workspaces hold their agents, and linked worktrees nest under
+// their repository. On a phone the
 // nav is a sheet, opened from each page's header (PageHeader), which shows how many
 // agents need you. Coach (D-044) opens from every page's header and sits beside the page.
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
   House,
   Keyboard,
   Menu,
+  Pin,
   Plus,
   Search,
   Settings,
@@ -25,7 +27,7 @@ import {
 import { useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import { appName, type AgentState, type AppState, type Workspace } from "../../shared/schemas.ts";
+import { appName, byPin, type AgentState, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
 import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
@@ -159,7 +161,8 @@ function Nav({ route }: { route: Route }) {
     () => Object.values(state.agents).filter((a) => !a.summary.archived),
     [state.agents],
   );
-  const urgent = useMemo(() => needsYou(state), [state]);
+  const pinned = useMemo(() => agents.filter((a) => a.pinnedAt !== null).sort(byPin), [agents]);
+  const urgent = useMemo(() => needsYou(state).filter((a) => a.pinnedAt === null), [state]);
   const roots = useMemo(
     () =>
       Object.values(state.workspaces)
@@ -172,6 +175,7 @@ function Nav({ route }: { route: Route }) {
 
   // The tree's grid: each level indents 16px; a workspace keeps a slot for its chevron.
   const indent = (depth: number): number => 22 + depth * 16;
+  // In a workspace a pinned agent leads, marked with the pin; in the Pinned section that's moot.
   const agentRow = (agent: AgentState, depth: number | null, showWorkspace = false): ReactNode => {
     const dot = statusDot(agent);
     const ws = showWorkspace ? state.workspaces[agent.summary.workspaceId]?.label : undefined;
@@ -203,6 +207,9 @@ function Nav({ route }: { route: Route }) {
               {agent.summary.queued.length} queued
             </span>
           )}
+          {depth !== null && agent.pinnedAt !== null && (
+            <Pin aria-label="Pinned" className="size-3 shrink-0 fill-current text-muted-foreground" />
+          )}
           <StatusDot tone={dot.tone} label={dot.label} pulsing={dot.pulsing} />
         </NavRow>
       </AgentContextMenu>
@@ -213,7 +220,7 @@ function Nav({ route }: { route: Route }) {
     const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id && !w.archived);
     const own = agents
       .filter((a) => a.summary.workspaceId === ws.id)
-      .sort((a, b) => b.summary.lastActivityAt - a.summary.lastActivityAt);
+      .sort((a, b) => byPin(a, b) || b.summary.lastActivityAt - a.summary.lastActivityAt);
     const worst = [
       ...own,
       ...worktrees.flatMap((c) => agents.filter((a) => a.summary.workspaceId === c.id)),
@@ -293,6 +300,9 @@ function Nav({ route }: { route: Route }) {
           <span className="flex-1">Go to…</span>
           <Kbd className="hidden md:inline-flex">⌘K</Kbd>
         </button>
+        {pinned.length > 0 && (
+          <NavSection label="Pinned">{pinned.map((agent) => agentRow(agent, null, true))}</NavSection>
+        )}
         {urgent.length > 0 && (
           <NavSection label="Needs you">{urgent.map((agent) => agentRow(agent, null, true))}</NavSection>
         )}

@@ -173,6 +173,8 @@ Status vocabulary, in priority order (a workspace shows its highest):
 
 - **Seen.** One marker per agent, for you (not per client): the log position you have
   seen. A client reports it only when the agent's view is visible in a focused window.
+- **Pins** (D-046) sit beside it: when you pinned the agent, or null. Pinned agents lead
+  every list in pin order (`byPin` in `src/shared/schemas.ts`), before attention order.
 - **Notifications** fire on entering `blocked` and on a completion, after a short delay
   and a re-check (no flapping), and only if no focused client is looking at that agent.
   Channels: in-app toasts (the iOS app: its own banners), then Web Push and APNs to devices
