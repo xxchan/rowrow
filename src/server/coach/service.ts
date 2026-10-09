@@ -301,6 +301,8 @@ export class CoachService {
     const fullAccess = summary.fullAccess;
     this.runModes.set(runId, fullAccess);
     const signIn = summary.runtime === "claude" ? await claudeSignIn(this.deps.claudeSettings) : null;
+    // oar passes its own --settings for serviceTier "fast", and the two replace each other: a
+    // Fast switch for Coach goes in this JSON as fastMode, never as serviceTier (Cindy, oar#253).
     const launchArgs = [
       ...(LAUNCH_ARGS[summary.runtime] ?? []),
       ...(signIn === null || signIn.helpers === null ? [] : ["--settings", JSON.stringify(signIn.helpers)]),
