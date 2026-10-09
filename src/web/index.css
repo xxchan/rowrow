@@ -161,7 +161,8 @@
   /* Scrollbars are a thin rounded thumb in the theme's colors, with no track, like macOS's
      overlay ones: the Mac app and Windows showed the system's classic gray gutter on every
      list. Chromium and Safari draw them from these pseudo-elements (Chromium ignores them
-     wherever `scrollbar-width` or `scrollbar-color` is set); Firefox has only those two. */
+     wherever `scrollbar-width` or `scrollbar-color` is set, so nothing else sets those but to
+     hide a scrollbar: test/scrollbars.test.ts); Firefox has only those two. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

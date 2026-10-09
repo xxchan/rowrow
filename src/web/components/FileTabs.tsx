@@ -74,7 +74,7 @@ export function FileTabStrip({
       ref={list}
       role="tablist"
       aria-label="Open files"
-      className="flex shrink-0 items-stretch gap-[3px] overflow-x-auto overscroll-x-contain border-b px-1.5 pt-1.5 [scrollbar-width:thin]"
+      className="flex shrink-0 items-stretch gap-[3px] overflow-x-auto overscroll-x-contain border-b px-1.5 pt-1.5"
     >
       {tabs.paths.map((path, index) => {
         const name = basename(path);
