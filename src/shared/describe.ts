@@ -110,7 +110,13 @@ export function failureHint(failure: FailureClass, credential?: CredentialProble
  * delivered": it was, and after its process exited a resumed conversation may hold it after all.
  */
 export function droppedWords(reason: ConversationInput["reason"]): string {
-  return reason === "runtime_exited"
-    ? "Not read by the agent: its process exited first. Send it again if it still matters."
-    : "Not read by the agent: the turn ended first. Send it again if it still matters.";
+  switch (reason) {
+    case "runtime_exited":
+      return "Not read by the agent: its process exited first. Send it again if it still matters.";
+    case "runtime_refused":
+      return "Not read by the agent: it refused input mid-turn. Send it again once the turn ends.";
+    case "turn_interrupted":
+    case undefined:
+      return "Not read by the agent: the turn ended first. Send it again if it still matters.";
+  }
 }

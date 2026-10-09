@@ -24,4 +24,5 @@ it("sends you to sign in only when the login is missing, not when the provider r
 it("says why an input the runtime took was never read", () => {
   expect(droppedWords("turn_interrupted")).toMatch(/the turn ended first/);
   expect(droppedWords("runtime_exited")).toMatch(/process exited first/);
+  expect(droppedWords("runtime_refused")).toMatch(/refused input mid-turn/);
 });
