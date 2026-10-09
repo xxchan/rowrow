@@ -1667,7 +1667,8 @@ test("a Mermaid diagram in a reply draws, follows the theme, zooms, and goes ful
   await rowrow.open(page, `/a/${agent.id}`);
 
   const figure = page.getByRole("region", { name: "Mermaid diagram", exact: true });
-  await expect(figure.locator("svg").first()).toBeVisible();
+  // Mermaid is its own chunk, loaded on first use: slow on a busy machine.
+  await expect(figure.locator("svg").first()).toBeVisible({ timeout: 20_000 });
   await expect(figure.getByText("Implement")).toBeVisible();
   // Sanitized: nothing in it reaches off the page.
   const external = await figure
