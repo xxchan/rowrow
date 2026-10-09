@@ -98,6 +98,8 @@ export interface ServerOptions {
   readonly apnsOrigin?: string;
   /** The kit to serve at /kit.js; the package's dist/kit/kit.js unless given (tests build their own). */
   readonly kitFile?: string;
+  /** The claude settings file Coach takes claude's sign-in from: claude's own unless given (tests). */
+  readonly claudeSettings?: string;
 }
 
 export function isLoopback(host: string): boolean {

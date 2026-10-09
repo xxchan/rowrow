@@ -14,6 +14,7 @@ import { UsageService } from "./usage.ts";
 import { startHttp } from "./api/server.ts";
 import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
+import { claudeSettingsFile } from "./coach/claude-settings.ts";
 import { CoachService } from "./coach/service.ts";
 import { CoachTokens } from "./coach/tokens.ts";
 import { COACH_ENV } from "./coach/tools.ts";
@@ -224,7 +225,7 @@ export async function startServer(
     turnStarted: async (workspaceId, agentId) => git?.turnStarted(workspaceId, agentId),
     turnEnded: async (agentId) => git?.turnEnded(agentId),
     coachDir: paths.coach,
-    runOptions: (agentId, runId) => coach?.runOptions(agentId, runId) ?? {},
+    runOptions: async (agentId, runId) => (await coach?.runOptions(agentId, runId)) ?? {},
     promptText: (agentId, inputId, text) => coach?.promptText(agentId, inputId, text) ?? text,
   });
   agents.load();
@@ -251,6 +252,7 @@ export async function startServer(
     tokens: coachTokens,
     cli: path.join(agentBin, "rowrow"),
     url: () => localUrl(),
+    claudeSettings: options.claudeSettings ?? claudeSettingsFile(),
   });
   coach.recover();
   // Housekeeping: turn snapshots and uploads older than a week go.

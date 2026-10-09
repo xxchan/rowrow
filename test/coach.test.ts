@@ -4,6 +4,9 @@
 import { defaultRuntimes, type Runtime, type SessionOptions } from "@botiverse/oar";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { answer } from "../src/cli/mcp.ts";
 import type { Client as CliClient } from "../src/cli/client.ts";
@@ -21,9 +24,10 @@ import { newInputId } from "../src/shared/ids.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
 import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { coachSystemPrompt, turnText } from "../src/server/coach/prompt.ts";
+import { claudeSettingsFile, claudeSignIn } from "../src/server/coach/claude-settings.ts";
 import { CoachTokens } from "../src/server/coach/tokens.ts";
 import { CoachService, type CoachDeps } from "../src/server/coach/service.ts";
-import { BUILTIN_TOOLS, COACH_ENV, leakedTools } from "../src/server/coach/tools.ts";
+import { BUILTIN_TOOLS, COACH_ENV, LAUNCH_ARGS, leakedTools } from "../src/server/coach/tools.ts";
 import { eventually, input, startTestServer, type Client, type TestServer } from "./helpers.ts";
 
 let t: TestServer | undefined;
@@ -106,24 +110,16 @@ describe("Coach's runtimes", () => {
       expect(list.filter((name) => name.startsWith("mcp__"))).toEqual([]);
   });
 
-  it("opens claude with rowrow's MCP server and none of the user's, nor their settings", () => {
-    const coachOn = (runtime: string) =>
-      new CoachService({
-        agents: { get: () => ({ summary: { role: "coach", runtime, fullAccess: false } }) },
-        log: { onAppend: () => undefined },
-        settings: { get: () => ({ coach: {} }), onChange: () => undefined },
-        tokens: new CoachTokens(),
-        cli: "/bin/rowrow",
-        url: () => "http://127.0.0.1:1",
-      } as unknown as CoachDeps);
-    const claude = coachOn("claude").runOptions("ag_chat", "run_1");
+  it("opens claude with rowrow's MCP server and none of the user's, nor their settings", async () => {
+    const claude = await coachOn("claude").runOptions("ag_chat", "run_1");
     expect(claude.launchArgs).toEqual(["--strict-mcp-config", "--setting-sources", ""]);
+    expect(claude).not.toHaveProperty("env");
     expect(COACH_ENV["claude"]).toEqual({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
     expect(claude.mcpServers?.map((server) => server.name)).toEqual(["rowrow"]);
     // Pi runs in rowrow's process and refuses launchArgs: it gets none, or it wouldn't open.
     expect(defaultRuntimes.require("pi").refusedSessionOptions?.launchArgs).toBeDefined();
     expect(defaultRuntimes.require("claude").refusedSessionOptions?.launchArgs).toBeUndefined();
-    const pi = coachOn("pi").runOptions("ag_chat", "run_2");
+    const pi = await coachOn("pi").runOptions("ag_chat", "run_2");
     expect(pi.disallowedTools).toEqual(BUILTIN_TOOLS["pi"]);
     expect(pi).not.toHaveProperty("launchArgs");
   });
@@ -135,6 +131,90 @@ describe("Coach's runtimes", () => {
     expect(turnText([{ workspaceId: "ws_1", label: "rowrow" }], [], "how is it going?")).toBe(
       'Authorized workspace scope for this turn (only these workspaces\' agents may be read or used as action targets):\n[{"workspaceId":"ws_1","label":"rowrow"}]\n\nRecorded operation outcomes (server receipts, not proof of task completion):\n[]\n\nUser message:\nhow is it going?',
     );
+  });
+});
+
+/** A Coach on `runtime` whose chat is any agent id, reading claude's settings from `claudeSettings`. */
+function coachOn(runtime: string, claudeSettings = "/nonexistent/claude/settings.json"): CoachService {
+  return new CoachService({
+    agents: { get: () => ({ summary: { role: "coach", runtime, fullAccess: false } }) },
+    log: { onAppend: () => undefined },
+    settings: { get: () => ({ coach: {} }), onChange: () => undefined },
+    tokens: new CoachTokens(),
+    cli: "/bin/rowrow",
+    url: () => "http://127.0.0.1:1",
+    claudeSettings,
+  } as unknown as CoachDeps);
+}
+
+/** A claude config directory of its own, with this settings file (text as is, or JSON). */
+function claudeConfigDir(settings: unknown): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-claude-"));
+  fs.writeFileSync(
+    path.join(dir, "settings.json"),
+    typeof settings === "string" ? settings : JSON.stringify(settings),
+  );
+  return dir;
+}
+
+describe("Coach's claude sign-in", () => {
+  // `--setting-sources ""` keeps the user's settings file out; how their claude signs in comes back.
+  it("keeps how the user's claude signs in, and nothing else of its settings", async () => {
+    const dir = claudeConfigDir({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: "sk-test",
+        ANTHROPIC_BASE_URL: "https://gw.example",
+        MAX_THINKING_TOKENS: 1024,
+      },
+      apiKeyHelper: "/opt/key.sh",
+      awsCredentialExport: "/opt/aws.sh",
+      otelHeadersHelper: "/opt/otel.sh",
+      hooks: { SessionStart: [{ hooks: [{ type: "command", command: "touch /tmp/x" }] }] },
+      permissions: { allow: ["Bash"] },
+      model: "opus",
+    });
+    const file = claudeSettingsFile({ CLAUDE_CONFIG_DIR: dir });
+    expect(file).toBe(path.join(dir, "settings.json"));
+    expect(claudeSettingsFile({})).toBe(path.join(os.homedir(), ".claude", "settings.json"));
+    const env = {
+      ANTHROPIC_AUTH_TOKEN: "sk-test",
+      ANTHROPIC_BASE_URL: "https://gw.example",
+      MAX_THINKING_TOKENS: "1024",
+    };
+    expect(await claudeSignIn(file)).toEqual({
+      env,
+      helpers: { apiKeyHelper: "/opt/key.sh", awsCredentialExport: "/opt/aws.sh" },
+    });
+
+    // The run: the environment carries the env (it may hold keys: never argv); the helpers go
+    // in --settings with nothing beside them.
+    const options = await coachOn("claude", file).runOptions("ag_chat", "run_1");
+    expect(options.env).toEqual(env);
+    expect(options.launchArgs?.slice(0, 3)).toEqual(LAUNCH_ARGS["claude"]);
+    expect(options.launchArgs?.[3]).toBe("--settings");
+    expect(JSON.parse(options.launchArgs?.[4] ?? "")).toEqual({
+      apiKeyHelper: "/opt/key.sh",
+      awsCredentialExport: "/opt/aws.sh",
+    });
+    expect(options.launchArgs?.join(" ")).not.toContain("sk-test");
+    expect(options.launchArgs).toHaveLength(5);
+    // Pi never reads claude's settings.
+    expect(await coachOn("pi", file).runOptions("ag_chat", "run_2")).not.toHaveProperty("env");
+  });
+
+  it("starts claude without them when the file is missing or isn't settings", async () => {
+    const nothing = { env: {}, helpers: null };
+    expect(await claudeSignIn("/nonexistent/claude/settings.json")).toEqual(nothing);
+    for (const text of ['{"env": {"A": "1"', "[1, 2]", "null"]) {
+      const file = path.join(claudeConfigDir(text), "settings.json");
+      expect(await claudeSignIn(file)).toEqual(nothing);
+      const options = await coachOn("claude", file).runOptions("ag_chat", "run_1");
+      expect(options.launchArgs).toEqual(LAUNCH_ARGS["claude"]);
+      expect(options).not.toHaveProperty("env");
+    }
+    // Odd values are left out, not fatal.
+    const odd = path.join(claudeConfigDir({ env: ["A=1"], apiKeyHelper: 7 }), "settings.json");
+    expect(await claudeSignIn(odd)).toEqual(nothing);
   });
 });
 
@@ -263,14 +343,15 @@ describe("rowrow mcp coach", () => {
   });
 });
 
-/** The scripted runtime, noting how each session opened. */
-function spyRuntime(): { runtime: Runtime; opened: SessionOptions[] } {
+/** The scripted runtime (as `id`, when given), noting how each session opened. */
+function spyRuntime(id?: string): { runtime: Runtime; opened: SessionOptions[] } {
   const base = scriptedDemoRuntime();
   const opened: SessionOptions[] = [];
   return {
     opened,
     runtime: {
       ...base,
+      ...(id === undefined ? {} : { id }),
       session: async (installation, options) => {
         opened.push(options);
         return base.session(installation, options);
@@ -364,6 +445,40 @@ describe("Coach", () => {
     await expect(t.client.agents.send({ agentId: chatId, ...input("/echo sneaky") })).rejects.toThrow(
       "coach.send",
     );
+  });
+
+  it("signs claude in the way the user's claude does, with rowrow's environment on top", async () => {
+    const spy = spyRuntime("claude");
+    t = await startTestServer({ extraRuntimes: [spy.runtime] });
+    fs.mkdirSync(path.join(t.home, "claude"));
+    fs.writeFileSync(
+      path.join(t.home, "claude", "settings.json"),
+      JSON.stringify({
+        env: {
+          ANTHROPIC_AUTH_TOKEN: "sk-test",
+          ROWROW_TOKEN: "theirs",
+          CLAUDE_CODE_DISABLE_AUTO_MEMORY: "0",
+        },
+        apiKeyHelper: "/opt/key.sh",
+        hooks: { SessionStart: [] },
+      }),
+    );
+    const { a } = await setUp(t);
+    await t.client.settings.update({
+      coach: { workspaces: [a.id], runtime: "claude", model: null, effort: null },
+    });
+    expect((await coachSays(t, "/echo hi")).said).toBe("hi");
+    const options = spy.opened.at(-1);
+    expect(options?.env).toMatchObject({
+      ANTHROPIC_AUTH_TOKEN: "sk-test",
+      ROWROW_TOKEN: "",
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+    });
+    expect(options?.launchArgs).toEqual([
+      ...(LAUNCH_ARGS["claude"] ?? []),
+      "--settings",
+      '{"apiKeyHelper":"/opt/key.sh"}',
+    ]);
   });
 
   it("gives its run a token that reads the turn's workspaces only, and nothing else", async () => {

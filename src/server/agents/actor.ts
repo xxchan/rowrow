@@ -41,11 +41,16 @@ export interface ActorDeps {
   readonly stopWaitMs?: number;
   /** Called before an input starts a new turn (the "last turn" diff baseline). */
   readonly beforeTurn?: (agentId: string) => Promise<void>;
-  /** More options for a run about to start (Coach's prompt, tools, MCP server and flags, D-044). */
+  /**
+   * More options for a run about to start (Coach's prompt, tools, MCP server and flags, D-044).
+   * Its `env` goes under the agent's own: a name in both keeps `env`'s value.
+   */
   readonly runOptions?: (
     agentId: string,
     runId: string,
-  ) => Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs">;
+  ) => Promise<
+    Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs" | "env">
+  >;
   /** The text the runtime reads for an input, from the text with its attachments listed (Coach frames it with the turn's scope). */
   readonly promptText?: (agentId: string, inputId: string, text: string) => string;
 }
@@ -386,12 +391,13 @@ export class AgentActor {
       this.append({ kind: "run.failed", runId, error });
       throw new Error(error);
     }
+    const more = (await this.deps.runOptions?.(this.id, runId)) ?? {};
     const base: SessionOptions = {
       cwd,
-      env: this.deps.env(this.id),
+      ...more,
+      env: { ...more.env, ...this.deps.env(this.id) },
       ...(summary.model === null ? {} : { model: summary.model }),
       ...(summary.effort === null ? {} : { effort: summary.effort }),
-      ...this.deps.runOptions?.(this.id, runId),
     };
     let session: Session;
     let resumed: string | undefined;

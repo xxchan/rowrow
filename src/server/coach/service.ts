@@ -53,6 +53,7 @@ import type { SettingsService } from "../settings.ts";
 import { log, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import { execute, proposeAgent, proposePrompt, proposeWorktree, type Receipt } from "./actions.ts";
+import { claudeSignIn } from "./claude-settings.ts";
 import { coachSystemPrompt, turnText } from "./prompt.ts";
 import type { CoachTokens } from "./tokens.ts";
 import { BUILTIN_TOOLS, LAUNCH_ARGS, leakedTools } from "./tools.ts";
@@ -69,6 +70,8 @@ export interface CoachDeps {
   readonly cli: string;
   /** Where the MCP server reaches this server. */
   readonly url: () => string;
+  /** The user's claude settings file, whose sign-in Coach's claude keeps (claude-settings.ts). */
+  readonly claudeSettings: string;
 }
 
 const HISTORY_CHATS = 200;
@@ -284,21 +287,29 @@ export class CoachService {
 
   // ─── Runs ─────────────────────────────────────────────────────────────────
 
-  /** How a Coach chat's run opens; nothing for other agents. */
-  runOptions(
+  /**
+   * How a Coach chat's run opens; nothing for other agents. Its `env` is the user's claude
+   * settings' own, under the run's (the agent's environment wins).
+   */
+  async runOptions(
     agentId: string,
     runId: string,
-  ): Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs"> {
+  ): Promise<Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs" | "env">> {
     const { summary } = this.deps.agents.get(agentId) ?? {};
     if (summary?.role !== "coach") return {};
     // The message that opens the run is in the log already: its permission mode is the run's.
     const fullAccess = summary.fullAccess;
     this.runModes.set(runId, fullAccess);
-    const launchArgs = LAUNCH_ARGS[summary.runtime];
+    const signIn = summary.runtime === "claude" ? await claudeSignIn(this.deps.claudeSettings) : null;
+    const launchArgs = [
+      ...(LAUNCH_ARGS[summary.runtime] ?? []),
+      ...(signIn === null || signIn.helpers === null ? [] : ["--settings", JSON.stringify(signIn.helpers)]),
+    ];
     return {
       systemPrompt: coachSystemPrompt(fullAccess),
       disallowedTools: BUILTIN_TOOLS[summary.runtime] ?? [],
-      ...(launchArgs === undefined ? {} : { launchArgs }),
+      ...(launchArgs.length === 0 ? {} : { launchArgs }),
+      ...(signIn === null || Object.keys(signIn.env).length === 0 ? {} : { env: signIn.env }),
       mcpServers: [
         {
           name: COACH_MCP_SERVER,

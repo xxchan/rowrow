@@ -79,7 +79,8 @@ export const BUILTIN_TOOLS: Readonly<Record<string, readonly string[]>> = {
  * settings (hooks, plugins, skills, env) and CLAUDE.md. `--strict-mcp-config` keeps only the
  * servers oar gives it, connectors included; `--setting-sources ""` reads no settings file
  * (managed policy still applies), and claude reads ~/.claude/CLAUDE.md and a project's only
- * with their source (checked in 2.1.292's code and a run, 2026-10-09). Pi refuses launchArgs.
+ * with their source (checked in 2.1.292's code and a run, 2026-10-09). How the user's claude
+ * signs in comes back through claude-settings.ts. Pi refuses launchArgs.
  */
 export const LAUNCH_ARGS: Readonly<Record<string, readonly string[]>> = {
   claude: ["--strict-mcp-config", "--setting-sources", ""],

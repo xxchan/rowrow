@@ -212,9 +212,15 @@ rowrow's own parts.
   and pi take all three; the picker says why the others can't be Coach. Claude also starts with
   `--strict-mcp-config --setting-sources ""` (oar's `launchArgs`) and auto memory off
   (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), so the user's own MCP servers, claude.ai connectors,
-  settings, hooks, plugins, skills and CLAUDE.md stay out (managed policy still applies); pi
-  refuses launch flags and still adds its AGENTS.md files (docs/upstream.md). The tools claude
-  says it loaded are checked: any but rowrow's is a warning in the log and in the chat.
+  settings, hooks, plugins, skills and CLAUDE.md stay out (managed policy still applies). How
+  the user's claude signs in comes back from their settings file (`$CLAUDE_CONFIG_DIR` or
+  ~/.claude, `src/server/coach/claude-settings.ts`): its `env` goes into the run's environment,
+  under rowrow's own variables, and its credential helpers (`apiKeyHelper`, `awsAuthRefresh`,
+  `awsCredentialExport`, `gcpAuthRefresh`) into `--settings` with nothing beside them (argv, so
+  a helper's command shows in `ps`); a file that can't be read logs
+  `coach.claude_settings_unreadable` and the run starts without it. Pi refuses launch flags and
+  still adds its AGENTS.md files (docs/upstream.md). The tools claude says it loaded are
+  checked: any but rowrow's is a warning in the log and in the chat.
 - **Its tools** are four reads and three proposals, each a `coach.*` procedure. The reads: `agents_status`, `agent_history`
   (the `agent view` fold, paged back by turns), `agent_changes` (files, or one file's diff) and
   `agent_background` (background commands and the end of their output). The token reaches only

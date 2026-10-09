@@ -1175,7 +1175,8 @@ archives it; the current chat is the newest one not archived.
   turn off nothing for a misspelled name, without a word); claude also starts with
   `--strict-mcp-config --setting-sources ""` and auto memory off, so none of the user's own MCP
   servers, claude.ai connectors, settings, hooks or CLAUDE.md reach it (oar 0.45's
-  `launchArgs`; before it, only `ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its one MCP server is
+  `launchArgs`; before it, only `ENABLE_CLAUDEAI_MCP_SERVERS=false`), except how their claude
+  signs in (their settings' `env` and credential helpers). Its one MCP server is
   `rowrow mcp coach` (this server's own CLI, through the profile's launcher), a small stdio
   JSON-RPC server written here rather than a dependency. The runtime itself gets no rowrow credential. What the runtime then says
   it loaded is checked, not trusted: any tool in claude's init frame besides rowrow's logs

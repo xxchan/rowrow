@@ -59,6 +59,8 @@ export async function startTestServer(
       ...(options.kitFile === undefined ? {} : { kitFile: options.kitFile }),
       ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
       ...(options.extraRuntimes === undefined ? {} : { extraRuntimes: options.extraRuntimes }),
+      // Never the user's: a test writes one here when it needs one.
+      claudeSettings: path.join(home, "claude", "settings.json"),
     },
     process.env["ROWROW_TEST_LOG"] === "1" ? "pretty" : "off",
   );
