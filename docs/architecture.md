@@ -360,6 +360,8 @@ message says what to do next.
     conflict resolved, one file or all at once. Each is one fixed git command on paths git
     itself reports, and carries the stamp of what the client saw: when the file changed
     since, it is refused and nothing happens (D-019).
+  - *Revert* puts a file the last turn changed back as the turn's start snapshot had it,
+    unless it changed since the turn ended, which the end snapshot says (D-051).
   - *History* pages through the current branch's commits; a commit shows its message,
     people, dates, parents and files, compared with its parent (a root commit with the
     empty tree, a merge with its first parent), and `files.read {rev}` reads a file as it

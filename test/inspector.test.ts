@@ -1,11 +1,12 @@
 // The workspace inspector end to end, in-process: file actions on the working tree (with
-// the staleness check), commit history, search and file previews, and the branch's pull
+// the staleness check), reverting a file to the start of a turn, commit history, search and file previews, and the branch's pull
 // request through a fake `gh`. Driven through the real typed client over HTTP, as the web
 // app, the CLI and agents use it. No network.
 import { ORPCError } from "@orpc/client";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ChangedFile, Changes } from "../src/shared/schemas.ts";
 import {
@@ -17,7 +18,7 @@ import {
   tempDir,
   write,
 } from "../src/server/git/testing.ts";
-import { startTestServer, type TestServer } from "./helpers.ts";
+import { eventually, input, startTestServer, type TestServer } from "./helpers.ts";
 
 beforeAll(isolateGit);
 
@@ -414,6 +415,124 @@ describe("file actions", () => {
     );
     expect(refused.message).toMatch(/intent-to-add/);
     expect(read(repo, "ita.txt")).toBe("precious\n");
+  });
+});
+
+describe("revert to the start of the last turn", () => {
+  /** Has the agent do `text` and waits until its turn is over and its end snapshotted; returns the turn's list. */
+  async function turn(workspaceId: string, text: string, agentId?: string) {
+    let id = agentId;
+    let seq: number;
+    if (id === undefined) {
+      const created = await t!.client.agents.create({ workspaceId, runtime: "scripted", input: input(text) });
+      id = created.agent.id;
+      seq = created.sent?.seq ?? -1;
+    } else {
+      ({ seq } = await t!.client.agents.send({ agentId: id, ...input(text), mode: "auto" }));
+    }
+    await t!.client.agents.wait({ agentId: id, afterSeq: seq, timeoutMs: 5000 });
+    // The end is snapshotted just after the runtime ends the turn.
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(t!.home, "test", "rowrow.db"), { readOnly: true });
+    try {
+      await eventually(() => {
+        const row = db.prepare("select end_tree from agent_turns where agent_id = ?").get(id) as
+          | { end_tree: string | null }
+          | undefined;
+        return row?.end_tree === null || row === undefined ? undefined : true;
+      });
+    } finally {
+      db.close();
+    }
+    const changes = await t!.client.git.changes({ workspaceId, scope: "turn", agentId: id });
+    return { agentId: id, changes };
+  }
+
+  it("deletes a file the turn created and puts a modified one back, touching nothing else", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, { "notes.txt": "committed\n" });
+    write(repo, "mine.txt", "the person's own work\n");
+    const first = await turn(id, "/write src/new.txt\nmade by the agent");
+    expect(first.changes.files.map((f) => [f.path, f.status])).toEqual([["src/new.txt", "added"]]);
+    // Without an agent: the workspace's latest turn, as the workspace page shows it.
+    expect(
+      await t.client.git.revertFile({ workspaceId: id, path: "src/new.txt", base: first.changes.base ?? "" }),
+    ).toEqual({ paths: ["src/new.txt"] });
+    expect(fs.existsSync(path.join(repo, "src"))).toBe(false);
+
+    write(repo, "notes.txt", "before the turn\n"); // uncommitted: the turn's start, not HEAD
+    const second = await turn(id, "/write notes.txt\nby the agent", first.agentId);
+    expect(second.changes.files.map((f) => [f.path, f.status])).toEqual([["notes.txt", "modified"]]);
+    // The first turn's list is stale now.
+    expect(
+      await failure(
+        t.client.git.revertFile({
+          workspaceId: id,
+          agentId: first.agentId,
+          path: "notes.txt",
+          base: first.changes.base ?? "",
+        }),
+      ),
+    ).toMatchObject({ code: "CONFLICT" });
+    const revert = {
+      workspaceId: id,
+      agentId: first.agentId,
+      path: "notes.txt",
+      base: second.changes.base ?? "",
+    };
+    // From the CLI, as an agent or a script would.
+    const rowrow = async (...args: string[]) =>
+      promisify(execFile)(
+        process.execPath,
+        [path.resolve(import.meta.dirname, "../src/cli/main.ts"), ...args],
+        {
+          env: { ...process.env, ROWROW_URL: t!.server.url, ROWROW_TOKEN: t!.token },
+        },
+      );
+    await expect(rowrow("agent", "revert", first.agentId)).rejects.toThrow(
+      /which file\? its last turn changed notes\.txt/,
+    );
+    expect((await rowrow("agent", "revert", first.agentId, "notes.txt")).stdout).toBe(
+      "reverted notes.txt to before the turn\n",
+    );
+    expect(read(repo, "notes.txt")).toBe("before the turn\n");
+    expect(read(repo, "mine.txt")).toBe("the person's own work\n");
+    // Twice is harmless.
+    expect(await failure(t.client.git.revertFile(revert))).toEqual({
+      code: "BAD_REQUEST",
+      message: "notes.txt is already as it was before this turn.",
+    });
+  });
+
+  it("refuses a file that changed since the turn ended, and while the agent works", async () => {
+    t = await startTestServer();
+    const { repo, id } = await workspace(t, { "notes.txt": "before the turn\n" });
+    const done = await turn(id, "/write notes.txt\nby the agent");
+    const revert = () =>
+      t!.client.git.revertFile({
+        workspaceId: id,
+        agentId: done.agentId,
+        path: "notes.txt",
+        base: done.changes.base ?? "",
+      });
+    write(repo, "notes.txt", "edited after the turn\n");
+    expect(await failure(revert())).toEqual({
+      code: "BAD_REQUEST",
+      message:
+        "notes.txt changed since the turn ended, so it wasn't reverted: that would lose the newer changes.",
+    });
+    expect(read(repo, "notes.txt")).toBe("edited after the turn\n");
+
+    write(repo, "notes.txt", "by the agent\n"); // as the turn left it again
+    await t.client.agents.send({ agentId: done.agentId, ...input("/sleep 10000"), mode: "auto" });
+    await eventually(async () =>
+      (await t!.client.state.get()).state.agents[done.agentId]?.summary.status.kind === "running"
+        ? true
+        : undefined,
+    );
+    expect(await failure(revert())).toMatchObject({ code: "PRECONDITION_FAILED", message: /still working/ });
+    expect(read(repo, "notes.txt")).toBe("by the agent\n");
+    await t.client.agents.abort({ agentId: done.agentId });
   });
 });
 

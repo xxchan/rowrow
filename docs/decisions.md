@@ -1425,3 +1425,36 @@ every-minute monitor from growing the database and the boot fold without bound.
 **Revisit when** a run needs to outlive the server (resume a run from a checkpoint, as Ranger's
 durable runs do), tasks want their own scope instead of Coach's, or the iOS app shows tasks
 (its APNs payload carries `coachTask` and `coachRun` already).
+
+## D-051 Revert a file to before a turn: from its snapshots, only while the turn's end still holds (2026-10-09)
+
+**Context.** Roadmap "Next" 1 (roamgate-parity §5): undo what an agent's last turn did to one
+file without asking the agent. roamgate has nothing like it; its discard drops uncommitted edits
+(D-019's actions here). The turn snapshots (D-015) know the file as it was before the turn,
+whatever the agent committed or staged meanwhile.
+
+**Decision.** `git.revertFile` writes the file as the turn's start snapshot had it: its content
+(through smudge filters), a symbolic link, or nothing; a rename moves back to its old path; the
+executable bit is the start's, the other permission bits the file's own. The precondition is the
+turn's end snapshot, not a stamp: every path of the row must hold exactly what the turn left
+(hashed as the snapshot hashed it), or nothing is written, so anything that touched the file
+after the turn (you, another agent, the same agent's next turn) wins. Also refused while the
+turn's agent works, when the end wasn't captured or the snapshots were pruned, and with CONFLICT
+when the client's `base` is no longer the turn's start. The index, refs and commits are never
+touched: when the turn committed or staged the file, the revert shows as an uncommitted change.
+The web app confirms first; `rowrow agent revert <agent> <path>` doesn't, like the other CLI
+actions.
+
+**Why.** PRINCIPLES.md product 4: narrow, confirmed, re-checked so it never destroys newer work.
+The server already holds the precondition, so the client needs no stamp, a retry is refused
+("already as it was before this turn"), and the check is against the turn the person reviewed,
+not the moment the list loaded. Leaving git alone keeps the action to what the diff showed, the
+file's content; undoing a commit is a different and bigger decision.
+
+**Limits.** Only the latest turn (the only one with snapshots). Two turns that start from the
+same worktree have the same `base`: the content restored is then the same, checked against the
+newer turn's end. Folders a revert empties are removed, as a checkout does; snapshots don't
+record empty folders, so one that existed before the turn doesn't come back.
+
+**Revisit when** a whole turn should be reverted at once, older turns keep snapshots, or reverting
+should also unstage what the turn staged.

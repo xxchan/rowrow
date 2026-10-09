@@ -3,7 +3,8 @@
 // its workspace when its turn starts and when it ends, so the turn diff is exactly what
 // changed during that turn. (Another agent working in the same checkout at the same time
 // shows up in it too: files don't know who wrote them.) Also the workspace inspector:
-// file actions on the working tree, commit history, the branch's pull request, search.
+// file actions on the working tree, reverting a file to the start of a turn, commit
+// history, the branch's pull request, search.
 import type {
   BulkAction,
   Changes,
@@ -20,6 +21,7 @@ import { UserError } from "../errors.ts";
 import { fileDiff, listChanges } from "../git/changes.ts";
 import { ActionRefused, applyBulkAction, applyFileAction, StaleError } from "../git/file-actions.ts";
 import { downloadWorkspacePath } from "../git/download.ts";
+import { revertToTurnStart } from "../git/revert.ts";
 import { commitPatch, HistoryError, listCommits, readCommit, readFileAtCommit } from "../git/history.ts";
 import { resolveHooks, runHook, type HookEvent, type HookRun } from "../git/hooks.ts";
 import { pullRequestStatus } from "../git/pull-request.ts";
@@ -40,6 +42,8 @@ export interface GitOpsDeps {
   readonly stopAgentsIn: (workspaceId: string) => Promise<void>;
   /** An agent's title, to say whose turn the "last turn" baseline is. */
   readonly agentTitle: (agentId: string) => string | null;
+  /** Whether an agent is in a turn now (one the runtime started on its own has no row of its own). */
+  readonly agentWorking: (agentId: string) => boolean;
   /** The GitHub CLI to ask about pull requests: `gh` on PATH unless given (tests pass a fake). */
   readonly gh?: string;
 }
@@ -119,6 +123,33 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         `${action} was done, but listing the changes again failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  };
+
+  /**
+   * The snapshots to revert a file with: the turn the client saw (`base`, its start), over and
+   * with its end captured. Anything else is refused before a file is looked at.
+   */
+  const revertable = (turn: TurnRow | undefined, base: string): { start: string; end: string } => {
+    if (turn === undefined)
+      throw new UserError("No turn yet: there is nothing to revert to.", "PRECONDITION_FAILED");
+    if (turn.ended_at === null || deps.agentWorking(turn.agent_id))
+      throw new UserError(
+        `${deps.agentTitle(turn.agent_id) ?? "The agent"} is still working: revert once its turn ends.`,
+        "PRECONDITION_FAILED",
+      );
+    if (turn.start_tree === null)
+      throw new UserError(
+        "The start of this turn wasn't captured, so there is nothing to revert to.",
+        "PRECONDITION_FAILED",
+      );
+    if (turn.start_tree !== base)
+      throw new UserError("Another turn ran since this list was loaded: refresh and try again.", "CONFLICT");
+    if (turn.end_tree === null)
+      throw new UserError(
+        "The end of this turn wasn't captured, so rowrow can't tell whether the file changed since: nothing was reverted.",
+        "PRECONDITION_FAILED",
+      );
+    return { start: turn.start_tree, end: turn.end_tree };
   };
 
   const prCache = new Map<string, { branch: string | null; value: PullRequestStatus }>();
@@ -382,6 +413,32 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         }
         log.info("git.file_action", { ws: workspaceId, action, count: paths.length });
         return { paths, changes: await afterAction(workspaceId, ws.path, action) };
+      });
+    },
+
+    async revertFile(workspaceId, path, base, agentId?: string) {
+      const ws = gitWorkspace(workspaceId);
+      return serially(workspaceId, async () => {
+        const turn = turnOf(workspaceId, agentId);
+        let paths: string[];
+        try {
+          const { start, end } = revertable(turn, base);
+          ({ paths } = await revertToTurnStart({ dir: ws.path, store, start, end, path }));
+        } catch (error) {
+          log.info("git.revert.refused", {
+            ws: workspaceId,
+            agent: turn?.agent_id,
+            reason: error instanceof Error ? error.message : String(error),
+          });
+          throw asUserError(error);
+        }
+        log.info("git.revert", { ws: workspaceId, agent: turn?.agent_id, paths });
+        await workspaces
+          .refresh(workspaceId)
+          .catch((error: unknown) =>
+            log.warn("workspace.refresh_failed", { ws: workspaceId, err: serializeError(error) }),
+          );
+        return { paths };
       });
     },
 

@@ -486,6 +486,31 @@ const git = {
     })
     .input(z.object({ workspaceId, action: BulkAction, files: z.array(SeenFile).max(5000) }))
     .output(z.object({ paths: z.array(z.string()), changes: Changes })),
+  revertFile: oc
+    .route({
+      summary:
+        "Put one file back the way it was when an agent's latest turn started (a file git.changes lists in scope turn), from the turn's snapshots: a modified file gets its old content, a file the turn created is deleted, one it deleted comes back, a rename goes back to its old path; the executable bit is the one it had then. Pass the `base` git.changes gave (the turn's start snapshot): if another turn ran since, the call fails with CONFLICT. Refused, with nothing written, while that turn runs, when its snapshots are gone or its end wasn't captured, and when the file changed since the turn ended. Never touches another file, the index or commits. Returns the paths written or removed.",
+    })
+    .input(
+      z.object({
+        workspaceId,
+        agentId: z
+          .string()
+          .optional()
+          .describe("Whose latest turn (default: the workspace's latest, by any agent), as in git.changes."),
+        path: z
+          .string()
+          .min(1)
+          .max(4096)
+          .describe("The file's path as git.changes lists it (a rename: its new path)."),
+        base: z
+          .string()
+          .min(1)
+          .max(100)
+          .describe("git.changes' `base` for scope turn: the turn's start snapshot."),
+      }),
+    )
+    .output(z.object({ paths: z.array(z.string()) })),
   log: oc
     .route({
       summary:

@@ -5,7 +5,8 @@
 // "View diff"; the File index jumps to a file. Refreshes itself when the workspace's git facts
 // change, which happens after every turn. Uncommitted files can be staged, unstaged, discarded
 // or deleted; each action carries the file's stamp, so nothing happens to a file that changed
-// since you looked (D-019).
+// since you looked (D-019). A file the last turn changed can be reverted to before the turn,
+// unless it changed since the turn ended (D-051).
 import {
   AlertDialog,
   AlertDialogAction,
@@ -108,6 +109,17 @@ export function ChangesView({
   } | null>(null);
   const [confirming, setConfirming] = useState<Confirmation | null>(null);
   const [acting, setActing] = useState(false);
+  /** Files you reverted, by the turn they were reverted from (its start snapshot). */
+  const [reverted, setReverted] = useState<{ base: string; paths: ReadonlySet<string> } | null>(null);
+  // The turn shown is the agent's (or, on a workspace's page, the latest of any agent there):
+  // while it runs, the server would refuse a revert.
+  const turnRunning = useApp((s) =>
+    Object.values(s.state?.agents ?? {}).some(
+      (a) =>
+        (agentId === undefined ? a.summary.workspaceId === workspaceId : a.id === agentId) &&
+        a.summary.status.kind === "running",
+    ),
+  );
   const key = `${workspaceId}:${scope}:${gitVersion}:${reload}`;
   // What a loaded diff belongs to: the turn scope is per agent, the others aren't.
   const scopeKey = `${workspaceId}\0${scope}\0${scope === "turn" ? (agentId ?? "") : ""}`;
@@ -216,6 +228,49 @@ export function ChangesView({
     else void run();
   };
 
+  /** Puts a file the last turn changed back as it was before the turn, once you confirm. */
+  const revert = (file: ChangedFile): void => {
+    const base = changes?.base;
+    if (client === null || base === null || base === undefined) return;
+    setConfirming({
+      title: `Revert ${file.path} to before this turn?`,
+      description: `${revertEffect(file)} If it changed since the turn ended, nothing is written.`,
+      action: "Revert",
+      run: async () => {
+        setActing(true);
+        try {
+          await client.git.revertFile({
+            workspaceId,
+            path: file.path,
+            base,
+            ...(agentId === undefined ? {} : { agentId }),
+          });
+          toast.success(`Reverted ${file.path} to before the turn.`);
+          setReverted((r) => ({
+            base,
+            paths: new Set([...(r?.base === base ? r.paths : []), file.path]),
+          }));
+        } catch (error) {
+          // Refused (it changed since, the agent works, another turn ran): the message says why.
+          if (
+            error instanceof ORPCError &&
+            ["BAD_REQUEST", "PRECONDITION_FAILED", "CONFLICT"].includes(error.code)
+          )
+            toast.warning(error.message);
+          else {
+            toast.error(`Revert failed: ${error instanceof Error ? error.message : String(error)}`);
+            report("warn", "changes.revert_failed", error, { workspaceId });
+          }
+          if (error instanceof ORPCError && error.code === "CONFLICT") setReload((n) => n + 1);
+        } finally {
+          setActing(false);
+        }
+      },
+    });
+  };
+
+  const revertedHere =
+    scope === "turn" && reverted !== null && reverted.base === changes?.base ? reverted.paths : NO_PATHS;
   const working = scope === "working" && changes !== null && changes.files.length > 0;
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -281,6 +336,9 @@ export function ChangesView({
         reload={reload}
         annotations={annotations}
         onAction={scope === "working" ? fileAction : undefined}
+        onRevert={scope === "turn" && changes !== null && changes.base !== null ? revert : undefined}
+        revertDisabled={turnRunning ? "Wait for the turn to end" : undefined}
+        reverted={revertedHere}
       >
         {current?.error !== null && current?.error !== undefined && (
           <ErrorText className="px-1">{current.error}</ErrorText>
@@ -358,7 +416,17 @@ function actionsFor(file: ChangedFile): FileAction[] {
   return out;
 }
 
+/** What reverting a file of the last turn does to it, for the confirmation. */
+function revertEffect(file: ChangedFile): string {
+  if (file.status === "added") return "The turn created it, so it's deleted.";
+  if (file.status === "deleted") return "The turn deleted it, so it comes back as it was.";
+  if (file.status === "renamed" && file.oldPath !== null)
+    return `It moves back to ${file.oldPath}, as it was when the turn started.`;
+  return "It goes back to how it was when the turn started: the turn's edits to it are lost.";
+}
+
 const NO_FILES: readonly ChangedFile[] = [];
+const NO_PATHS: ReadonlySet<string> = new Set();
 const NO_ANNOTATIONS: readonly Annotation[] = [];
 /** Diffs this far above or below the screen load ahead of it (roamgate's margin). */
 const NEAR_PX = 1000;
@@ -389,6 +457,9 @@ function ChangeList({
   reload,
   annotations,
   onAction,
+  onRevert,
+  revertDisabled,
+  reverted,
   children,
 }: {
   workspaceId: string;
@@ -400,6 +471,11 @@ function ChangeList({
   reload: number;
   annotations: readonly Annotation[];
   onAction: ((file: ChangedFile, action: FileAction) => void) | undefined;
+  /** Last turn: revert a file to before the turn (`revertDisabled`: why not now). */
+  onRevert: ((file: ChangedFile) => void) | undefined;
+  revertDisabled: string | undefined;
+  /** Files reverted from this turn. */
+  reverted: ReadonlySet<string>;
   /** What goes above the files in the scroll (errors, notes, review comments). */
   children: ReactNode;
 }) {
@@ -423,9 +499,9 @@ function ChangeList({
   const collapsedState = manual.scopeKey === scopeKey ? manual.state : readCollapsed(scopeKey);
 
   // The latest of these, for callbacks that outlive a render (a request's answer, a menu).
-  const live = useRef({ client, epoch, gitVersion, files, collapsedState, loads, onAction });
+  const live = useRef({ client, epoch, gitVersion, files, collapsedState, loads, onAction, onRevert });
   useLayoutEffect(() => {
-    live.current = { client, epoch, gitVersion, files, collapsedState, loads, onAction };
+    live.current = { client, epoch, gitVersion, files, collapsedState, loads, onAction, onRevert };
   });
   const mounted = useRef(true);
   useEffect(() => {
@@ -651,6 +727,7 @@ function ChangeList({
     (file: ChangedFile, action: FileAction): void => live.current.onAction?.(file, action),
     [],
   );
+  const revertFile = useCallback((file: ChangedFile): void => live.current.onRevert?.(file), []);
 
   const shown =
     top?.scopeKey === scopeKey && files.some((f) => f.path === top.path) ? top.path : files[0]?.path;
@@ -701,6 +778,9 @@ function ChangeList({
                 onView={open}
                 onComment={comment}
                 onAction={onAction === undefined ? undefined : act}
+                onRevert={onRevert === undefined ? undefined : revertFile}
+                revertDisabled={revertDisabled}
+                reverted={reverted.has(file.path)}
               />
             );
           })}
@@ -727,6 +807,9 @@ const FileSection = memo(function FileSection({
   onView,
   onComment,
   onAction,
+  onRevert,
+  revertDisabled,
+  reverted,
 }: {
   diffKey: string;
   file: ChangedFile;
@@ -742,6 +825,9 @@ const FileSection = memo(function FileSection({
   onView: (path: string) => void;
   onComment: (path: string, ref: LineRef, comment: string) => void;
   onAction: ((file: ChangedFile, action: FileAction) => void) | undefined;
+  onRevert: ((file: ChangedFile) => void) | undefined;
+  revertDisabled: string | undefined;
+  reverted: boolean;
 }) {
   const path = file.path;
   const actions = onAction === undefined || file.stamp === undefined ? [] : actionsFor(file);
@@ -756,10 +842,22 @@ const FileSection = memo(function FileSection({
     destructive: action === "discardUnstaged" || action === "deleteUntracked",
     run: () => onAction?.(file, action),
   }));
-  const staged =
+  if (onRevert !== undefined)
+    menu.push({
+      label: "Revert to before this turn…",
+      icon: null,
+      destructive: true,
+      ...(revertDisabled === undefined ? {} : { disabled: revertDisabled }),
+      run: () => onRevert(file),
+    });
+  const badge =
     file.staged === true ? (
       <span className="shrink-0 rounded bg-success/15 px-1 text-[10px] font-medium text-success">
         {file.unstaged === true ? "partly staged" : "staged"}
+      </span>
+    ) : reverted ? (
+      <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-medium text-muted-foreground">
+        reverted
       </span>
     ) : undefined;
   const addComment = useCallback(
@@ -782,10 +880,10 @@ const FileSection = memo(function FileSection({
           open={!collapsed}
           onToggle={() => onToggle(path, collapsed)}
           annotations={annotations}
-          badge={staged}
+          badge={badge}
           menu={menu}
           actions={
-            actions.length === 0 ? undefined : (
+            menu.length === 0 ? undefined : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button

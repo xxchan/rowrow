@@ -521,6 +521,69 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   await expect(inspector.getByRole("button", { name: /^\S README\.md/ })).toBeVisible();
 });
 
+test("revert a file to before the last turn, only once confirmed and if nothing changed it since", async ({
+  page,
+  rowrow,
+}, info) => {
+  const repo = rowrow.repo();
+  const notes = path.join(repo, "notes.txt");
+  fs.writeFileSync(notes, "before the turn\n");
+  commit(repo, "notes");
+  const ws = await rowrow.client.workspaces.add({ path: repo });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "edits notes",
+    input: { inputId: randomUUID(), text: "/write notes.txt\nby the agent" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  // The turn's end is snapshotted just after it ends: its span stops saying "now".
+  await expect
+    .poll(
+      async () =>
+        (await rowrow.client.git.changes({ workspaceId: ws.id, scope: "turn", agentId: agent.id })).baseLabel,
+    )
+    .not.toMatch(/now\)$/);
+  await rowrow.client.workspaces.refresh({ id: ws.id });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await page.getByRole("button", { name: /Changes/ }).click();
+  const inspector =
+    info.project.name === "phone"
+      ? page.getByRole("dialog")
+      : page.getByRole("region", { name: "Inspector" });
+  await inspector.getByRole("tab", { name: "Last turn" }).click();
+  await expect(inspector.getByText("by the agent")).toBeVisible();
+  const confirm = page.getByRole("alertdialog", { name: "Revert notes.txt to before this turn?" });
+
+  // Edited since the turn ended: refused, and the edit stays.
+  fs.writeFileSync(notes, "edited after the turn\n");
+  await inspector.getByRole("button", { name: "Actions for notes.txt" }).click();
+  await page.getByRole("menuitem", { name: "Revert to before this turn…" }).click();
+  await expect(confirm).toContainText("It goes back to how it was when the turn started");
+  await confirm.getByRole("button", { name: "Revert" }).click();
+  await expect(
+    page.getByText(/notes\.txt changed since the turn ended, so it wasn't reverted/),
+  ).toBeVisible();
+  expect(fs.readFileSync(notes, "utf8")).toBe("edited after the turn\n");
+
+  // As the turn left it again: reverted (on a desktop, from the row's right-click menu).
+  fs.writeFileSync(notes, "by the agent\n");
+  if (info.project.name === "phone") {
+    await inspector.getByRole("button", { name: "Actions for notes.txt" }).click();
+    await page.getByRole("menuitem", { name: "Revert to before this turn…" }).click();
+  } else {
+    await inspector.getByRole("button", { name: /^\S notes\.txt/ }).click({ button: "right" });
+    await page
+      .getByRole("menu", { name: "Actions for notes.txt" })
+      .getByRole("menuitem", { name: "Revert to before this turn…" })
+      .click();
+  }
+  await confirm.getByRole("button", { name: "Revert" }).click();
+  await expect(page.getByText("Reverted notes.txt to before the turn.")).toBeVisible();
+  await expect(inspector.getByText("reverted", { exact: true })).toBeVisible();
+  expect(fs.readFileSync(notes, "utf8")).toBe("before the turn\n");
+});
+
 /** Commit everything in `repo` (the e2e fixture's identity, no background maintenance). */
 function commit(repo: string, message: string): void {
   for (const args of [

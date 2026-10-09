@@ -104,6 +104,8 @@ export interface GitOps {
     action: BulkAction,
     files: readonly SeenFile[],
   ): Promise<{ paths: string[]; changes: Changes }>;
+  /** One file back to the start of a turn: the agent's latest, or the workspace's latest of any agent. */
+  revertFile(workspaceId: string, path: string, base: string, agentId?: string): Promise<{ paths: string[] }>;
   log(workspaceId: string, options: { cursor?: string; limit?: number }): Promise<CommitPage>;
   commit(workspaceId: string, sha: string): Promise<CommitChanges>;
   commitDiff(workspaceId: string, sha: string, path: string): Promise<{ patch: string; truncated: boolean }>;
@@ -566,6 +568,9 @@ export function createRouter(s: Services) {
       ),
       bulkAction: os.git.bulkAction.handler(async ({ input }) =>
         s.git.bulkAction(input.workspaceId, input.action, input.files),
+      ),
+      revertFile: os.git.revertFile.handler(async ({ input }) =>
+        s.git.revertFile(input.workspaceId, input.path, input.base, input.agentId),
       ),
       log: os.git.log.handler(async ({ input }) =>
         s.git.log(input.workspaceId, {

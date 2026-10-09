@@ -74,6 +74,8 @@ Agents
   rowrow agent abort|stop|archive|seen|pin|unpin <agent>
   rowrow agent fast <agent> [on|off]   Fast mode from the next message (codex's /fast; claude's
                                    fast mode); without on|off it toggles
+  rowrow agent revert <agent> <path>   put a file its last turn changed back as it was before the
+                                   turn (path as Changes lists it); refused if it changed since
   rowrow notify <title> [body] [--key K] [--agent <agent>]
                                    notify the user on every device, even while they look at the
                                    agent (from inside an agent: about that agent); --key K: once
@@ -734,6 +736,25 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
         { serviceTier: summary.serviceTier },
         () => `${tierWords(summary.serviceTier)} from the next message`,
       );
+      return;
+    }
+    case "revert": {
+      const file = rest[0] ?? "";
+      const workspaceId = agent.summary.workspaceId;
+      const turn = await client.git.changes({ workspaceId, scope: "turn", agentId });
+      if (turn.base === null) throw new Error(turn.note ?? "its last turn has no snapshot to revert to");
+      if (!turn.files.some((f) => f.path === file)) {
+        const listed = turn.files.map((f) => f.path);
+        const changed =
+          listed.length === 0
+            ? "its last turn changed no files"
+            : `its last turn changed ${listed.slice(0, 20).join(", ")}${listed.length > 20 ? ", …" : ""}`;
+        throw new Error(
+          file === "" ? `which file? ${changed}` : `${file} didn't change in that turn: ${changed}`,
+        );
+      }
+      const result = await client.git.revertFile({ workspaceId, agentId, path: file, base: turn.base });
+      h.out(result, () => `reverted ${file} to before the turn`);
       return;
     }
     case "pin":

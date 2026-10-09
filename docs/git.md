@@ -233,6 +233,31 @@ git invocation.
   time. Afterwards the workspace's git facts are refreshed and the new working list is
   returned.
 
+## Reverting a file to the start of a turn (`revert.ts`)
+
+`git.revertFile` (D-051) puts one file of the Last turn list back as the turn's start snapshot
+had it. The latest turn (the agent's, or the workspace's of any agent) must be over, its agent
+not working, both snapshots stored, and its start must be the `base` the client listed (else
+CONFLICT: another turn ran since).
+
+- **Which paths**: `git diff --raw -M --no-abbrev <start> <end>` over the whole turn finds the
+  row, as the list found it (a rename is detected only among all the files); a rename's row has
+  both of its paths. A submodule is refused.
+- **The precondition is the end snapshot**: each path must hold exactly what the turn left:
+  nothing; a file whose content `git hash-object --path=<path>` hashes to the end's blob (the
+  clean filters `git add` ran), whatever its mode bits; or a symbolic link with the same target.
+  No folder on the way may be a symbolic link. Otherwise it is refused and nothing is written:
+  "already as it was before this turn" when every path holds what the start had, else "changed
+  since the turn ended".
+- **Writing**: a path the start didn't have is removed, with the folders that leaves empty. A
+  file is `git cat-file --filters --path=<path> <blob>` (smudge filters and line endings, as a
+  checkout writes it) into a temporary file beside it, renamed over it; it gets the start's
+  executable bit and keeps the file's other permission bits (a new file: 0666 or 0777 less the
+  umask). A symbolic link is made beside it and renamed over it. A rename restores its old path
+  first. Over 64 MiB at the start, it is refused.
+- **Never** the index, refs, commits or another path. It runs one at a time with the file
+  actions of the same workspace; afterwards the workspace's git facts are refreshed.
+
 ## History (`history.ts`)
 
 The current branch's commits and each commit's changes (roamgate #229), behind `git.log`,
