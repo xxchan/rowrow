@@ -58,6 +58,9 @@ file when something lands.
 - **Pinned agents** (#295, D-046): Pin agent in an agent's menu puts it first in the side nav,
   on Home, in its workspace and in ⌘K, on every device; a pin on its row unpins it, and a
   pinned agent can't be archived. `rowrow agent pin|unpin`.
+- **A wave bar on agent transcripts** (#354): the right edge of the conversation marks each
+  message and what's on screen; hover a mark to preview it, click it or use the arrow keys to
+  jump there. Coach's chat has the same one. Desktop only.
 - **Coach, phase 1** (D-044): an assistant that reads your crew of agents (status,
   conversations, changes, background output) in the workspaces you allow, on your own claude or
   pi with its tools turned off and rowrow's read-only tools instead; a window floating, pinned

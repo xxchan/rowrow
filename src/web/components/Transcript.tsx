@@ -1,7 +1,8 @@
 // The transcript: the timeline fold (src/shared/timeline.ts) rendered as a conversation.
 // Every block and message is memoized on identity, and the fold shares structure, so while
 // text streams only the open turn re-renders. Messages carry data-author ("you" or
-// "agent"): selection comments quote only what the agent wrote (SelectionComment). Coach's
+// "agent"): selection comments quote only what the agent wrote (SelectionComment), and the
+// wave bar marks each one (ConversationWave), previewing what they mark data-preview. Coach's
 // chats (D-044) read the same fold: an answer's text, with the tools it called folded into one
 // "Work performed" group under it.
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -763,18 +764,20 @@ function Section({
     const { part, index } = segment;
     switch (part.kind) {
       case "text":
+        // What the wave bar's preview quotes (ConversationWave).
         out.push(
-          <Streamdown
-            key={index}
-            className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
-            plugins={plugins}
-            isAnimating={streaming && index === lastIndex}
-            shikiTheme={["github-light", "tokyo-night"]}
-            linkSafety={{ enabled: false }}
-            codeBlockMaxHeight={480}
-          >
-            {part.text}
-          </Streamdown>,
+          <div key={index} data-preview className="contents">
+            <Streamdown
+              className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
+              plugins={plugins}
+              isAnimating={streaming && index === lastIndex}
+              shikiTheme={["github-light", "tokyo-night"]}
+              linkSafety={{ enabled: false }}
+              codeBlockMaxHeight={480}
+            >
+              {part.text}
+            </Streamdown>
+          </div>,
         );
         break;
       case "tool":

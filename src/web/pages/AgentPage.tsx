@@ -2,6 +2,7 @@
 // latest turn here (visible, focused window) marks it seen, which clears its `done`
 // attention on every device (docs/decisions.md, D-008).
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ import { openAgentDialog, useAgentActions } from "../components/AgentActions.tsx
 import { MenuActions } from "../components/MenuActions.tsx";
 import { needsYou } from "../components/CommandMenu.tsx";
 import { Composer } from "../components/Composer.tsx";
+import { ConversationWave } from "../components/ConversationWave.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import {
   Inspector,
@@ -256,12 +258,17 @@ function savedLayout(): Record<string, number> | undefined {
   }
 }
 
-/** The conversation, stuck to the bottom while the agent writes, and the composer under it. */
+/**
+ * The conversation, stuck to the bottom while the agent writes, and the composer under it. On
+ * a desktop, a wave bar at its right edge maps the messages (roamgate #354): hover to preview
+ * one, click or the arrow keys to jump.
+ */
 function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
   const client = useClient();
   const transcript = useTranscript(agent.id);
   const chatRef = useRef<HTMLDivElement>(null);
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
+  const runtime = useApp((s) => s.state?.runtimes[agent.summary.runtime]?.name ?? agent.summary.runtime);
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom, stopScroll } = useStickToBottom({
     initial: "instant",
     resize: "smooth",
   });
@@ -289,36 +296,53 @@ function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () =
 
   return (
     <div ref={chatRef} className="relative flex h-full min-h-0 flex-col">
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div ref={contentRef} className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-6 pb-4 md:px-6">
-          {transcript.hasMore && client !== null && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="self-center text-muted-foreground"
-              onClick={() => void older()}
-            >
-              {loadingOlder && <LoaderCircle className="animate-spin" />} Load earlier turns
-            </Button>
-          )}
-          {blocks === 0 ? (
-            transcript.loading ? (
-              <div
-                role="status"
-                className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", blocks > 0 && "md:pr-11")}>
+          <div
+            ref={contentRef}
+            className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-6 pb-4 md:px-6"
+          >
+            {transcript.hasMore && client !== null && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-center text-muted-foreground"
+                onClick={() => void older()}
               >
-                <LoaderCircle className="size-4 animate-spin" /> Loading the conversation
-              </div>
+                {loadingOlder && <LoaderCircle className="animate-spin" />} Load earlier turns
+              </Button>
+            )}
+            {blocks === 0 ? (
+              transcript.loading ? (
+                <div
+                  role="status"
+                  className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"
+                >
+                  <LoaderCircle className="size-4 animate-spin" /> Loading the conversation
+                </div>
+              ) : (
+                <EmptyState
+                  title="Nothing yet"
+                  description="Write the first message below. The agent starts working in its workspace when it arrives."
+                />
+              )
             ) : (
-              <EmptyState
-                title="Nothing yet"
-                description="Write the first message below. The agent starts working in its workspace when it arrives."
-              />
-            )
-          ) : (
-            <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
-          )}
+              <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
+            )}
+          </div>
         </div>
+        {/* Not on a phone: the transcript needs the width there, and a finger the scrolling. */}
+        {blocks > 0 && (
+          <ConversationWave
+            key={agent.id}
+            scrollRef={scrollRef}
+            contentRef={contentRef}
+            assistant={runtime}
+            label="Conversation navigation"
+            className="hidden md:flex"
+            onNavigate={stopScroll}
+          />
+        )}
       </div>
       {!isAtBottom && blocks > 0 && (
         <Button

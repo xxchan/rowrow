@@ -1,33 +1,42 @@
-// Coach's conversation map (roamgate's Ranger "wave bar"): a tick per message at the right
-// edge of the chat, longer for yours, accent for the ones on screen. Hover (not touch) to
-// preview one, click to jump to it, or use it as a vertical slider with the arrow keys. The
-// messages are the transcript's own (`article[data-author]`), read from the page.
+// A conversation's wave bar (roamgate's Ranger "conversation map", #354), for an agent's
+// transcript and Coach's chat: a tick per message at the right edge, longer for yours, accent
+// for the ones on screen. Hover (not touch) to preview one, click to jump to it, or use it as a
+// vertical slider with the arrow keys, Home and End. The messages are the transcript's own
+// (`[data-author]`), read from the page; what a preview quotes is what they mark `data-preview`.
 import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 interface Mark {
   readonly element: HTMLElement;
   readonly you: boolean;
-  readonly preview: string;
 }
 
-/** What a message said, without its footer: the part the transcript marks `data-preview`. */
+/** What a message said, without its footer or tool calls: the parts marked `data-preview`. */
 function preview(element: HTMLElement): string {
-  const text = (element.querySelector("[data-preview]") ?? element).textContent ?? "";
+  const marked = [...element.querySelectorAll<HTMLElement>("[data-preview]")];
+  const text = (marked.length === 0 ? [element] : marked).map((part) => part.textContent).join(" ");
   return text.trim().replace(/\s+/g, " ").slice(0, 160) || "No response text yet";
 }
 
-export function CoachWave({
+export function ConversationWave({
   scrollRef,
   contentRef,
-  compact,
+  assistant,
+  label,
+  compact = false,
+  className,
   onNavigate,
 }: {
   scrollRef: RefObject<HTMLElement | null>;
   contentRef: RefObject<HTMLElement | null>;
-  /** The floating window: a narrower, shorter bar. */
-  compact: boolean;
-  /** A jump: the chat stops following new text. */
+  /** Who answers, in the preview: "Coach", or the agent's runtime. */
+  assistant: string;
+  /** Its accessible name. */
+  label: string;
+  /** Coach's floating window: a narrower, shorter bar. */
+  compact?: boolean;
+  className?: string;
+  /** A jump: the conversation stops following new text. */
   onNavigate: () => void;
 }) {
   const [marks, setMarks] = useState<readonly Mark[]>([]);
@@ -36,27 +45,33 @@ export function CoachWave({
   const [keyboard, setKeyboard] = useState(false);
   const waveRef = useRef<HTMLDivElement>(null);
 
-  // The messages, as the transcript renders them (it changes while text streams).
+  // The messages, as the transcript renders them: read again (once a frame at most) when it
+  // changes, which it does with every streamed word.
   useEffect(() => {
     const content = contentRef.current;
     if (content === null) return;
+    let frame = 0;
     const read = (): void => {
+      frame = 0;
       const found = [...content.querySelectorAll<HTMLElement>("[data-author]")].map((element) => ({
         element,
         you: element.dataset["author"] === "you",
-        preview: preview(element),
       }));
       setMarks((current) =>
-        current.length === found.length &&
-        current.every((m, i) => m.element === found[i]?.element && m.preview === found[i]?.preview)
+        current.length === found.length && current.every((m, i) => m.element === found[i]?.element)
           ? current
           : found,
       );
     };
     read();
-    const observer = new MutationObserver(read);
-    observer.observe(content, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
+    const observer = new MutationObserver(() => {
+      if (frame === 0) frame = requestAnimationFrame(read);
+    });
+    observer.observe(content, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [contentRef]);
 
   // Which of them are on screen.
@@ -112,29 +127,28 @@ export function CoachWave({
     scroller.scrollTop += (mark.element.getBoundingClientRect().top - viewport.top) / (scale || 1) - 12;
     setHovered(index);
   };
-  const who = (mark: Mark): string => (mark.you ? "You" : "Coach");
+  const who = (mark: Mark): string => (mark.you ? "You" : assistant);
   const step = compact ? 6 : 8;
   return (
     <div
       className={cn(
         "pointer-events-none absolute top-0 bottom-0 flex items-center",
         compact ? "right-1 w-5 px-0.5 py-6" : "right-3 w-8 px-[5px] py-8",
+        className,
       )}
     >
       <div
         ref={waveRef}
         role="slider"
         tabIndex={0}
-        aria-label="Coach conversation navigation"
+        aria-label={label}
         aria-orientation="vertical"
         aria-valuemin={1}
         aria-valuemax={marks.length}
         aria-valuenow={current + 1}
-        aria-valuetext={`${who(now)}: ${now.preview}`}
+        aria-valuetext={`${who(now)}: ${preview(now.element)}`}
         style={{ height: `min(100%, ${marks.length * step}px)`, maxHeight: compact ? 240 : 400 }}
-        className={cn(
-          "pointer-events-auto relative flex w-full flex-col opacity-60 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-primary motion-safe:transition-opacity",
-        )}
+        className="pointer-events-auto relative flex w-full touch-pan-y flex-col opacity-60 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-primary motion-safe:transition-opacity"
         onFocus={(event) => setKeyboard(event.currentTarget.matches(":focus-visible"))}
         onBlur={() => {
           setKeyboard(false);
@@ -187,15 +201,17 @@ export function CoachWave({
           <div
             role="tooltip"
             style={{ top: `${((shown + 0.5) / marks.length) * 100}%` }}
-            className="absolute right-full mr-2 w-[220px] -translate-y-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md"
+            className="pointer-events-none absolute right-full z-10 mr-2 w-[220px] max-w-[calc(100vw-80px)] -translate-y-1/2 rounded-md border bg-popover px-2.5 py-1.5 text-popover-foreground shadow-md"
           >
-            <strong className="flex items-center justify-between text-[11px]">
+            <strong className="flex items-center justify-between gap-2 text-[11px]">
               {who(shownMark)}
               <span className="font-normal text-muted-foreground">
                 {shown + 1} / {marks.length}
               </span>
             </strong>
-            <span className="line-clamp-2 text-[11px] text-muted-foreground">{shownMark.preview}</span>
+            <span className="line-clamp-2 text-[11px] [overflow-wrap:anywhere] text-muted-foreground">
+              {preview(shownMark.element)}
+            </span>
           </div>
         )}
       </div>

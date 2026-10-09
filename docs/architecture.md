@@ -228,7 +228,8 @@ rowrow's own parts.
   floating at the right, pinned beside the page, or maximized; full screen on a phone. Its
   conversation is the transcript component, with each answer's tool calls folded into "Work
   performed (N)", its actions as cards under the answer that proposed them
-  (`CoachActionCard.tsx`), and a wave bar to jump between messages.
+  (`CoachActionCard.tsx`), and a wave bar to jump between messages (`ConversationWave.tsx`, the
+  one an agent's transcript has on a desktop).
 
 ## Replicating state to clients
 

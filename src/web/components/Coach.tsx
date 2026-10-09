@@ -88,7 +88,7 @@ import {
 } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
-import { CoachWave } from "./CoachWave.tsx";
+import { ConversationWave } from "./ConversationWave.tsx";
 import { Transcript } from "./Transcript.tsx";
 
 /** In every page's header: opens and closes Coach; a dot while it works. */
@@ -611,10 +611,12 @@ function Conversation({ chat, wide, compact }: { chat: AgentState; wide: boolean
         </div>
       </div>
       {blocks > 0 && (
-        <CoachWave
+        <ConversationWave
           key={chat.id}
           scrollRef={scrollRef}
           contentRef={contentRef}
+          assistant="Coach"
+          label="Coach conversation navigation"
           compact={compact}
           onNavigate={stopScroll}
         />

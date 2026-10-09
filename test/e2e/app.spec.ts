@@ -1124,6 +1124,63 @@ test("a run of tool calls folds into one line", async ({ page, rowrow }) => {
   await expect(page.getByText("exit code 1")).toBeVisible();
 });
 
+test("a wave bar maps the conversation: hover a mark to preview it, click or use the arrow keys to jump", async ({
+  page,
+  rowrow,
+}, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  // Three exchanges, each taller than the screen.
+  const tall = (word: string): string =>
+    `/echo ${word} answer\n\n${Array.from({ length: 25 }, (_, i) => `${word} line ${i + 1}`).join("\n\n")}`;
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "a long talk",
+    input: { inputId: randomUUID(), text: tall("first") },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  for (const word of ["second", "third"]) {
+    const next = await rowrow.client.agents.send({
+      agentId: agent.id,
+      inputId: randomUUID(),
+      text: tall(word),
+    });
+    await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 10_000 });
+  }
+  await rowrow.open(page, `/a/${agent.id}`);
+  await expect(page.getByText("third line 25", { exact: true })).toBeVisible();
+  const wave = page.getByRole("slider", { name: "Conversation navigation" });
+  if (info.project.name === "phone") {
+    // A phone keeps its width for the transcript, as roamgate keeps its terminal's.
+    await expect(wave).toBeHidden();
+    return;
+  }
+  await expect(wave).toHaveAttribute("aria-valuemax", "6");
+
+  // Hover the first mark: who and what, without moving; click it: there.
+  const box = await wave.boundingBox();
+  if (box === null) throw new Error("the wave bar has no box");
+  await page.mouse.move(box.x + box.width / 2, box.y + 2);
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("You");
+  await expect(tooltip).toContainText("1 / 6");
+  await expect(tooltip).toContainText("/echo first answer");
+  await expect(wave).not.toHaveAttribute("aria-valuenow", "1");
+  await page.mouse.click(box.x + box.width / 2, box.y + 2);
+  await expect(wave).toHaveAttribute("aria-valuenow", "1");
+  await expect(wave).toBeFocused();
+
+  // The keyboard: End to the last message, ↑ to the one before it.
+  await page.mouse.move(0, 0);
+  await page.keyboard.press("End");
+  await expect(wave).toHaveAttribute("aria-valuenow", "6");
+  await expect(tooltip).toContainText("6 / 6");
+  await expect(tooltip).toContainText("third answer");
+  await page.keyboard.press("ArrowUp");
+  await expect(wave).toHaveAttribute("aria-valuenow", "5");
+  await expect(tooltip).toContainText("You");
+});
+
 test("Coach: allow a workspace, ask, and read its answer and the work it did", async ({
   page,
   rowrow,
