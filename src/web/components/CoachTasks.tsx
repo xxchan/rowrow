@@ -317,8 +317,14 @@ function TaskDetail({
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={() =>
                 void act(async () => {
-                  await client?.coach.deleteTask({ taskId: task.id });
+                  // Back to the list first: the task leaves AppState before the call answers.
                   select(null);
+                  try {
+                    await client?.coach.deleteTask({ taskId: task.id });
+                  } catch (error) {
+                    select(task.id);
+                    throw error;
+                  }
                 })
               }
             >
