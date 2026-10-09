@@ -42,6 +42,7 @@ import {
   laneOf,
   outcomeOf,
   placeNotes,
+  placeProposals,
   steerUnread,
   type InputBlock,
   type NoticeBlock,
@@ -52,6 +53,7 @@ import {
   stoppedByAgent,
 } from "../../shared/timeline.ts";
 import { SentAttachments } from "./Attachments.tsx";
+import { CoachActionCard } from "./CoachActionCard.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
@@ -124,6 +126,8 @@ function Run({
 }) {
   const { started, ended, view } = run;
   const notes = placeNotes(run);
+  // Coach's actions, each after the answer that proposed it (D-045).
+  const proposals = coach ? placeProposals(run) : null;
   return (
     <>
       {started?.resume !== undefined && (
@@ -132,6 +136,7 @@ function Run({
         >{`Resumed${started.model === undefined ? "" : ` on ${started.model}`}`}</SystemLine>
       )}
       <Notes notes={notes.before} />
+      <ActionCards ids={proposals?.get(null)} timeline={timeline} />
       {view.messages.map((message, index) => (
         <Fragment key={message.id}>
           {
@@ -152,6 +157,7 @@ function Run({
             )
           }
           <Notes notes={notes.after.get(message.id)} />
+          <ActionCards ids={proposals?.get(message.id)} timeline={timeline} />
         </Fragment>
       ))}
       {ended !== undefined && ended.reason !== "idle" && ended.reason !== "restart" && (
@@ -352,6 +358,15 @@ function CoachAnswer({ turn, runtime, open }: { turn: ViewTurn; runtime: string;
       {tools.length > 0 && <WorkPerformed tools={tools} working={open} />}
     </section>
   );
+}
+
+/** Coach's actions proposed at one point of a run, as their cards. */
+function ActionCards({ ids, timeline }: { ids: readonly string[] | undefined; timeline: Timeline }) {
+  if (ids === undefined) return null;
+  return ids.map((id) => {
+    const action = timeline.coachActions.get(id);
+    return action === undefined ? null : <CoachActionCard key={id} action={action} />;
+  });
 }
 
 /** Where a read came from, to open it: a workspace or an agent, with when it was read. */

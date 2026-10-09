@@ -3,7 +3,9 @@
 // floating at the right, pinned beside the page (under it when the page is narrow) or
 // maximized over it, full screen on a phone. Its chat is an agent's transcript (the same fold),
 // its composer sends with coach.send, and its settings say which workspaces it may read and
-// what it runs on. Closing it never stops it: the button's dot says it works.
+// what it runs on. Its actions (D-045) are cards in the chat you confirm; Full access, turned on
+// only through a dialog, lets it act without asking and is marked in the header for as long as it
+// lasts. Closing it never stops it: the button's dot says it works.
 import {
   AlertDialog,
   AlertDialogAction,
@@ -226,7 +228,10 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
   const { open, maximized, layout, view, error } = useCoach();
   const chat = state.coach.chat;
   const working = chat?.summary.status.kind === "running";
-  const status = connection.kind !== "open" ? "Reconnecting" : working ? "Working" : "Idle";
+  const acting = chat?.summary.coachActions.some((action) => action.status === "executing") === true;
+  const status =
+    connection.kind !== "open" ? "Reconnecting" : acting ? "Executing action" : working ? "Working" : "Idle";
+  const fullAccess = state.settings.coach.fullAccess;
   // A dialog or menu of the panel takes Escape for itself.
   const [layers, setLayers] = useState(0);
   const layer = (isOpen: boolean): void => setLayers((n) => Math.max(0, n + (isOpen ? 1 : -1)));
@@ -259,6 +264,15 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
             <strong className="text-[13px] leading-4 font-semibold" title="An assistant for your agents">
               Coach
             </strong>
+            {fullAccess && (
+              <span
+                aria-label="Full access: all workspaces"
+                title="Coach may read and manage every workspace without asking"
+                className="rounded border border-warning/40 bg-warning/15 px-1 py-px text-[9px] leading-3 font-medium text-warning"
+              >
+                Full access
+              </span>
+            )}
           </div>
           <span role="status" className="truncate text-[10px] text-muted-foreground" title={status}>
             {status}
@@ -313,7 +327,7 @@ function CoachPanel({ narrow }: { narrow: boolean }) {
         </div>
       )}
       {view === "settings" ? (
-        <CoachSettingsView state={state} wide={maximized && !narrow} narrow={narrow} />
+        <CoachSettingsView state={state} wide={maximized && !narrow} narrow={narrow} onLayer={layer} />
       ) : (
         <CoachChatView
           state={state}
@@ -371,9 +385,10 @@ function runtimeProblem(state: AppState): string | null {
   return null;
 }
 
-/** The allowed workspaces that are still there: what the next message may read. */
+/** The allowed workspaces that are still there (with Full access, all): what the next message may read. */
 function allowedWorkspaces(state: AppState): string[] {
-  return state.settings.coach.workspaces.filter((id) => {
+  const { fullAccess, workspaces } = state.settings.coach;
+  return (fullAccess ? Object.keys(state.workspaces) : workspaces).filter((id) => {
     const ws = state.workspaces[id];
     return ws !== undefined && !ws.archived && !ws.missing;
   });
@@ -399,13 +414,16 @@ function CoachChatView({
   const history = useCoach((s) => s.history);
   const [confirming, setConfirming] = useState(false);
   const working = chat?.summary.status.kind === "running";
-  const idle = client !== null && !working;
+  const acting = chat?.summary.coachActions.some((action) => action.status === "executing") === true;
+  const idle = client !== null && !working && !acting;
   const problem = runtimeProblem(state);
   const notice =
     problem !== null
       ? `${problem} Choose a runtime in Coach's settings.`
       : allowedWorkspaces(state).length === 0
-        ? "Allow workspaces in Coach's settings to send messages."
+        ? state.settings.coach.fullAccess
+          ? "Add a workspace to rowrow first: Coach reads the agents in your workspaces."
+          : "Allow workspaces in Coach's settings to send messages."
         : null;
   const runtimeId = chat?.summary.runtime ?? state.settings.coach.runtime;
   const runtimeName = state.runtimes[runtimeId]?.name ?? runtimeId;
@@ -480,7 +498,8 @@ function CoachChatView({
             What would you like to work on?
           </strong>
           <span className="text-[11px] leading-normal">
-            Ask about progress or changes in the workspaces you allow Coach to read.
+            Ask about progress or changes in the workspaces you allow Coach to read. It proposes actions for
+            you to confirm.
           </span>
         </div>
       ) : (
@@ -489,7 +508,7 @@ function CoachChatView({
       <Composer
         state={state}
         chat={chat}
-        canSend={notice === null}
+        canSend={notice === null && !acting}
         wide={wide}
         narrow={narrow}
         onLayer={onLayer}
@@ -759,7 +778,8 @@ function Composer({
   const stop = async (): Promise<void> => {
     if (client === null || chat === null) return;
     try {
-      await client.agents.abort({ agentId: chat.id });
+      // Its previews still waiting go with the question.
+      await client.coach.stop({ chatId: chat.id });
     } catch (failure) {
       report("warn", "coach.stop_failed", failure);
     }
@@ -1057,13 +1077,39 @@ function ModelPills({
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-/** What Coach runs on and which workspaces it may read: changed here, applied with Save. */
-function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boolean; narrow: boolean }) {
+/**
+ * What Coach runs on and which workspaces it may read: changed here, applied with Save. Full
+ * access applies at once: on through a dialog that says what it allows, off with one click.
+ */
+function CoachSettingsView({
+  state,
+  wide,
+  narrow,
+  onLayer,
+}: {
+  state: AppState;
+  wide: boolean;
+  narrow: boolean;
+  onLayer: (open: boolean) => void;
+}) {
   const client = useClient();
   const connected = useConnection((s) => s.status.kind === "open");
   const working = state.coach.chat?.summary.status.kind === "running";
   const [draft, setDraftSettings] = useState<CoachSettings>(state.settings.coach);
   const [saving, setSaving] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const fullAccess = state.settings.coach.fullAccess;
+  const setFullAccess = async (on: boolean): Promise<void> => {
+    if (client === null) return;
+    setSaving(true);
+    try {
+      await client.settings.update({ coach: { ...state.settings.coach, fullAccess: on } });
+    } catch (error) {
+      useCoach.setState({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
   const runtimes = Object.values(state.runtimes).sort(
     (a, b) => Number(canCoach(b.id)) - Number(canCoach(a.id)) || a.name.localeCompare(b.name),
   );
@@ -1113,8 +1159,9 @@ function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boo
           </Button>
         </div>
         <p className="text-[11px] leading-normal text-muted-foreground">
-          Coach runs on a runtime signed in on this machine, with that runtime's own tools turned off: it only
-          reads, through rowrow. Another runtime starts a new chat.
+          Coach runs on a runtime signed in on this machine, with that runtime's own tools turned off: it
+          reads, and proposes actions for you to confirm, only through rowrow. Another runtime starts a new
+          chat.
         </p>
         <fieldset disabled={locked} className="grid min-w-0 gap-0.5 disabled:opacity-60">
           <legend className="sr-only">Coach's runtime</legend>
@@ -1146,13 +1193,36 @@ function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boo
           })}
         </fieldset>
 
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <h3 className="text-[13px] font-semibold">Full access</h3>
+          <span className="text-[11px] text-muted-foreground">{fullAccess ? "All workspaces" : "Off"}</span>
+        </div>
+        <p className="text-[11px] leading-normal text-muted-foreground">
+          Automatically allow every current and future workspace and skip action confirmations. Applies to new
+          messages; started operations may finish.
+        </p>
+        <Button
+          variant="outline"
+          className="h-[30px] justify-self-start text-[11px]"
+          disabled={!connected || saving || client === null}
+          onClick={() => {
+            if (fullAccess) void setFullAccess(false);
+            else {
+              setConsent(true);
+              onLayer(true);
+            }
+          }}
+        >
+          {fullAccess ? "Turn off Full access" : "Turn on Full access"}
+        </Button>
+
         <h3 className="pt-1 text-[13px] font-semibold">Allowed workspaces</h3>
         <p className="text-[11px] leading-normal text-muted-foreground">
-          Select workspaces Coach may read: none until you do. Each question uses the allowed workspaces that
-          are currently available. Workspace status, conversations and diffs may be sent to your model
-          provider.
+          {fullAccess
+            ? "All current and future workspaces are allowed automatically. Turn off Full access to restore your manual workspace selection."
+            : "Select workspaces Coach may read and manage: none until you do. Each question uses the allowed workspaces that are currently available. Actions require your confirmation. Workspace status, conversations and diffs may be sent to your model provider."}
         </p>
-        <div className="flex flex-wrap gap-1.5">
+        <div className={cn("flex flex-wrap gap-1.5", fullAccess && "hidden")}>
           <Button
             variant="ghost"
             size="xs"
@@ -1174,7 +1244,7 @@ function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boo
           </Button>
         </div>
         <fieldset
-          disabled={locked}
+          disabled={locked || fullAccess}
           className="grid max-h-[min(240px,35dvh)] min-w-0 grid-cols-[repeat(auto-fit,minmax(min(130px,100%),1fr))] content-start gap-x-3 gap-y-1.5 overflow-auto overscroll-contain disabled:opacity-60"
         >
           <legend className="sr-only">Allowed workspaces</legend>
@@ -1183,7 +1253,7 @@ function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boo
               <input
                 type="checkbox"
                 className="mt-[3px] shrink-0 accent-primary"
-                checked={allowed.has(ws.id)}
+                checked={fullAccess || allowed.has(ws.id)}
                 onChange={(event) =>
                   setDraftSettings({
                     ...draft,
@@ -1213,6 +1283,32 @@ function CoachSettingsView({ state, wide, narrow }: { state: AppState; wide: boo
           {saving && <LoaderCircle className="animate-spin" />} Save
         </Button>
       </div>
+      <AlertDialog
+        open={consent}
+        onOpenChange={(isOpen) => {
+          setConsent(isOpen);
+          if (!isOpen) onLayer(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Turn on Full access?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Coach will be allowed to read and manage all current and future workspaces. Agent status,
+              conversations, background output and diffs may be sent to your model provider. Coach can create
+              worktrees, start agents and send them messages without asking, including running setup hooks.
+              Applies to new messages until you turn it off. Turning it off restores your manual workspace
+              selection.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void setFullAccess(true)}>
+              Turn on Full access
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

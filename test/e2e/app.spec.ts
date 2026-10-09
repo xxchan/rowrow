@@ -1164,6 +1164,69 @@ test("Coach: allow a workspace, ask, and read its answer and the work it did", a
   }
 });
 
+test("Coach: confirm the message it proposes and read rowrow's receipt; Full access only through its dialog", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "the helper",
+  });
+  await rowrow.client.settings.update({
+    coach: { workspaces: [ws.id], runtime: "scripted", model: null, effort: null },
+  });
+  const inputs = async () =>
+    (await rowrow.client.agents.entries({ agentId: agent.id })).entries.flatMap((entry) =>
+      entry.kind === "input" ? [entry.text] : [],
+    );
+  await rowrow.open(page);
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+  const coach = page.getByRole("complementary", { name: "Coach" });
+  await page.getByRole("button", { name: "Open Coach" }).click();
+
+  // Coach proposes; nothing happens until you confirm.
+  const message = coach.getByLabel("Message Coach");
+  await message.fill(
+    `/mcp propose_agent_prompt {"agentId":"${agent.id}","prompt":"/echo hello from Coach"}\nI proposed a message for the helper.`,
+  );
+  await message.press("Enter");
+  await expect(coach.getByText("I proposed a message for the helper.", { exact: true })).toBeVisible();
+  const card = coach.getByRole("region", { name: "Send prompt action" });
+  await expect(card.getByText("Needs confirmation")).toBeVisible();
+  await expect(card.getByText("Waiting for your confirmation. Nothing has been executed.")).toBeVisible();
+  await expect(card.getByText("Prompt — 22 characters")).toBeVisible();
+  await expect(card.getByLabel("Exact prompt")).toHaveText("/echo hello from Coach");
+  await expect(card.getByText(agent.id, { exact: true })).toBeVisible();
+  expect(await inputs()).toEqual([]);
+
+  await card.getByRole("button", { name: "Confirm action" }).click();
+  await expect(card.getByText("Succeeded", { exact: true })).toBeVisible();
+  await expect(
+    card.getByText(`the helper (${agent.id}) took the exact prompt and started a turn.`),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: "Confirm action" })).toBeHidden();
+  expect(await inputs()).toEqual(["/echo hello from Coach"]);
+
+  // Full access needs your consent in a dialog, and the header says so while it lasts.
+  await coach.getByRole("button", { name: "Coach settings" }).first().click();
+  const marker = coach.getByLabel("Full access: all workspaces");
+  const dialog = page.getByRole("alertdialog", { name: "Turn on Full access?" });
+  await coach.getByRole("button", { name: "Turn on Full access" }).click();
+  await expect(dialog.getByText(/without asking/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(marker).toBeHidden();
+  await coach.getByRole("button", { name: "Turn on Full access" }).click();
+  await dialog.getByRole("button", { name: "Turn on Full access" }).click();
+  await expect(marker).toBeVisible();
+  await expect(coach.getByRole("checkbox", { name: ws.label })).toBeDisabled();
+  await expect(coach.getByRole("checkbox", { name: ws.label })).toBeChecked();
+  await coach.getByRole("button", { name: "Turn off Full access" }).click();
+  await expect(marker).toBeHidden();
+  expect((await rowrow.client.state.get()).state.settings.coach.fullAccess).toBe(false);
+});
+
 /** A queued message's action: its button on a desktop, its ⋯ menu on a phone. */
 async function trayAction(page: Page, row: Locator, name: string, phone: boolean): Promise<void> {
   if (!phone) return row.getByRole("button", { name }).click();
