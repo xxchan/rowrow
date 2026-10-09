@@ -1,16 +1,24 @@
 import RowrowCore
 import SwiftUI
 
-/// The Workspaces tab: the folders agents work in, each repository with its worktrees.
+/// The Workspaces tab: the folders agents work in, each repository with its worktrees, and the
+/// archived ones last. Swipe or long-press a row to rename, archive or remove it (D-047).
 struct WorkspacesView: View {
   let session: Session
   @State private var adding = false
+  @State private var renaming: Workspace?
+  @State private var newLabel = ""
+  @State private var archiving: Workspace?
+  @State private var removing: Workspace?
+  @State private var failure = Failure()
 
   var body: some View {
     List {
       if let state = session.state {
-        let workspaces = state.workspaces.values.filter { !$0.archived }
+        let workspaces = state.workspaces.values.filter { !state.workspaceArchived($0.id) }
         let roots = workspaces.filter { $0.parentId == nil || state.workspaces[$0.parentId ?? ""] == nil }
+          .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        let archived = state.workspaces.values.filter(\.archived)
           .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
         if roots.isEmpty {
           ContentUnavailableView {
@@ -23,11 +31,16 @@ struct WorkspacesView: View {
         }
         ForEach(roots) { root in
           Section {
-            WorkspaceLink(workspace: root, state: state, session: session)
+            row(root, state)
             ForEach(workspaces.filter { $0.parentId == root.id }.sorted { $0.label < $1.label }) { worktree in
-              WorkspaceLink(workspace: worktree, state: state, session: session)
+              row(worktree, state)
                 .padding(.leading, 18)
             }
+          }
+        }
+        if !archived.isEmpty {
+          Section("Archived") {
+            ForEach(archived) { row($0, state) }
           }
         }
       } else {
@@ -46,7 +59,122 @@ struct WorkspacesView: View {
     }
     .refreshable { session.retryNow() }
     .sheet(isPresented: $adding) { AddWorkspaceView(session: session) }
+    .alert(
+      "Rename Workspace",
+      isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
+    ) {
+      TextField("Name", text: $newLabel)
+      Button("Save") { saveLabel() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Leave it empty to name it after its folder.")
+    }
+    .confirmationDialog(
+      "Archive \(archiving?.label ?? "")?",
+      isPresented: Binding(get: { archiving != nil }, set: { if !$0 { archiving = nil } }),
+      titleVisibility: .visible,
+      presenting: archiving
+    ) { workspace in
+      Button("Archive") { act("Archive") { _ = try await $0.archiveWorkspace(workspace.id, archived: true) } }
+    } message: { workspace in
+      Text(archiveMessage(workspace))
+    }
+    .confirmationDialog(
+      "Remove \(removing?.label ?? "") from rowrow?",
+      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+      titleVisibility: .visible,
+      presenting: removing
+    ) { workspace in
+      Button("Remove from rowrow", role: .destructive) {
+        act("Remove") { _ = try await $0.removeWorkspace(workspace.id) }
+      }
+    } message: { workspace in
+      Text(removeMessage(workspace))
+    }
+    .failureAlert(failure)
     .onAppear { session.show(route: "/w", agent: nil) }
+  }
+
+  /// A workspace's row, with its actions on a swipe and a long press.
+  private func row(_ workspace: Workspace, _ state: AppState) -> some View {
+    WorkspaceLink(workspace: workspace, state: state, session: session)
+      .swipeActions(edge: .trailing) {
+        Button { removing = workspace } label: { Label("Remove", systemImage: "trash") }
+          .tint(.red)
+        archiveButton(workspace).tint(.indigo)
+      }
+      .swipeActions(edge: .leading) {
+        Button { rename(workspace) } label: { Label("Rename", systemImage: "pencil") }
+          .tint(.blue)
+      }
+      .contextMenu {
+        Button { rename(workspace) } label: { Label("Rename…", systemImage: "pencil") }
+        archiveButton(workspace)
+        Button(role: .destructive) { removing = workspace } label: {
+          Label("Remove from rowrow…", systemImage: "trash")
+        }
+      }
+  }
+
+  private func archiveButton(_ workspace: Workspace) -> some View {
+    Button {
+      if workspace.archived {
+        act("Unarchive") { _ = try await $0.archiveWorkspace(workspace.id, archived: false) }
+      } else {
+        archiving = workspace
+      }
+    } label: {
+      Label(
+        workspace.archived ? "Unarchive" : "Archive…",
+        systemImage: workspace.archived ? "tray.and.arrow.up" : "archivebox")
+    }
+  }
+
+  private func rename(_ workspace: Workspace) {
+    newLabel = workspace.customLabel ?? workspace.label
+    renaming = workspace
+  }
+
+  private func saveLabel() {
+    guard let workspace = renaming else { return }
+    let label = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+    renaming = nil
+    act("Rename") { _ = try await $0.renameWorkspace(workspace.id, label: label.isEmpty ? nil : label) }
+  }
+
+  private func act(_ what: String, _ action: @escaping (APIClient) async throws -> Void) {
+    let api = session.api
+    Task { await failure.run(what) { try await action(api) } }
+  }
+
+  /// The worktrees registered under it, and the agents (not archived themselves) in it and in them.
+  private func contents(_ workspace: Workspace) -> (worktrees: [Workspace], agents: [AgentState]) {
+    guard let state = session.state else { return ([], []) }
+    let worktrees = state.workspaces.values.filter { $0.parentId == workspace.id }
+    let ids = Set([workspace.id] + worktrees.map(\.id))
+    let agents = state.agents.values.filter { ids.contains($0.summary.workspaceId) && !$0.summary.archived }
+    return (worktrees, agents)
+  }
+
+  private func archiveMessage(_ workspace: Workspace) -> String {
+    let working = contents(workspace).agents.filter { $0.attention == .working }.count
+    let text = "It's hidden with its worktrees and agents until you unarchive it, and no agent can start or be messaged there. Nothing is deleted."
+    if working == 0 { return text }
+    return text + (working == 1 ? " 1 agent is working there: archiving stops it." : " \(working) agents are working there: archiving stops them.")
+  }
+
+  private func removeMessage(_ workspace: Workspace) -> String {
+    let (worktrees, agents) = contents(workspace)
+    var text = "rowrow forgets \(workspace.path). The folder and its files stay."
+    if !worktrees.isEmpty {
+      text += " Its worktrees go too (their checkouts and branches stay): \(worktrees.map(\.label).sorted().joined(separator: ", "))."
+    }
+    switch agents.count {
+    case 0: text += " No agents work there."
+    case 1: text += " 1 agent will be archived; its conversation is kept."
+    default: text += " \(agents.count) agents will be archived; their conversations are kept."
+    }
+    return text
   }
 }
 

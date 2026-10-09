@@ -97,6 +97,24 @@ extension APIClient {
     try await call("workspaces.add", ["path": path])
   }
 
+  /// Rename a workspace; nil names it after its folder (a worktree: its branch) again.
+  public func renameWorkspace(_ id: String, label: String?) async throws -> Workspace {
+    try await call(
+      "workspaces.update", JSONValue.object(["id": .string(id), "label": label.map(JSONValue.string) ?? .null]))
+  }
+
+  /// Archive a workspace (hidden with its worktrees and agents, their runs stopped, nothing sent
+  /// there) or bring it back as it was.
+  public func archiveWorkspace(_ id: String, archived: Bool) async throws -> Workspace {
+    try await call("workspaces.update", JSONValue.object(["id": .string(id), "archived": .bool(archived)]))
+  }
+
+  /// rowrow forgets a workspace and the worktrees under it; their files stay, their agents are
+  /// archived. Refused while one of them is working.
+  public func removeWorkspace(_ id: String) async throws -> WorkspaceRemoved {
+    try await call("workspaces.remove", ["id": id])
+  }
+
   public func refreshWorkspace(_ id: String) async throws -> Workspace {
     try await call("workspaces.refresh", ["id": id])
   }

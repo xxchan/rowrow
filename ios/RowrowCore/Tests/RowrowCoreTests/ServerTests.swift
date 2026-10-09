@@ -232,6 +232,16 @@ struct AgainstARealServer {
     ])
     #expect(feedback == "Review feedback:\n\n1. `notes.md` line 1:\n   > hello\n   Capitalize this.\n")
 
+    // Workspaces (D-047): rename and back, archive and back, then rowrow forgets it.
+    let other = try await api.addWorkspace(path: server.repository())
+    #expect(try await api.renameWorkspace(other.id, label: "Site").label == "Site")
+    #expect(try await api.renameWorkspace(other.id, label: nil).label == other.label)
+    #expect(try await api.archiveWorkspace(other.id, archived: true).archived)
+    #expect(try await api.archiveWorkspace(other.id, archived: false).archived == false)
+    let removed = try await api.removeWorkspace(other.id)
+    #expect(removed.removed == [other.id])
+    #expect(removed.archived.isEmpty)
+
     // Signed out: a revoked device is told so.
     try await api.revoke(deviceId: me.id)
     await #expect(throws: RowrowError.self) { try await api.whoami() }

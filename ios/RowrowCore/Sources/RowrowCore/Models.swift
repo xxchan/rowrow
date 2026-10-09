@@ -327,9 +327,18 @@ public struct AppState: Decodable, Sendable, Equatable {
     settings = try c.decode(ServerSettings.self, forKey: .settings)
   }
 
-  /// Unarchived agents, the ones that need you first, then the most recently active.
+  /// Archived, or a linked worktree of an archived repository: hidden with its agents (D-047).
+  public func workspaceArchived(_ id: String) -> Bool {
+    guard let workspace = workspaces[id] else { return false }
+    if workspace.archived { return true }
+    guard let parentId = workspace.parentId else { return false }
+    return workspaces[parentId]?.archived ?? false
+  }
+
+  /// Agents neither archived nor in an archived workspace, the ones that need you first, then the
+  /// most recently active.
   public var sortedAgents: [AgentState] {
-    agents.values.filter { !$0.summary.archived }.sorted {
+    agents.values.filter { !$0.summary.archived && !workspaceArchived($0.summary.workspaceId) }.sorted {
       $0.attention.rank != $1.attention.rank
         ? $0.attention.rank > $1.attention.rank
         : $0.summary.lastActivityAt > $1.summary.lastActivityAt
@@ -471,6 +480,12 @@ public struct DirectoryListing: Codable, Sendable {
   public let path: String
   public let parent: String?
   public let entries: [Entry]
+}
+
+/// What workspaces.remove did: the workspaces rowrow forgot, and the agents it archived.
+public struct WorkspaceRemoved: Decodable, Sendable {
+  public let removed: [String]
+  public let archived: [String]
 }
 
 public struct WorktreeCreated: Decodable, Sendable {

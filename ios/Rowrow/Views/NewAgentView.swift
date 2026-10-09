@@ -135,7 +135,7 @@ struct NewAgentView: View {
 
   /// Repositories first, each followed by its worktrees.
   private func orderedWorkspaces(_ state: AppState?) -> [(workspace: Workspace, depth: Int)] {
-    let all = (state?.workspaces.values.filter { !$0.archived } ?? []).sorted {
+    let all = (state?.workspaces.values.filter { !(state?.workspaceArchived($0.id) ?? false) } ?? []).sorted {
       $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
     }
     var out: [(Workspace, Int)] = []
