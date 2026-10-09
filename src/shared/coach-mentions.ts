@@ -223,7 +223,8 @@ export function mentionCandidates(
   const agents = Object.values(state.agents)
     .filter((agent) => agent.summary.role === "agent" && !agent.summary.archived)
     .filter((agent) => allowed.includes(agent.summary.workspaceId))
-    .sort((a, b) => b.summary.lastActivityAt - a.summary.lastActivityAt)
+    // The one you last wrote to first, as in every agent list (byLastPersonInput, D-053).
+    .sort((a, b) => b.summary.lastPersonInputAt - a.summary.lastPersonInputAt)
     .map((agent) => {
       const { runtime, title, workspaceId } = agent.summary;
       const what = state.runtimes[runtime]?.name ?? runtime;

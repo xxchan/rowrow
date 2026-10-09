@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { byPin, type AppState, type Workspace } from "../../shared/schemas.ts";
+import { byLastPersonInput, byPin, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
@@ -81,7 +81,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
   const now = useNow(15_000);
   const agents = Object.values(state.agents)
     .filter((a) => a.summary.workspaceId === ws.id && !a.summary.archived)
-    .sort((a, b) => byPin(a, b) || b.summary.lastActivityAt - a.summary.lastActivityAt);
+    .sort((a, b) => byPin(a, b) || byLastPersonInput(a, b));
   const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id);
   const git = ws.git;
   // Archived itself, or a worktree of an archived repository (D-047).

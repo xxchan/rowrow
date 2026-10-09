@@ -224,7 +224,11 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   public let pending: [Pending]
   public let lastTurn: LastTurn?
   public let lastCompletionSeq: Int
+  /// When its latest entry was appended: the agent's own work moves it.
   public let lastActivityAt: Millis
+  /// When a person last sent it a message (or, until then, when it was created): what agent
+  /// lists sort by (D-053), so the agent's own work never moves it. nil from an older server.
+  public let lastPersonInputAt: Millis?
   /// The tail of the agent's latest text.
   public let preview: String?
   public let lastError: String?
@@ -242,6 +246,9 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   public let headSeq: Int
   /// A Coach chat's actions not decided yet (D-045): waiting for you, or running.
   public let coachActions: [CoachOpenAction]?
+
+  /// What agent lists sort by, newest first (D-053): from an older server, its latest activity.
+  public var listedAt: Millis { lastPersonInputAt ?? lastActivityAt }
 }
 
 /// A message rowrow holds until the running turn ends, or one steered in and not read yet.
@@ -365,12 +372,12 @@ public struct AppState: Decodable, Sendable, Equatable {
   }
 
   /// Agents neither archived nor in an archived workspace, the ones that need you first, then the
-  /// most recently active.
+  /// one you last sent a message to (D-053; an older server: the most recently active).
   public var sortedAgents: [AgentState] {
     agents.values.filter { !$0.summary.archived && !workspaceArchived($0.summary.workspaceId) }.sorted {
       $0.attention.rank != $1.attention.rank
         ? $0.attention.rank > $1.attention.rank
-        : $0.summary.lastActivityAt > $1.summary.lastActivityAt
+        : $0.summary.listedAt > $1.summary.listedAt
     }
   }
 

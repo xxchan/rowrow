@@ -129,6 +129,14 @@ export function byPin(a: AgentState, b: AgentState): number {
   return a.pinnedAt - b.pinnedAt;
 }
 
+/**
+ * The one a person sent a message to last first, else the newer (D-053): the order within every
+ * agent list. What an agent does never moves it, so two at work don't swap places under your finger.
+ */
+export function byLastPersonInput(a: AgentState, b: AgentState): number {
+  return b.summary.lastPersonInputAt - a.summary.lastPersonInputAt;
+}
+
 export const InputMode = z.enum(["auto", "queue", "steer", "interrupt"]);
 
 export const Attachment = z.object({
