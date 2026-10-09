@@ -119,6 +119,9 @@ describe("sub-agent lanes", () => {
         [CHILD, CHILD_SAYS.join("")],
       ]),
     );
+    // Each message stays one piece while the other streams (oar 0.45.1, oar#257).
+    const texts = items.filter((item) => item.kind === "text");
+    expect(texts.map((item) => item.lane.join(" / ")).sort()).toEqual(["", CHILD].sort());
   });
 
   it("shows it as a sub-agent in the plain-text transcript", () => {
