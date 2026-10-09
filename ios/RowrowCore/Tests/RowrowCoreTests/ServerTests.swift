@@ -253,7 +253,10 @@ struct AgainstARealServer {
     let pairing = try await APIClient.pair(link: server.link(), deviceName: "Swift test iPhone")
     let api = APIClient(baseURL: pairing.baseURL, token: pairing.token)
     struct Snapshot: Decodable { let state: AppState }
-    func state() async throws -> AppState { try await api.call("state.get", as: Snapshot.self).state }
+    func state() async throws -> AppState {
+      let snapshot: Snapshot = try await api.call("state.get")
+      return snapshot.state
+    }
     func eventually<T>(_ what: String, _ check: () async throws -> T?) async throws -> T {
       for _ in 0..<200 {
         if let value = try await check() { return value }
