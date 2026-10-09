@@ -497,6 +497,8 @@ function foldRecord(
           case "compaction_started":
           case "compaction_ended":
           case "retry":
+          // A turn no prompt of ours started (Pi Durable): oar's status fold reads it.
+          case "turn_active":
           // Folded by foldTasks, every agent's, not just the root's.
           case "task_started":
           case "task_updated":

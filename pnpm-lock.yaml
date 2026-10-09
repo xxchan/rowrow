@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@botiverse/oar':
-        specifier: ^0.46.0
-        version: 0.46.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
+        specifier: ^0.47.0
+        version: 0.47.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)
       '@cursor/sdk':
         specifier: 1.0.37
         version: 1.0.37
@@ -285,13 +285,19 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
-  '@botiverse/oar@0.46.0':
-    resolution: {integrity: sha512-f0AKZlKp4SMB2fPMDRc1+DPl9i5J6waN6o1a7wUsDfjtff3WXF4xuEUNOTU50/eliH1eRXCa0s89uy0oPBGeqA==}
+  '@botiverse/oar@0.47.0':
+    resolution: {integrity: sha512-iDiJQ71rkuWmwag6lI0ZNRvoT5GMB6Ce87dXCdOh3sYgZkuaTJVfFDfZkfFxE6xIGevFzMO+39bY9Hs8jNXcGw==}
     engines: {node: '>=24.0.0'}
     peerDependencies:
       '@cursor/sdk': 1.0.37
+      '@earendil-works/chord': ~1.1.0
+      '@earendil-works/pi-durable': ~1.1.0
     peerDependenciesMeta:
       '@cursor/sdk':
+        optional: true
+      '@earendil-works/chord':
+        optional: true
+      '@earendil-works/pi-durable':
         optional: true
 
   '@braintree/sanitize-url@7.1.2':
@@ -5307,7 +5313,7 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
-  '@botiverse/oar@0.46.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
+  '@botiverse/oar@0.47.0(@aws-sdk/credential-provider-node@3.972.84)(@cursor/sdk@1.0.37)(@earendil-works/chord@1.1.0)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(ws@8.22.0)(zod@4.6.5)':
     dependencies:
       '@agentclientprotocol/sdk': 1.5.1(zod@4.6.5)
       '@earendil-works/pi-ai': 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(supports-color@7.1.0)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)
@@ -5317,6 +5323,7 @@ snapshots:
       which: 2.0.2
     optionalDependencies:
       '@cursor/sdk': 1.0.37
+      '@earendil-works/chord': 1.1.0
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@modelcontextprotocol/sdk'
