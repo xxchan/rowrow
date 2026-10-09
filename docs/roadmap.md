@@ -76,8 +76,9 @@ file when something lands.
   jump there. Coach's chat has the same one. Desktop only.
 - **Coach, phase 1** (D-044): an assistant that reads your crew of agents (status,
   conversations, changes, background output) in the workspaces you allow, on your own claude or
-  pi with its tools turned off and rowrow's read-only tools instead; a window floating, pinned
-  or maximized beside every page (⌘⌥⇧A), full screen on a phone. roamgate's Ranger, rebuilt.
+  pi with its tools turned off and rowrow's read-only tools instead (claude without your own MCP
+  servers, settings, hooks or CLAUDE.md); a window floating, pinned or maximized beside every
+  page (⌘⌥⇧A), full screen on a phone. roamgate's Ranger, rebuilt.
 - **Coach, phase 2** (D-045): Coach proposes creating a worktree, starting an agent or sending
   one a message, on a card with the target, every parameter and the exact text; you confirm, and
   it reads rowrow's receipt (succeeded, failed, uncertain) with your next message. Full access,

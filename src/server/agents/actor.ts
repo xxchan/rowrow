@@ -41,11 +41,11 @@ export interface ActorDeps {
   readonly stopWaitMs?: number;
   /** Called before an input starts a new turn (the "last turn" diff baseline). */
   readonly beforeTurn?: (agentId: string) => Promise<void>;
-  /** More options for a run about to start (Coach's prompt, tools and MCP server, D-044). */
+  /** More options for a run about to start (Coach's prompt, tools, MCP server and flags, D-044). */
   readonly runOptions?: (
     agentId: string,
     runId: string,
-  ) => Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers">;
+  ) => Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs">;
   /** The text the runtime reads for an input, from the text with its attachments listed (Coach frames it with the turn's scope). */
   readonly promptText?: (agentId: string, inputId: string, text: string) => string;
 }

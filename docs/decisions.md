@@ -1172,10 +1172,12 @@ archives it; the current chat is the newest one not archived.
 - **How a run opens.** Coach's system prompt (roamgate's manual-confirmation prompt nearly
   verbatim, with rowrow's nouns) replaces the runtime's; every built-in tool is turned off by
   its exact, case-sensitive name (`src/server/coach/tools.ts`, pinned by a test: claude and pi
-  turn off nothing for a misspelled name, without a word); claude also gets
-  `ENABLE_CLAUDEAI_MCP_SERVERS=false`. Its one MCP server is `rowrow mcp coach` (this server's
-  own CLI, through the profile's launcher), a small stdio JSON-RPC server written here rather
-  than a dependency. The runtime itself gets no rowrow credential. What the runtime then says
+  turn off nothing for a misspelled name, without a word); claude also starts with
+  `--strict-mcp-config --setting-sources ""` and auto memory off, so none of the user's own MCP
+  servers, claude.ai connectors, settings, hooks or CLAUDE.md reach it (oar 0.45's
+  `launchArgs`; before it, only `ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its one MCP server is
+  `rowrow mcp coach` (this server's own CLI, through the profile's launcher), a small stdio
+  JSON-RPC server written here rather than a dependency. The runtime itself gets no rowrow credential. What the runtime then says
   it loaded is checked, not trusted: any tool in claude's init frame besides rowrow's logs
   `coach.tools_leaked` and says "Coach's session has tools it shouldn't: …" in the chat.
 - **Its credential.** Each run of a Coach chat mints a token (`rrc_…`, in memory, gone when the
@@ -1206,11 +1208,9 @@ than its token allows.
 already says what a proposal tool means); cards confirm through the device's own call, so
 PRINCIPLES.md product 4 holds. Scheduled tasks are Coach chats a timer sends to.
 
-**Revisit when** oar can pass claude `--strict-mcp-config` and `--setting-sources` (oar#250)
-and report a session's effective tools (oar#253): today claude still loads the user's own MCP
-servers, CLAUDE.md and hooks (docs/upstream.md);
-when another runtime gains a tool deny list; or when the assistant needs to outlive a run
-(tokens are per run).
+**Revisit when** oar reports a session's effective tools (oar#253) or lets pi leave out its
+context files (docs/upstream.md); when another runtime gains a tool deny list; or when the
+assistant needs to outlive a run (tokens are per run).
 
 ## D-045 Coach's actions: proposals you confirm, receipts it reads, Full access by consent (2026-10-09)
 

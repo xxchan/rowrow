@@ -209,8 +209,12 @@ rowrow's own parts.
 - **A run** opens with Coach's system prompt in place of the runtime's, the runtime's built-in
   tools turned off by name (`src/server/coach/tools.ts`), and one MCP server, `rowrow mcp
   coach` (`src/cli/mcp.ts`), whose environment holds a token minted for that run. Only claude
-  and pi take all three; the picker says why the others can't be Coach. The tools claude says
-  it loaded are checked: any but rowrow's is a warning in the log and in the chat.
+  and pi take all three; the picker says why the others can't be Coach. Claude also starts with
+  `--strict-mcp-config --setting-sources ""` (oar's `launchArgs`) and auto memory off
+  (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), so the user's own MCP servers, claude.ai connectors,
+  settings, hooks, plugins, skills and CLAUDE.md stay out (managed policy still applies); pi
+  refuses launch flags and still adds its AGENTS.md files (docs/upstream.md). The tools claude
+  says it loaded are checked: any but rowrow's is a warning in the log and in the chat.
 - **Its tools** are four reads and three proposals, each a `coach.*` procedure. The reads: `agents_status`, `agent_history`
   (the `agent view` fold, paged back by turns), `agent_changes` (files, or one file's diff) and
   `agent_background` (background commands and the end of their output). The token reaches only

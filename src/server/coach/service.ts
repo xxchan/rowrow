@@ -1,8 +1,9 @@
 // Coach (docs/decisions.md, D-044): rowrow's assistant. A chat is an agent with role "coach",
 // so it has a log, runs, a transcript, stop, model and effort like any agent. What makes it
 // Coach is here: what a message sends (the workspaces it may read, captured now and fixed for
-// the turn), how its runs open (Coach's system prompt, the runtime's built-in tools off, and
-// rowrow's MCP server with a token for that run), and the reads its tools make, each checked
+// the turn), how its runs open (Coach's system prompt, the runtime's built-in tools off,
+// rowrow's MCP server with a token for that run, and none of the user's own MCP servers,
+// settings or CLAUDE.md), and the reads its tools make, each checked
 // against the turn's workspaces and bounded like roamgate's (80 items, 8,000 characters a
 // message, 32,000 a read). Its actions (D-045) live here too: a proposal is frozen in the
 // chat's log and waits for your Confirm (or, with Full access, runs at once); each one runs
@@ -54,7 +55,7 @@ import type { Workspaces } from "../workspaces/service.ts";
 import { execute, proposeAgent, proposePrompt, proposeWorktree, type Receipt } from "./actions.ts";
 import { coachSystemPrompt, turnText } from "./prompt.ts";
 import type { CoachTokens } from "./tokens.ts";
-import { BUILTIN_TOOLS, leakedTools } from "./tools.ts";
+import { BUILTIN_TOOLS, LAUNCH_ARGS, leakedTools } from "./tools.ts";
 
 export interface CoachDeps {
   readonly agents: AgentService;
@@ -287,15 +288,17 @@ export class CoachService {
   runOptions(
     agentId: string,
     runId: string,
-  ): Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers"> {
+  ): Pick<SessionOptions, "systemPrompt" | "disallowedTools" | "mcpServers" | "launchArgs"> {
     const { summary } = this.deps.agents.get(agentId) ?? {};
     if (summary?.role !== "coach") return {};
     // The message that opens the run is in the log already: its permission mode is the run's.
     const fullAccess = summary.fullAccess;
     this.runModes.set(runId, fullAccess);
+    const launchArgs = LAUNCH_ARGS[summary.runtime];
     return {
       systemPrompt: coachSystemPrompt(fullAccess),
       disallowedTools: BUILTIN_TOOLS[summary.runtime] ?? [],
+      ...(launchArgs === undefined ? {} : { launchArgs }),
       mcpServers: [
         {
           name: COACH_MCP_SERVER,

@@ -1,7 +1,7 @@
 // Coach (D-044): its tools' bounds, its MCP server, and the server end to end: a chat is an
 // agent kept out of every list, its runs open with Coach's prompt, tools and MCP server, and
 // its run's token reads only the turn's workspaces and does nothing else.
-import type { Runtime, SessionOptions } from "@botiverse/oar";
+import { defaultRuntimes, type Runtime, type SessionOptions } from "@botiverse/oar";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +23,7 @@ import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { coachSystemPrompt, turnText } from "../src/server/coach/prompt.ts";
 import { CoachTokens } from "../src/server/coach/tokens.ts";
 import { CoachService, type CoachDeps } from "../src/server/coach/service.ts";
-import { BUILTIN_TOOLS, leakedTools } from "../src/server/coach/tools.ts";
+import { BUILTIN_TOOLS, COACH_ENV, leakedTools } from "../src/server/coach/tools.ts";
 import { eventually, input, startTestServer, type Client, type TestServer } from "./helpers.ts";
 
 let t: TestServer | undefined;
@@ -104,6 +104,28 @@ describe("Coach's runtimes", () => {
     // Never one of its own.
     for (const list of Object.values(BUILTIN_TOOLS))
       expect(list.filter((name) => name.startsWith("mcp__"))).toEqual([]);
+  });
+
+  it("opens claude with rowrow's MCP server and none of the user's, nor their settings", () => {
+    const coachOn = (runtime: string) =>
+      new CoachService({
+        agents: { get: () => ({ summary: { role: "coach", runtime, fullAccess: false } }) },
+        log: { onAppend: () => undefined },
+        settings: { get: () => ({ coach: {} }), onChange: () => undefined },
+        tokens: new CoachTokens(),
+        cli: "/bin/rowrow",
+        url: () => "http://127.0.0.1:1",
+      } as unknown as CoachDeps);
+    const claude = coachOn("claude").runOptions("ag_chat", "run_1");
+    expect(claude.launchArgs).toEqual(["--strict-mcp-config", "--setting-sources", ""]);
+    expect(COACH_ENV["claude"]).toEqual({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" });
+    expect(claude.mcpServers?.map((server) => server.name)).toEqual(["rowrow"]);
+    // Pi runs in rowrow's process and refuses launchArgs: it gets none, or it wouldn't open.
+    expect(defaultRuntimes.require("pi").refusedSessionOptions?.launchArgs).toBeDefined();
+    expect(defaultRuntimes.require("claude").refusedSessionOptions?.launchArgs).toBeUndefined();
+    const pi = coachOn("pi").runOptions("ag_chat", "run_2");
+    expect(pi.disallowedTools).toEqual(BUILTIN_TOOLS["pi"]);
+    expect(pi).not.toHaveProperty("launchArgs");
   });
 
   it("frames each message with the turn's workspaces, after a prompt of Coach's own", () => {
@@ -318,6 +340,7 @@ describe("Coach", () => {
     const options = spy.opened.at(-1);
     expect(options?.systemPrompt).toBe(coachSystemPrompt(false));
     expect(options?.disallowedTools).toEqual(BUILTIN_TOOLS["scripted"]);
+    expect(options?.launchArgs).toBeUndefined();
     expect(options?.cwd).toBe(`${t.home}/test/coach`);
     expect(options?.env?.["ROWROW_TOKEN"]).toBe("");
     expect(options?.mcpServers).toEqual([

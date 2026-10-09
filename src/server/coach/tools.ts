@@ -5,7 +5,7 @@
 // Claude's was checked against the tools its init frame listed (2.1.292, 2026-10-08): with the
 // names below off, it had DesignSync, ListAgents, PushNotification, RemoteTrigger,
 // ReportFindings, ScheduleWakeup and Workflow left, which are now off too, plus the user's MCP
-// servers (docs/upstream.md).
+// servers (LAUNCH_ARGS keeps those out now).
 
 import { COACH_MCP_SERVER } from "../../shared/coach.ts";
 import type { Entry } from "../../shared/entries.ts";
@@ -74,18 +74,32 @@ export const BUILTIN_TOOLS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
- * Environment for a Coach runtime beyond rowrow's own: claude loads the connectors of the
- * user's claude.ai account as MCP servers unless told not to (its init frame listed them).
+ * Flags for a Coach runtime's process (SessionOptions.launchArgs, oar 0.45): left alone, claude
+ * adds the user's MCP servers and claude.ai connectors to rowrow's, and loads the user's
+ * settings (hooks, plugins, skills, env) and CLAUDE.md. `--strict-mcp-config` keeps only the
+ * servers oar gives it, connectors included; `--setting-sources ""` reads no settings file
+ * (managed policy still applies), and claude reads ~/.claude/CLAUDE.md and a project's only
+ * with their source (checked in 2.1.292's code and a run, 2026-10-09). Pi refuses launchArgs.
+ */
+export const LAUNCH_ARGS: Readonly<Record<string, readonly string[]>> = {
+  claude: ["--strict-mcp-config", "--setting-sources", ""],
+};
+
+/**
+ * Environment for a Coach runtime beyond rowrow's own: claude's auto memory doesn't follow the
+ * setting sources, and keys its directory on the enclosing git repository's root (a run inside
+ * a checkout pointed it at that checkout's memory), so it's off.
  */
 export const COACH_ENV: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  claude: { ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
+  claude: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" },
 };
 
 /**
  * The tools a run's runtime says it has besides rowrow's own, from claude's `system/init` frame
  * (its native `tools` list): null when the entry isn't one. A misspelled or new built-in, or an
- * MCP server of the user's, shows up here instead of going unnoticed. Read from claude's native
- * format until oar reports a session's effective tools itself (oar#253, docs/upstream.md).
+ * MCP server LAUNCH_ARGS failed to keep out, shows up here instead of going unnoticed. Read from
+ * claude's native format until oar reports a session's effective tools itself (oar#253,
+ * docs/upstream.md).
  */
 export function leakedTools(entry: Entry): string[] | null {
   if (entry.kind !== "oar" || entry.record.kind !== "frame") return null;
