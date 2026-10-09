@@ -1587,3 +1587,55 @@ without a list of exceptions. The line is the point of most mentions, so it is k
 **Revisit when** paths in prose (outside backticks) are common enough to want links, checkouts
 over 50,000 files leave too many mentions plain (then a batched existence check, through the
 contract), or the iOS app gets links (the kit would export `file-refs.ts`).
+
+## D-055 Transcript search: the server folds the whole log on demand, no index; ⌘F opens it (2026-10-09)
+
+**Context.** You want to find where an agent said or did something, often turns back. The web
+app holds only the last few turns (windows of `agents.entries`), so the browser's find misses
+the rest, and an iPhone's home-screen app has no find-in-page at all. The log can't be searched
+as bytes: a reply streams in as fragments, one entry each (D-041), tool input is JSON, and
+since D-041 most of it sits in zstd packs.
+
+**Decision.** `agents.search {agentId, text, who?, limit?}` folds the agent's whole log, rows
+and packs, the way every client folds it (`timelineOf`, then the kit's `transcriptItems`), and
+searches what the transcript shows: your messages, the agent's replies, its tool calls' input
+(the values of their JSON) and output. Case-insensitive plain text, a space matching any
+whitespace. It returns the newest 200 matches (`limit`, up to 1000), oldest first, `more` when
+there were others, and every kind's count. A hit names its transcript item by the kit's item
+id (the web app puts it on its elements as `data-item`; the iOS app's rows have it), and
+`turnSeq`, the input its turn started at: a client loads the log from there as one piece
+joined to what it shows (up to 50,000 entries back; further, it says so), opens what folds the
+item away (a run of tool calls, the call, a sub-agent), scrolls to it, flashes it and marks the
+matches (the CSS Custom Highlight API). Who and when come from the entry the item began at.
+
+There is no index. The fold costs what loading the history in a client costs: on an idle
+machine, ~100 ms for a 3,400-entry log (2,900 oar records of /echo, /run and /stream turns)
+the first time, ~45 ms once warm, read from zstd packs (test/transcript-search.test.ts): about
+15 to 30 µs an entry, so a second or two for 100,000, folded 5,000 at a time so the server
+answers others meanwhile. The server keeps the folds of
+the three agents searched last for ten minutes, so the next search folds only what was
+appended (2 ms there), and the web app asks once with no text when the bar opens, so the fold
+is done by the time you've typed. An FTS5 table would find words, not the plain substrings
+asked for (its trigram tokenizer can, with 3+ characters), would have to be fed by a second
+fold of every agent at every append, and rewritten with the redaction pass (D-039).
+
+The UI is roamgate's history search (docs/HISTORY.md "Message filters"): You, Agent and Tool
+toggles with their counts, Tool off at first and the toggles kept while the app is open, each
+result with who said it ("Tool output: Bash") and when (MM-DD HH:mm), "Show all types" when the
+toggles hide every match. It sits as a bar above the conversation, from a button in the header
+or **⌘F** on an agent's page; ⌘F again while its field has focus is the browser's own find.
+Enter goes to the newest match, then back in time; ⇧Enter forward; Escape closes. On a phone
+the list folds away when you pick a match, to show it. `rowrow agent search <agent> <text…>`
+prints seq, when, who and the snippet.
+
+**Why.** The fold is the transcript's truth (PRINCIPLES.md, engineering 1): searching it finds
+exactly what you can see, streamed text whole, and needs no second store to keep in step.
+Item ids already exist for the iOS app, so a hit is something every client can scroll to.
+Taking ⌘F only on an agent's page, where the browser's find can't see most of the
+conversation, keeps the browser's find a second press away, as web apps with their own search
+do.
+
+**Revisit when** a first search on a long-lived agent takes seconds (keep each run's item text
+when it ends, or an FTS5 trigram table), people want to search every agent at once (a search
+in ⌘K), or to search Coach's chats; or when a jump further back than 50,000 entries matters (a
+window around the hit, detached from the live end).

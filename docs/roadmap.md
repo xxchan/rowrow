@@ -8,6 +8,12 @@ file when something lands.
 
 ## Done recently
 
+- **Transcript search** (D-055): a search button in an agent's header (or ⌘F) opens a bar above
+  the conversation that finds your messages, its answers and its tool calls' input and output
+  in all of its history, on the server: You / Agent / Tool toggles with counts (roamgate's),
+  results with who and when and the match marked, Enter and ⇧Enter through them, and a pick
+  loads the turns back to it, opens what folds it away, scrolls there and flashes it. Works in
+  the iPhone home-screen app, which has no find-in-page. `rowrow agent search <agent> <text…>`.
 - **File paths open in the inspector** (D-054): a path in a reply's inline code (`src/a.ts:42`,
   `#L42`), the file a tool call read or edited, and paths in a search's or a command's output
   open the file in Files' temporary tab at that line, the inspector opening for it (the sheet on
@@ -124,9 +130,8 @@ file when something lands.
 
 ## Next, in build order
 
-1. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
-2. **Notification preferences and per-agent mute.**
-3. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
+1. **Notification preferences and per-agent mute.**
+2. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
 
 ## Coach, next (D-044)
@@ -157,6 +162,9 @@ file when something lands.
    (`checkoutFiles`, `fileTarget`, `toolFileRef`, `findFileRefs`) over the app's `files.list`;
    `TurnView.swift` makes inline code and a tool row's path tappable, opening `HistoryView.swift`'s
    `FileView`, taught to scroll to a line.
+7. Transcript search (D-055): `agents.search` in `RowrowCore/Procedures.swift`, and `.searchable`
+   on the transcript. A hit's `itemId` is a transcript row's id: load from its `turnSeq` (the
+   kit's `load` with `agents.entries after: turnSeq - 1`), then `ScrollViewReader` to it.
 
 ## Later (P2)
 

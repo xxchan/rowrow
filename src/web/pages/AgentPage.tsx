@@ -13,11 +13,12 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ArrowDown, ChevronsRight, Ellipsis, FileDiff, LoaderCircle } from "lucide-react";
+import { ArrowDown, ChevronsRight, Ellipsis, FileDiff, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GroupImperativeHandle } from "react-resizable-panels";
+import { toast } from "sonner";
 import { useStickToBottom } from "use-stick-to-bottom";
-import type { AgentState, AppState } from "../../shared/schemas.ts";
+import type { AgentState, AppState, TranscriptHit } from "../../shared/schemas.ts";
 import { workspaceLabel } from "../../shared/workspaces.ts";
 import { openAgentDialog, useAgentActions } from "../components/AgentActions.tsx";
 import { MenuActions } from "../components/MenuActions.tsx";
@@ -36,13 +37,14 @@ import { SelectionComment } from "../components/SelectionComment.tsx";
 import { BackgroundTasks } from "../components/BackgroundTasks.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
-import { Transcript } from "../components/Transcript.tsx";
+import { RevealContext, Transcript } from "../components/Transcript.tsx";
+import { clearHitMarks, revealHit, TranscriptSearch } from "../components/TranscriptSearch.tsx";
 import { onPrefChange, readPref, writePref } from "../lib/device-prefs.ts";
 import { onFileOpen } from "../lib/file-links.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
-import { loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
+import { loadBackTo, loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { useNarrow, useWide } from "../lib/use-narrow.ts";
 import { useNow } from "../lib/use-now.ts";
@@ -133,6 +135,29 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   );
   const changed = ws?.git?.changed ?? 0;
 
+  // Transcript search (D-055): the header's button, or ⌘F. ⌘F in its field again is the
+  // browser's own find, for what is on screen. Open for one agent: going to another closes it.
+  const [searchingFor, setSearchingFor] = useState<string | null>(null);
+  const searching = searchingFor === agent.id;
+  const setSearching = (open: boolean): void => setSearchingFor(open ? agent.id : null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey || event.key !== "f") return;
+      const field = document.querySelector<HTMLInputElement>("input[data-transcript-search]");
+      if (field !== null && document.activeElement === field) return;
+      event.preventDefault();
+      setSearchingFor(agent.id);
+      field?.focus();
+      field?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [agent.id]);
+  const closeSearch = (): void => {
+    setSearching(false);
+    clearHitMarks();
+  };
+
   // Who and where; what it runs on (model, effort, context) sits by the composer.
   const runtime = state.runtimes[summary.runtime]?.name ?? summary.runtime;
   const branch = ws?.git?.branch;
@@ -143,7 +168,14 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
       : `${ws.label}${branch === null || branch === undefined || branch === ws.label ? "" : ` (${branch})`}`,
   ];
 
-  const chat = <Chat agent={agent} onSwitchModel={() => openAgentDialog("model", agent.id)} />;
+  const chat = (
+    <Chat
+      agent={agent}
+      searching={searching}
+      onCloseSearch={closeSearch}
+      onSwitchModel={() => openAgentDialog("model", agent.id)}
+    />
+  );
   return (
     <>
       <PageHeader
@@ -164,6 +196,20 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
         actions={
           <>
             <BackgroundTasks tasks={summary.tasks} now={now} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={searching ? "secondary" : "ghost"}
+                  size="icon"
+                  aria-label="Search"
+                  aria-pressed={searching}
+                  onClick={() => (searching ? closeSearch() : setSearching(true))}
+                >
+                  <Search />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Search the conversation (⌘F)</TooltipContent>
+            </Tooltip>
             {nextUp !== undefined && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -279,7 +325,18 @@ function savedLayout(): Record<string, number> | undefined {
  * a desktop, a wave bar at its right edge maps the messages (roamgate #354): hover to preview
  * one, click or the arrow keys to jump.
  */
-function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () => void }) {
+function Chat({
+  agent,
+  searching,
+  onCloseSearch,
+  onSwitchModel,
+}: {
+  agent: AgentState;
+  /** The search bar is open (D-055). */
+  searching: boolean;
+  onCloseSearch: () => void;
+  onSwitchModel: () => void;
+}) {
   const client = useClient();
   const transcript = useTranscript(agent.id);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -310,8 +367,45 @@ function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () =
     }
   };
 
+  // A search hit (D-055): the turns back to it load, what folds it away opens (RevealContext),
+  // then it scrolls into view, flashed, with what matched marked.
+  const [reveal, setReveal] = useState<{ readonly id: string; readonly query: string } | null>(null);
+  const jump = async (hit: TranscriptHit, query: string): Promise<void> => {
+    if (client === null) return;
+    try {
+      if (!(await loadBackTo(client, agent.id, hit.turnSeq))) {
+        toast("That's too far back to show here", {
+          description: `It's at entry ${hit.seq} of the log: rowrow agent view shows the whole conversation.`,
+        });
+        return;
+      }
+    } catch (error) {
+      report("warn", "transcript.jump_failed", error, { agentId: agent.id });
+      toast.error("Couldn't load that part of the conversation");
+      return;
+    }
+    stopScroll();
+    setReveal({ id: hit.itemId, query });
+  };
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (reveal === null || scroller === null) return;
+    const frame = requestAnimationFrame(() => {
+      if (!revealHit(scroller, reveal.id, reveal.query)) toast("That match isn't shown in the conversation");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [reveal, scrollRef]);
+
   return (
     <div ref={chatRef} className="relative flex h-full min-h-0 flex-col">
+      {searching && (
+        <TranscriptSearch
+          agentId={agent.id}
+          assistant={runtime}
+          onJump={(hit, query) => void jump(hit, query)}
+          onClose={onCloseSearch}
+        />
+      )}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto", blocks > 0 && "md:pr-11")}>
           <div
@@ -344,7 +438,9 @@ function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () =
               )
             ) : (
               <FileLinks workspaceId={agent.summary.workspaceId}>
-                <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
+                <RevealContext value={reveal}>
+                  <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
+                </RevealContext>
               </FileLinks>
             )}
           </div>

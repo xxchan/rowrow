@@ -31,6 +31,7 @@ import type {
 import type { Attention } from "../../shared/summary.ts";
 import { timelineOf } from "../../shared/timeline.ts";
 import type { AgentLog } from "../agents/log.ts";
+import type { TranscriptSearches } from "../agents/search.ts";
 import type { Runtimes } from "../agents/runtimes.ts";
 import type { UsageService } from "../usage.ts";
 import type { AgentService } from "../agents/service.ts";
@@ -133,6 +134,8 @@ export interface Services {
   /** Coach's scheduled tasks (D-050). */
   readonly tasks: CoachTasks;
   readonly agentLog: AgentLog;
+  /** Transcript search (D-055). */
+  readonly searches: TranscriptSearches;
   readonly runtimes: Runtimes;
   readonly usage: UsageService;
   readonly devices: Devices;
@@ -438,6 +441,13 @@ export function createRouter(s: Services) {
           ),
           headSeq: page.headSeq,
         };
+      }),
+      search: os.agents.search.handler(({ input }) => {
+        requireAgent(s, input.agentId);
+        return s.searches.search(input.agentId, input.text, {
+          ...(input.who === undefined ? {} : { who: input.who }),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+        });
       }),
     },
 

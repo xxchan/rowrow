@@ -1772,6 +1772,91 @@ test("a wave bar maps the conversation: hover a mark to preview it, click or use
   await expect(tooltip).toContainText("You");
 });
 
+test("search the conversation: find what was said turns ago, step through matches, jump back in history", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  if (phone) await page.setViewportSize({ width: 375, height: 667 });
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "a long talk",
+    input: { inputId: randomUUID(), text: "/echo The secret word is Marmalade" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  // Two commands fold into one line; then enough turns that the first two aren't loaded.
+  for (const text of [
+    "/run 10 ls\ngrep -rn marmalade notes",
+    "/echo two",
+    "/echo three",
+    "/echo four",
+    "/echo five",
+    "/echo marmalade again",
+  ]) {
+    const next = await rowrow.client.agents.send({ agentId: agent.id, inputId: randomUUID(), text });
+    await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 10_000 });
+  }
+  await rowrow.open(page, `/a/${agent.id}`);
+  // What the conversation shows, not the list of matches.
+  const answers = page.getByRole("article", { name: "The agent's turn" });
+  await expect(answers.getByText("marmalade again", { exact: true })).toBeVisible();
+  const first = answers.getByText("The secret word is Marmalade", { exact: true });
+  await expect(first).toHaveCount(0);
+
+  // ⌘F, or the header's button.
+  if (phone) await page.getByRole("button", { name: "Search", exact: true }).click();
+  else await page.keyboard.press("ControlOrMeta+f");
+  const field = page.getByRole("searchbox", { name: "Search the conversation" });
+  await expect(field).toBeFocused();
+  await field.fill("MARMALADE");
+  // Your messages and its answers; its tool calls are a toggle away, as in roamgate.
+  const matches = page.getByRole("list", { name: "Matches" });
+  await expect(matches.getByRole("button")).toHaveCount(6);
+  await expect(page.getByRole("button", { name: "Tool", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect(page.getByRole("button", { name: "Tool", exact: true })).toContainText("2");
+  await expect(matches.getByRole("button").first()).toContainText("You");
+  await expect(matches.getByRole("button").first()).toContainText("/echo The secret word is Marmalade");
+  await expect(matches.locator("mark").first()).toHaveText("Marmalade");
+
+  // The oldest: its turn loads, and it scrolls into view, flashed.
+  await matches.getByRole("button").first().click();
+  await expect(page.getByText("1 of 6")).toBeVisible();
+  const yours = page.getByRole("article", { name: "Your message" }).filter({ hasText: "The secret word" });
+  await expect(yours).toHaveAttribute("data-found", "");
+  await expect(yours).toBeInViewport();
+  // On a phone the list folds away to show it.
+  if (phone) await expect(matches).toBeHidden();
+  await page.getByRole("button", { name: "Newer match" }).click();
+  await expect(page.getByText("2 of 6")).toBeVisible();
+  await expect(first).toBeInViewport();
+
+  // Tool calls too: the one that ran grep opens out of its folded line.
+  if (phone) await page.getByRole("button", { name: "Results" }).click();
+  await page.getByRole("button", { name: "Tool", exact: true }).click();
+  await expect(matches.getByRole("button")).toHaveCount(8);
+  await matches.getByRole("button").filter({ hasText: "Tool output: Bash" }).click();
+  await expect(answers.getByText("ran grep -rn marmalade notes")).toBeInViewport();
+
+  await page.getByRole("button", { name: "Close search" }).click();
+  await expect(field).toBeHidden();
+
+  // Typed and Enter at once: the newest match (the types picked stay picked), then back in time.
+  if (phone) await page.getByRole("button", { name: "Search", exact: true }).click();
+  else await page.keyboard.press("ControlOrMeta+f");
+  await field.fill("marmalade");
+  await field.press("Enter");
+  await expect(page.getByText("8 of 8")).toBeVisible();
+  if (!phone) {
+    await field.press("Enter");
+    await expect(page.getByText("7 of 8")).toBeVisible();
+  }
+});
+
 test("Coach: allow a workspace, ask, and read its answer and the work it did", async ({
   page,
   rowrow,

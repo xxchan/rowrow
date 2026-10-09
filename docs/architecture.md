@@ -121,11 +121,14 @@ tests alike.
 | `summaryOf` | entries → agent summary: live status and phase, last turn outcome, pending requests, preview, usage, last completion `seq`, the last notification it sent, when a person last sent it a message (the lists' order, D-053) | the sidebar, attention, notifications |
 | `attentionOf` | summary × seen marker → `blocked`, `done`, `working`, `idle` | everywhere a status is shown |
 | `renderText` | timeline → plain text | the CLI and debugging agents |
+| `TranscriptIndex` | entries → the kit's transcript items (`transcriptItems`), each with the entry it began at and the input its turn started at → matches of a text | `agents.search` (D-055) |
 | `paceOf`, `chartSegments` | a subscription window's stored readings → its cycles, its pace against an even burn, where its chart line breaks (D-040) | Settings → Subscription usage, `rowrow runtimes usage` |
 
 The transcript fold runs **in the client** over slim entries (D-006). The server folds
 summaries for every agent, because lists and notifications need them for all agents at
-once.
+once, and the whole transcript of an agent you search (D-055): no client holds all of it.
+It keeps the folds of the three agents searched last for ten minutes, so the next search
+folds only what was appended since.
 
 ## Agents at runtime
 

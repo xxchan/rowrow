@@ -182,6 +182,42 @@ export const EntryPage = z.object({
 });
 export type EntryPage = z.infer<typeof EntryPage>;
 
+/** Who said what a transcript search found (D-055): you, the agent, or one of its tool calls. */
+export const SearchWho = z.enum(["you", "agent", "tool"]);
+export type SearchWho = z.infer<typeof SearchWho>;
+
+export const TranscriptHit = z.object({
+  itemId: z
+    .string()
+    .describe(
+      "The transcript item it is in: the kit's item id (the iOS app's rows), the web app's data-item.",
+    ),
+  seq: z.number().describe("The log entry where that item begins."),
+  turnSeq: z
+    .number()
+    .describe(
+      "The input its turn starts at: to show it, load the log from here (agents.entries after: turnSeq - 1).",
+    ),
+  at: z.number().describe("When it was said or the tool was called (epoch ms)."),
+  who: SearchWho,
+  tool: z.string().nullable().describe("The tool's name, for a tool call."),
+  field: z
+    .enum(["text", "input", "output"])
+    .describe("What matched: a message's text, or a tool call's input or output."),
+  snippet: z.string().describe("The text around the first match, on one line (… marks a cut)."),
+  match: z.tuple([z.number(), z.number()]).describe("Where the match is in the snippet: start, end."),
+});
+export type TranscriptHit = z.infer<typeof TranscriptHit>;
+
+export const TranscriptSearch = z.object({
+  hits: z.array(TranscriptHit).describe("Oldest first; the newest `limit` of them when more matched."),
+  more: z.boolean().describe("More matched than `hits` holds: the older ones were left out."),
+  counts: z
+    .object({ you: z.number(), agent: z.number(), tool: z.number() })
+    .describe("How many of each matched, whichever `who` asked for."),
+});
+export type TranscriptSearch = z.infer<typeof TranscriptSearch>;
+
 // ─── Runtimes ────────────────────────────────────────────────────────────────
 
 /** The account a runtime says it is signed in to, in its own words (oar's LoginAccount). */

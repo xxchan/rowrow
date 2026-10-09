@@ -1,6 +1,7 @@
 // Every keyboard shortcut on one sheet: ? anywhere (bound in CommandMenu), or the keyboard
 // button beside Settings. The list is written by hand, so keep it in step with the handlers
-// it describes (CommandMenu, Composer, NewAgentDialog, DiffView, SelectionComment and Coach).
+// it describes (CommandMenu, AgentPage and TranscriptSearch, Composer, NewAgentDialog, DiffView,
+// SelectionComment and Coach).
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { create } from "zustand";
@@ -34,6 +35,15 @@ const GROUPS: readonly {
       [["↵"], "Open it, or start an agent if nothing matches"],
       [["⌘", "↵"], "Start an agent with what you typed"],
       [["⌥", "↵"], "Edit it before starting"],
+    ],
+  },
+  {
+    heading: "An agent's conversation",
+    items: [
+      [["⌘", "F"], "Search it; again in the search field, the browser's own find"],
+      [["↵"], "Older match"],
+      [["⇧", "↵"], "Newer match"],
+      [["Esc"], "Close the search"],
     ],
   },
   {

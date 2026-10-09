@@ -51,10 +51,12 @@ import {
   RuntimeUsage,
   SearchKind,
   SearchResult,
+  SearchWho,
   SeenFile,
   SendResult,
   Settings,
   SkillInfo,
+  TranscriptSearch,
   UpdateCheckStatus,
   UpdateInfo,
   UpgradeResult,
@@ -379,6 +381,20 @@ const agents = {
       }),
     )
     .output(z.object({ text: z.string(), headSeq: z.number() })),
+  search: oc
+    .route({
+      summary:
+        "Find text in an agent's transcript as it shows it (D-055): your messages, the agent's replies, and its tool calls' input and output, all of its history. Case-insensitive plain text. The newest 200 matches (`limit`), oldest first; each names its transcript item and `turnSeq`, where to load the log from to show it.",
+    })
+    .input(
+      z.object({
+        agentId,
+        text: z.string().max(1000),
+        who: z.array(SearchWho).optional().describe("Only these kinds (default: all)."),
+        limit: z.number().int().positive().max(1000).optional(),
+      }),
+    )
+    .output(TranscriptSearch),
 };
 
 const runtimes = {

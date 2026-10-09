@@ -251,6 +251,11 @@ export class TranscriptProjector {
   }
 }
 
+/** Every item of the timeline, uncut (tool input and output whole): what transcript search reads. */
+export function transcriptItems(timeline: Timeline, runtime: string): TranscriptItem[] {
+  return itemsOf(timeline, runtime).map((item) => item.make(Number.POSITIVE_INFINITY));
+}
+
 function sameDeps(a: readonly unknown[], b: readonly unknown[]): boolean {
   return a.length === b.length && a.every((value, i) => value === b[i]);
 }

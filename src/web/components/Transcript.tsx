@@ -2,10 +2,13 @@
 // Every block and message is memoized on identity, and the fold shares structure, so while
 // text streams only the open turn re-renders. Messages carry data-author ("you" or
 // "agent"): selection comments quote only what the agent wrote (SelectionComment), and the
-// wave bar marks each one (ConversationWave), previewing what they mark data-preview. Coach's
-// chats (D-044) read the same fold: an answer's text, with the tools it called folded into one
-// "Work performed" group under it. In an agent's transcript, paths that name files of its
-// workspace open them in the inspector (FileLinks.tsx, D-054).
+// wave bar marks each one (ConversationWave), previewing what they mark data-preview. What
+// transcript search finds (D-055) carries data-item, the kit's item id (transcript-model.ts):
+// your messages, the agent's texts and its tool calls; a search jumping to one opens what
+// folds it away (RevealContext). Coach's chats (D-044) read the same fold: an answer's text,
+// with the tools it called folded into one "Work performed" group under it. In an agent's
+// transcript, paths that name files of its workspace open them in the inspector (FileLinks.tsx,
+// D-054).
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
@@ -25,7 +28,7 @@ import type { CredentialProblem, FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Bell, Check, ChevronRight, CircleAlert, CircleX, ExternalLink, LoaderCircle } from "lucide-react";
-import { Fragment, memo, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { coachToolLabel } from "../../shared/coach.ts";
 import { mentionSegments, type CoachMention } from "../../shared/coach-mentions.ts";
@@ -63,6 +66,22 @@ import { MentionLink } from "./CoachMentions.tsx";
 import { FileLink, InlineCode, LinkedText, useFileLinks } from "./FileLinks.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
+
+/** The item a transcript search jumped to (D-055), a new object each jump: what holds it opens. */
+export const RevealContext = createContext<{ readonly id: string } | null>(null);
+
+/** Open when a search jumps to something inside (`holds` says what); otherwise yours to open and close. */
+function useRevealed(holds: (id: string) => boolean, initial = false): [boolean, (open: boolean) => void] {
+  const reveal = useContext(RevealContext);
+  // Mounted by the jump itself (the turns it loaded): open from the start.
+  const [open, setOpen] = useState(() => initial || (reveal !== null && holds(reveal.id)));
+  const [seen, setSeen] = useState(reveal);
+  if (seen !== reveal) {
+    setSeen(reveal);
+    if (reveal !== null && holds(reveal.id)) setOpen(true);
+  }
+  return [open, setOpen];
+}
 
 export function Transcript({
   timeline,
@@ -154,6 +173,7 @@ function Run({
             ended.reason !== "exited" ? null : (
               <Message
                 message={message}
+                itemId={`${run.runId}:${message.id}`}
                 timeline={timeline}
                 runtime={runtime}
                 open={index === view.openTurn}
@@ -176,6 +196,7 @@ function Run({
 
 const Message = memo(function Message({
   message,
+  itemId,
   timeline,
   runtime,
   open,
@@ -184,6 +205,8 @@ const Message = memo(function Message({
   coach,
 }: {
   message: ViewMessage;
+  /** Its id among the kit's items: `<runId>:<message id>`. */
+  itemId: string;
   timeline: Timeline;
   runtime: string;
   open: boolean;
@@ -218,6 +241,7 @@ const Message = memo(function Message({
         );
       return (
         <UserMessage
+          itemId={itemId}
           text={origin?.input.text ?? input.input}
           attachments={origin?.input.attachments}
           by={origin?.input.by}
@@ -237,6 +261,7 @@ const Message = memo(function Message({
           {message.sections.map((section, index) => (
             <Section
               key={index}
+              itemId={`${itemId}:${index}`}
               section={section}
               lane={laneOf(section, rootSessionId)}
               runtime={runtime}
@@ -609,6 +634,7 @@ function SignInAgain({ runtime }: { runtime: string }) {
 }
 
 function UserMessage({
+  itemId,
   text,
   attachments,
   by,
@@ -617,6 +643,7 @@ function UserMessage({
   state,
   dropped,
 }: {
+  itemId: string;
   text: string;
   attachments: readonly Attachment[] | undefined;
   by: Actor | undefined;
@@ -632,7 +659,12 @@ function UserMessage({
     landed === "steered" ? "Steered in" : landed === "queued" ? "queued for the next turn" : null,
   ].filter((part) => part !== null);
   return (
-    <article data-author="you" aria-label="Your message" className="flex flex-col items-end gap-1 pl-10">
+    <article
+      data-author="you"
+      data-item={itemId}
+      aria-label="Your message"
+      className="flex flex-col items-end gap-1 pl-10"
+    >
       {attachments !== undefined && attachments.length > 0 && <SentAttachments attachments={attachments} />}
       {text.trim() !== "" && (
         <div
@@ -680,6 +712,7 @@ function PendingInput({ block }: { block: InputBlock }) {
   return (
     <>
       <UserMessage
+        itemId={`pending:${block.input.inputId}`}
         text={block.input.text}
         attachments={block.input.attachments}
         by={block.input.by}
@@ -757,11 +790,14 @@ const components = { inlineCode: InlineCode };
 
 /** One lane (the agent, or a sub-agent) inside a turn: text, reasoning, tool calls in order. */
 function Section({
+  itemId,
   section,
   lane,
   runtime,
   streaming,
 }: {
+  /** Its parts' ids start with this: `<runId>:<message id>:<section index>`. */
+  itemId: string;
   section: ViewSection;
   /** The sub-agent it came from, outermost first; empty for the agent itself. */
   lane: readonly string[];
@@ -775,6 +811,7 @@ function Section({
       out.push(
         <Activity
           key={`tools-${segment.index}`}
+          itemId={itemId}
           group={segment}
           runtime={runtime}
           live={streaming ? lastIndex : -1}
@@ -787,7 +824,7 @@ function Section({
       case "text":
         // What the wave bar's preview quotes (ConversationWave).
         out.push(
-          <div key={index} data-preview className="contents">
+          <div key={index} data-preview data-item={`${itemId}:${index}`} className="contents">
             <Streamdown
               className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
               plugins={plugins}
@@ -827,7 +864,11 @@ function Section({
   return lane.length === 0 ? (
     <>{out}</>
   ) : (
-    <Disclosure label={`Sub-agent ${lane.join(" / ")}`} defaultOpen={streaming}>
+    <Disclosure
+      label={`Sub-agent ${lane.join(" / ")}`}
+      defaultOpen={streaming}
+      holds={(id) => id.startsWith(`${itemId}:`)}
+    >
       <div className="flex flex-col gap-3 border-l-2 pl-3">{out}</div>
     </Disclosure>
   );
@@ -836,14 +877,18 @@ function Section({
 function Disclosure({
   label,
   defaultOpen = false,
+  holds = () => false,
   children,
 }: {
   label: string;
   defaultOpen?: boolean;
+  /** Whether an item a search jumps to is inside. */
+  holds?: (id: string) => boolean;
   children: ReactNode;
 }) {
+  const [open, setOpen] = useRevealed(holds, defaultOpen);
   return (
-    <Collapsible defaultOpen={defaultOpen} className="group/disclosure">
+    <Collapsible open={open} onOpenChange={setOpen} className="group/disclosure">
       <CollapsibleTrigger className="flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground">
         <ChevronRight className="size-3.5 transition-transform group-data-[state=open]/disclosure:rotate-90" />
         {label}
@@ -858,30 +903,64 @@ function Disclosure({
  * ("Ran 3 commands, read a file · 1 failed"); one call shows as it is, since its own row says more.
  * `live` is the index of the part still streaming, or -1.
  */
-function Activity({ group, runtime, live }: { group: ActivityGroup; runtime: string; live: number }) {
+function Activity({
+  itemId,
+  group,
+  runtime,
+  live,
+}: {
+  /** The section's: a tool call's id is this and its index in the section. */
+  itemId: string;
+  group: ActivityGroup;
+  runtime: string;
+  live: number;
+}) {
   const out: ReactNode[] = [];
-  let tools: ToolPart[] = [];
+  let tools: { readonly part: ToolPart; readonly id: string }[] = [];
+  const ids: string[] = [];
   const flushTools = (): void => {
     const first = tools[0];
     if (first === undefined) return;
-    out.push(<ToolGroup key={first.callId} parts={tools} runtime={runtime} />);
+    out.push(<ToolGroup key={first.part.callId} calls={tools} runtime={runtime} />);
     tools = [];
   };
   for (const { part, index: offset, count } of foldHiddenThoughts(group.parts)) {
+    const index = group.index + offset;
     if (part.kind === "tool") {
-      tools.push(part);
+      const id = `${itemId}:${index}`;
+      tools.push({ part, id });
+      ids.push(id);
       continue;
     }
     flushTools();
-    const index = group.index + offset;
     out.push(<Reasoning key={index} part={part} count={count} live={index + count - 1 === live} />);
   }
   flushTools();
   const calls = group.parts.filter((part) => part.kind === "tool").length;
   if (calls < 2) return <>{out}</>;
+  return (
+    <FoldedCalls group={group} runtime={runtime} holds={(id) => ids.includes(id)}>
+      {out}
+    </FoldedCalls>
+  );
+}
+
+/** Two or more calls, folded into one line. */
+function FoldedCalls({
+  group,
+  runtime,
+  holds,
+  children,
+}: {
+  group: ActivityGroup;
+  runtime: string;
+  holds: (id: string) => boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useRevealed(holds);
   const running = group.running ? classifyTool(runtime, group.running.tool, group.running.input) : null;
   return (
-    <Collapsible className="group/activity min-w-0">
+    <Collapsible open={open} onOpenChange={setOpen} className="group/activity min-w-0">
       <CollapsibleTrigger className="flex max-w-full min-w-0 items-center gap-1 rounded text-left text-xs text-muted-foreground hover:text-foreground">
         <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/activity:rotate-90" />
         <span className="shrink-0">{toolGroupSummary(group.counts)}</span>
@@ -895,7 +974,7 @@ function Activity({ group, runtime, live }: { group: ActivityGroup; runtime: str
           </span>
         )}
       </CollapsibleTrigger>
-      <CollapsibleContent className="flex flex-col gap-3 pt-2">{out}</CollapsibleContent>
+      <CollapsibleContent className="flex flex-col gap-3 pt-2">{children}</CollapsibleContent>
     </Collapsible>
   );
 }
@@ -915,18 +994,25 @@ function Reasoning({ part, count, live }: { part: ReasoningPart; count: number; 
   );
 }
 
-function ToolGroup({ parts, runtime }: { parts: ToolPart[]; runtime: string }) {
+function ToolGroup({
+  calls,
+  runtime,
+}: {
+  calls: readonly { readonly part: ToolPart; readonly id: string }[];
+  runtime: string;
+}) {
   return (
     <div className="divide-y overflow-hidden rounded-lg border bg-card/60">
-      {parts.map((part) => (
-        <ToolCall key={part.callId} part={part} runtime={runtime} />
+      {calls.map(({ part, id }) => (
+        <ToolCall key={part.callId} itemId={id} part={part} runtime={runtime} />
       ))}
     </div>
   );
 }
 
-function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
+function ToolCall({ itemId, part, runtime }: { itemId: string; part: ToolPart; runtime: string }) {
   const links = useFileLinks();
+  const [open, setOpen] = useRevealed((id) => id === itemId);
   const action = classifyTool(runtime, part.tool, part.input);
   const output = toolText(part) ?? "";
   const images = toolImages(part);
@@ -990,7 +1076,7 @@ function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
   // Only what may name files: a search's hits, a command's line and output.
   const linked = action.kind === "search" || action.kind === "run_command";
   return (
-    <Collapsible className="group/tool">
+    <Collapsible open={open} onOpenChange={setOpen} data-item={itemId} className="group/tool">
       {detail === null ? (
         <div className="flex min-h-8 items-center gap-2 px-2.5 py-1.5">{row}</div>
       ) : target === null ? (

@@ -203,6 +203,35 @@ export async function loadOlder(client: Client, agentId: string): Promise<void> 
   }
 }
 
+/** Entries a jump to a search hit loads at most (agents.entries reads 50,000 at once). */
+const JUMP_MAX = 50_000;
+
+/**
+ * Load the log back to `seq` (a search hit's turnSeq, D-055), as one piece joined to what is on
+ * screen, so the transcript shows the hit. False when it is further back than a jump loads.
+ */
+export async function loadBackTo(client: Client, agentId: string, seq: number): Promise<boolean> {
+  const current = useTranscripts.getState().byAgent[agentId];
+  if (current === undefined) return false;
+  const first = current.timeline.firstSeq;
+  if (first === -1 || first - seq > JUMP_MAX) return false;
+  if (first <= seq) return true;
+  update(agentId, (s) => ({ ...s, loadingOlder: true }));
+  try {
+    const page = await client.agents.entries({ agentId, after: seq - 1, limit: first - seq });
+    update(agentId, (s) => {
+      const firstNow = s.entries[0]?.seq ?? Number.POSITIVE_INFINITY;
+      const entries = [...page.entries.filter((entry) => entry.seq < firstNow), ...s.entries];
+      const hasMore = firstNow <= seq ? s.hasMore : seq > 0;
+      return { ...s, entries, timeline: timelineOf(entries), hasMore, loadingOlder: false };
+    });
+    return true;
+  } catch (error) {
+    update(agentId, (s) => ({ ...s, loadingOlder: false }));
+    throw error;
+  }
+}
+
 // ─── Drafts ────────────────────────────────────────────────────────────────
 
 /** What you are typing to each agent. In memory only: a draft may hold a secret (roamgate #70). */

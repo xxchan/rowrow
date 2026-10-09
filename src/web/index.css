@@ -226,17 +226,34 @@
 }
 
 /* Typing on a phone (roamgate #347): the keyboard takes half the screen, so while the composer
-   has focus the page's header folds to the safe-area strip and the update banner steps aside,
-   and the conversation keeps those rows. No animation: they're back as soon as focus leaves. */
+   (or the conversation's search field) has focus the page's header folds to the safe-area strip
+   and the update banner steps aside, and the conversation keeps those rows. No animation:
+   they're back as soon as focus leaves. */
 @media (max-width: 767px) {
-  :root:has(textarea[data-composer]:focus) [data-folds-while-typing] {
+  :root:has(textarea[data-composer]:focus, input[data-transcript-search]:focus) [data-folds-while-typing] {
     min-height: 0;
     padding-block: env(safe-area-inset-top, 0px) 0;
     border-bottom: none;
     box-shadow: none;
   }
-  :root:has(textarea[data-composer]:focus) [data-folds-while-typing] > *,
-  :root:has(textarea[data-composer]:focus) [data-hides-while-typing] {
+  :root:has(textarea[data-composer]:focus, input[data-transcript-search]:focus) [data-folds-while-typing] > *,
+  :root:has(textarea[data-composer]:focus, input[data-transcript-search]:focus) [data-hides-while-typing] {
     display: none;
+  }
+}
+
+/* What a conversation search jumped to (D-055) flashes. (What matched in it is marked by
+   ::highlight(), styled from TranscriptSearch.tsx: the CSS build doesn't know that selector.) */
+[data-found] {
+  border-radius: var(--radius-md);
+  animation: found 2s ease-out;
+}
+@keyframes found {
+  from {
+    box-shadow: 0 0 0 3px var(--ring);
+    background-color: color-mix(in oklab, var(--primary) 14%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
   }
 }

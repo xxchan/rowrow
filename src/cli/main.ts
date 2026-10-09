@@ -19,6 +19,7 @@ import {
   runOutcome,
   type CommandRun,
 } from "../shared/commands.ts";
+import { stamp } from "../shared/describe.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
 import { fastOn, fastTierOf, NO_TIER, tierWords } from "../shared/service-tier.ts";
@@ -82,6 +83,9 @@ Agents
   rowrow agent wait <agent> [--until done,blocked,idle] [--timeout 10m]
   rowrow agent view <agent> [--turns N] [--follow]      the transcript, as the UI shows it
   rowrow agent entries <agent> [--after N] [--full] [--follow]   the raw log (JSON lines)
+  rowrow agent search <agent> <text…> [--limit 200]   where it was said or done: your messages,
+                                   its answers, its tool calls' input and output (any case, plain
+                                   text), newest last, each with its log seq
   rowrow agent abort|stop|archive|seen|pin|unpin <agent>
   rowrow agent fast <agent> [on|off]   Fast mode from the next message (codex's /fast; claude's
                                    fast mode); without on|off it toggles
@@ -730,6 +734,29 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
       if (h.bool("follow"))
         for await (const batch of await client.agents.watch({ agentId, after: page.headSeq }))
           batch.entries.forEach(print);
+      return;
+    }
+    case "search": {
+      const limit = h.str("limit") === undefined ? undefined : Number(h.str("limit"));
+      const found = await client.agents.search({
+        agentId,
+        text: rest.join(" "),
+        ...(limit === undefined ? {} : { limit }),
+      });
+      h.out(found, () => {
+        const total = found.counts.you + found.counts.agent + found.counts.tool;
+        if (total === 0) return `nothing matches "${rest.join(" ")}"`;
+        const width = String(found.hits.at(-1)?.seq ?? 0).length;
+        return [
+          ...(found.more
+            ? [`(${total} matches: only the newest ${found.hits.length} are shown; --limit up to 1000)`]
+            : []),
+          ...found.hits.map((hit) => {
+            const who = hit.who === "tool" ? `${hit.tool ?? "tool"} ${hit.field}` : hit.who;
+            return `${String(hit.seq).padStart(width)}  ${stamp(hit.at)}  ${who.padEnd(14)} ${hit.snippet}`;
+          }),
+        ].join("\n");
+      });
       return;
     }
     case "abort": {

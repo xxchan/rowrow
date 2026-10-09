@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { appName, DEFAULT_SETTINGS, type HostInfo } from "../shared/schemas.ts";
 import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
+import { TranscriptSearches } from "./agents/search.ts";
 import { AgentService } from "./agents/service.ts";
 import { createRouter } from "./api/router.ts";
 import { UsageService } from "./usage.ts";
@@ -305,6 +306,7 @@ export async function startServer(
     coach,
     tasks,
     agentLog,
+    searches: new TranscriptSearches(agentLog, (id) => agents.get(id)?.summary.runtime ?? ""),
     runtimes,
     usage,
     devices,
