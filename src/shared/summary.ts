@@ -455,6 +455,7 @@ function foldRecord(
           case "compaction_started":
           case "compaction_ended":
           case "retry":
+          case "service_tier":
           // Folded by foldTasks, every agent's, not just the root's.
           case "task_started":
           case "task_updated":
