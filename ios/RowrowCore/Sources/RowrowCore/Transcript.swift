@@ -107,6 +107,8 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
     public let lane: [String]
     public let type: String
     public let answered: Bool
+    /// The runtime took it back before anyone answered (servers from 0.3.67 on).
+    public let cancelled: Bool?
   }
 
   public struct Notice: Codable, Sendable, Equatable, Identifiable {

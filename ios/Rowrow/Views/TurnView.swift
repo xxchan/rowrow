@@ -247,7 +247,11 @@ private struct StepRow: View {
         .padding(.horizontal, 8)
     case .request(let request):
       Label(
-        request.answered ? "It asked (\(request.type)); rowrow answered." : "It's asking for something rowrow can't answer yet (\(request.type)).",
+        request.answered
+          ? "It asked (\(request.type)); rowrow answered."
+          : request.cancelled == true
+            ? "It asked (\(request.type)), then took it back."
+            : "It's asking for something rowrow can't answer yet (\(request.type)).",
         systemImage: "questionmark.bubble"
       )
       .font(.footnote)
