@@ -43,6 +43,7 @@ import { AddWorkspace } from "./AddWorkspace.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
 import { ComposerAttachments } from "./Attachments.tsx";
 import { ErrorText } from "./ErrorText.tsx";
+import { HookReview } from "./HookReview.tsx";
 
 /** On a touch screen Return is a newline, as in the composer. */
 const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -520,8 +521,9 @@ export function NewAgentForm({
     </div>
   );
 
-  const branchInput = isolated && (
-    <div className={inline ? "px-3 pb-3" : "px-4 pb-3"}>
+  // The new worktree's setup hook, when the repository has one, before it runs.
+  const branchInput = isolated && selected !== undefined && (
+    <div className={cn("flex flex-col gap-2", inline ? "px-3 pb-3" : "px-4 pb-3")}>
       <Input
         aria-label="Branch"
         value={branch}
@@ -529,6 +531,7 @@ export function NewAgentForm({
         placeholder="Branch: rowrow/… (a random name when empty)"
         className="h-8"
       />
+      <HookReview workspaceId={selected.id} action="create" quiet />
     </div>
   );
 

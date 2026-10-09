@@ -58,6 +58,9 @@ file when something lands.
 - **Pinned agents** (#295, D-046): Pin agent in an agent's menu puts it first in the side nav,
   on Home, in its workspace and in ⌘K, on every device; a pin on its row unpins it, and a
   pinned agent can't be archived. `rowrow agent pin|unpin`.
+- **Worktree hooks, shown before they run** (#296): the New worktree and Remove dialogs (and
+  the new-agent form with New worktree on) say which file the hooks come from (rowrow.json,
+  or roamgate.json / paseo.json read for compatibility), where it is, and what will run.
 - **A wave bar on agent transcripts** (#354): the right edge of the conversation marks each
   message and what's on screen; hover a mark to preview it, click it or use the arrow keys to
   jump there. Coach's chat has the same one. Desktop only.
@@ -119,7 +122,7 @@ file when something lands.
 Inspector: GitLab MRs, image and PDF previews.
 
 Diff readability (highlighting, search, side by side, image diffs); workspace management in
-the UI (rename, archive, pin, forget, discover worktrees, review hooks before running them,
+the UI (rename, archive, pin, forget, discover worktrees, turn hooks off per repository,
 update from origin); transcript filters, turn durations, copy a whole reply, session
 download; theme and text-size overrides; more keyboard shortcuts and a recent-agents
 switcher; PDF and HTML previews; open a session started outside rowrow; a Machines

@@ -82,6 +82,29 @@ export const Workspace = z.object({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
+/** A repository's worktree hooks as rowrow would run them (docs/git.md, "Hooks"). */
+export const WorktreeHooks = z.object({
+  config: z
+    .object({
+      path: z.string().describe("The one file the hooks come from."),
+      file: z.string().describe("Its name: rowrow.json, roamgate.json or paseo.json."),
+      legacy: z.boolean().describe("Another tool's file, read for compatibility."),
+      hooks: z.object({
+        setup: z.string().optional(),
+        opened: z.string().optional(),
+        teardown: z.string().optional(),
+        removed: z.string().optional(),
+      }),
+    })
+    .nullable()
+    .describe("null: no hook file, so nothing runs."),
+  error: z
+    .string()
+    .nullable()
+    .describe("A hook file exists but can't be used; creating or removing a worktree fails with this."),
+});
+export type WorktreeHooks = z.infer<typeof WorktreeHooks>;
+
 // ─── Agents ──────────────────────────────────────────────────────────────────
 
 export interface AgentState {

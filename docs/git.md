@@ -90,6 +90,14 @@ kept (the end says why a hook failed). The result is `{ ok, code, timedOut, outp
 logged as `git.hook.ran`. If a hook leaves a background process holding its output open,
 the run ends 1 s after the shell exits; the background process is left alone.
 
+**Review** (`workspaces.hooks {id, action}`, roamgate #296): before a hook runs, the dialogs
+that create or remove a worktree (and the new-agent form, when a repository has hooks and
+New worktree is on) show the file that is in effect, whether it is rowrow's own or another
+tool's read for compatibility, its path, and the commands this action runs; a file that
+can't be used shows its error there. `create` resolves against the checkout the worktree
+comes from (the new worktree's own copy, if origin's default branch has one, wins when it
+runs); `remove` resolves exactly as removal will.
+
 ## Turn snapshots (`snapshots.ts`)
 
 When a turn starts, `SnapshotStore.capture(dir)` records the whole worktree (tracked and

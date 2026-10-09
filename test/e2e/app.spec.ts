@@ -154,6 +154,40 @@ test("pin an agent: it leads every list, can't be archived, and unpins in one ta
   expect((await rowrow.client.state.get()).state.agents[agent.id]?.pinnedAt).toBeNull();
 });
 
+test("a new worktree's dialog says which hook file runs and what, before it does", async ({
+  page,
+  rowrow,
+}) => {
+  const repo = rowrow.repo();
+  fs.writeFileSync(
+    path.join(repo, "rowrow.json"),
+    JSON.stringify({ worktree: { setup: "echo ready > ready.txt" } }),
+  );
+  const ws = await rowrow.client.workspaces.add({ path: repo });
+  await rowrow.open(page, `/w/${ws.id}`);
+
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByRole("menuitem", { name: "New worktree…" }).click();
+  const dialog = page.getByRole("dialog", { name: "New worktree" });
+  const hooks = dialog.getByRole("region", { name: "Repository hooks" });
+  await expect(hooks).toContainText("1 configured · rowrow.json (native)");
+  await expect(hooks).toContainText(path.join(repo, "rowrow.json"));
+  await expect(hooks).toContainText("Setupecho ready > ready.txt");
+  await dialog.getByLabel("Branch").fill("feature/hooks");
+  await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("heading", { name: "feature/hooks" })).toBeVisible();
+  const { state } = await rowrow.client.state.get();
+  const worktree = Object.values(state.workspaces).find((w) => w.parentId === ws.id);
+  expect(fs.readFileSync(path.join(worktree?.path ?? "", "ready.txt"), "utf8")).toBe("ready\n");
+
+  // Removing it runs nothing, and says so.
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByRole("menuitem", { name: "Remove this worktree…" }).click();
+  await expect(page.getByRole("alertdialog").getByRole("region", { name: "Repository hooks" })).toContainText(
+    "No teardown or removed hook: nothing runs.",
+  );
+});
+
 test("double-click an agent's title to rename it", async ({ page, rowrow }, info) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({

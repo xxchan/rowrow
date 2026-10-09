@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { byPin, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
+import { HookReview } from "../components/HookReview.tsx";
 import {
   Inspector,
   saveInspectorTab,
@@ -260,7 +261,9 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
         action="Remove"
         busy={busy}
         onAction={() => void remove(false)}
-      />
+      >
+        <HookReview workspaceId={ws.id} action="remove" />
+      </Confirm>
       <Confirm
         open={removing === "dirty"}
         onCancel={() => setRemoving(null)}
@@ -291,6 +294,7 @@ function Confirm({
   action,
   busy,
   onAction,
+  children,
 }: {
   open: boolean;
   onCancel: () => void;
@@ -299,6 +303,8 @@ function Confirm({
   action: string;
   busy: boolean;
   onAction: () => void;
+  /** More to read before acting. */
+  children?: ReactNode;
 }) {
   return (
     <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
@@ -307,6 +313,7 @@ function Confirm({
           <AlertDialogTitle>{heading}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
+        {children}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -381,6 +388,7 @@ function NewWorktreeDialog({
             placeholder="rowrow/… (a random name when empty)"
             className="font-mono"
           />
+          <HookReview workspaceId={workspaceId} action="create" />
           {error !== null && <ErrorText>{error}</ErrorText>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>

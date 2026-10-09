@@ -55,6 +55,7 @@ import {
   UpgradeResult,
   type StateMessage,
   Workspace,
+  WorktreeHooks,
 } from "./schemas.ts";
 
 const ok = z.object({ ok: z.literal(true) });
@@ -176,6 +177,13 @@ const workspaces = {
         hook: z.object({ ran: z.boolean(), ok: z.boolean(), output: z.string() }).nullable(),
       }),
     ),
+  hooks: oc
+    .route({
+      summary:
+        "The repository's worktree hooks, before rowrow runs them: the one file they come from (rowrow.json, else roamgate.json or paseo.json, read as legacy) and its commands. `create`: what a new worktree made from this checkout runs (from this checkout's file; the new worktree's own copy wins if it has one). `remove`: what removing this linked worktree runs.",
+    })
+    .input(z.object({ id: workspaceId, action: z.enum(["create", "remove"]) }))
+    .output(WorktreeHooks),
   removeWorktree: oc
     .route({
       summary:

@@ -12,7 +12,9 @@ import type {
   PullRequestStatus,
   SeenFile,
   Workspace,
+  WorktreeHooks,
 } from "../../shared/schemas.ts";
+import { basename } from "node:path";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
 import { fileDiff, listChanges } from "../git/changes.ts";
@@ -133,6 +135,16 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
     return new UserError(error instanceof Error ? error.message : String(error));
   };
 
+  /** The checkout a linked worktree was made from: where its hooks run once it's gone. */
+  const sourceOf = async (ws: Workspace & { git: NonNullable<Workspace["git"]> }): Promise<string> => {
+    if (!ws.git.linked)
+      throw new UserError(
+        `${ws.label} is a repository's main checkout, not a worktree; only worktrees can be removed`,
+      );
+    const parent = ws.parentId === null ? undefined : workspaces.get(ws.parentId);
+    return parent?.path ?? (await listWorktrees(ws.path))[0]?.path ?? ws.git.repoRoot;
+  };
+
   const hook = async (
     event: HookEvent,
     target: string,
@@ -214,14 +226,33 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       }
     },
 
+    async hooks(workspaceId, action): Promise<WorktreeHooks> {
+      const ws = gitWorkspace(workspaceId);
+      // A new worktree's setup reads its own file first, then this checkout's: before it exists,
+      // this checkout's is the best answer (the same file unless origin's differs).
+      const source = action === "create" ? ws.path : await sourceOf(ws);
+      try {
+        const config = await resolveHooks({ target: ws.path, source });
+        return {
+          config:
+            config === null
+              ? null
+              : {
+                  path: config.path,
+                  file: basename(config.path),
+                  legacy: config.legacy,
+                  hooks: config.worktree,
+                },
+          error: null,
+        };
+      } catch (error) {
+        return { config: null, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+
     async removeWorktree(workspaceId, force) {
       const ws = gitWorkspace(workspaceId);
-      if (!ws.git.linked)
-        throw new UserError(
-          `${ws.label} is a repository's main checkout, not a worktree; only worktrees can be removed`,
-        );
-      const parent = ws.parentId === null ? undefined : workspaces.get(ws.parentId);
-      const source = parent?.path ?? (await listWorktrees(ws.path))[0]?.path ?? ws.git.repoRoot;
+      const source = await sourceOf(ws);
       await deps.stopAgentsIn(workspaceId);
       const teardown = await hook("teardown", ws.path, source, ws.path);
       if (teardown !== null && !teardown.ok) {

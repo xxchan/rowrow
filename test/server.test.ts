@@ -777,6 +777,41 @@ describe("git", () => {
     expect(fs.existsSync(wt.path)).toBe(false);
     expect((await t.client.state.get()).state.workspaces[wt.id]?.archived).toBe(true);
   });
+
+  it("says which hook file and commands a worktree will run, before running them", async () => {
+    t = await startTestServer();
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const create = () => t!.client.workspaces.hooks({ id: ws.id, action: "create" });
+    expect(await create()).toEqual({ config: null, error: null });
+
+    fs.writeFileSync(path.join(ws.path, "paseo.json"), JSON.stringify({ worktree: { setup: "true" } }));
+    expect(await create()).toEqual({
+      config: {
+        path: path.join(ws.path, "paseo.json"),
+        file: "paseo.json",
+        legacy: true,
+        hooks: { setup: "true" },
+      },
+      error: null,
+    });
+    // Ours wins whole, and a broken one is reported, not skipped.
+    fs.writeFileSync(path.join(ws.path, "rowrow.json"), "{ not json");
+    expect((await create()).error).toMatch(/rowrow\.json is not valid JSON/);
+    fs.writeFileSync(path.join(ws.path, "rowrow.json"), JSON.stringify({ worktree: { removed: "true" } }));
+    expect((await create()).config).toMatchObject({ file: "rowrow.json", legacy: false, hooks: {} });
+
+    // A worktree without a file of its own (they aren't committed) uses its repository's.
+    const { workspace: wt } = await t.client.workspaces.createWorktree({
+      id: ws.id,
+      branch: "feature/hooks",
+    });
+    const remove = await t.client.workspaces.hooks({ id: wt.id, action: "remove" });
+    expect(remove.config).toMatchObject({
+      path: path.join(ws.path, "rowrow.json"),
+      hooks: { removed: "true" },
+    });
+    await expect(t.client.workspaces.hooks({ id: ws.id, action: "remove" })).rejects.toThrow(/main checkout/);
+  });
 });
 
 describe("files", () => {

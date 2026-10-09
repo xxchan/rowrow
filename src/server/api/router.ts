@@ -25,6 +25,7 @@ import type {
   SeenFile,
   StateMessage,
   Workspace,
+  WorktreeHooks,
 } from "../../shared/schemas.ts";
 import type { Attention } from "../../shared/summary.ts";
 import { timelineOf } from "../../shared/timeline.ts";
@@ -79,6 +80,7 @@ export interface GitOps {
   removeWorktree(workspaceId: string, force: boolean): Promise<void>;
   /** The setup hook a worktree of this workspace's repository would run, as its checkout says; null for none. */
   worktreeSetup(workspaceId: string): Promise<string | null>;
+  hooks(workspaceId: string, action: "create" | "remove"): Promise<WorktreeHooks>;
   changes(workspaceId: string, scope: DiffScope, agentId?: string): Promise<Changes>;
   diff(
     workspaceId: string,
@@ -279,6 +281,7 @@ export function createRouter(s: Services) {
           ...(input.base === undefined ? {} : { base: input.base }),
         }),
       ),
+      hooks: os.workspaces.hooks.handler(({ input }) => s.git.hooks(input.id, input.action)),
       removeWorktree: os.workspaces.removeWorktree.handler(async ({ input }) => {
         await s.git.removeWorktree(input.id, input.force ?? false);
         return { ok: true as const };
