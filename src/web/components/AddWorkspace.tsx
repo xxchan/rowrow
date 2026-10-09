@@ -37,7 +37,8 @@ export function AddWorkspace({
     try {
       const result = await client.workspaces.browse(target === undefined ? {} : { path: target });
       setListing(result);
-      setPath(result.path);
+      // The first listing (your home) doesn't replace a path you typed while it loaded.
+      setPath((typed) => (target === undefined && typed !== "" ? typed : result.path));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
