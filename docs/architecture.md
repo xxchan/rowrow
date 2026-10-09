@@ -80,7 +80,7 @@ to the agent; everything the UI shows about an agent is computed from it.
 ```ts
 type Entry = { seq: number; at: number } & (
   | { kind: "agent.created"; workspaceId; runtime; model?; title?; role?; by } // role "coach": D-044
-  | { kind: "agent.updated"; changes; by }              // title, model, archived
+  | { kind: "agent.updated"; changes; by; reason? }     // title, model, archived; reason: D-047
   | { kind: "input"; inputId; text; mode; by; scope?; fullAccess? } // what you sent, before delivery
   | { kind: "input.result"; inputId; landed; code?; reason? } // where it landed
   | { kind: "run.started"; runId; runtime; model?; cwd; resume?; sessionId }
@@ -281,12 +281,23 @@ message says what to do next.
 
 ## Workspaces and git
 
-- A workspace is registered by path. rowrow reads its git facts (repository key, branch,
-  upstream ahead and behind, changed files) and refreshes them after turns and on demand.
+- A workspace is registered by path (the + beside the side nav's Workspaces, ⌘K's New
+  workspace, `rowrow ws add`), optionally with a name. rowrow reads its git facts (repository
+  key, branch, upstream ahead and behind, changed files) and refreshes them after turns and on
+  demand.
+- **Rename, archive, remove** (D-047; the workspace's right-click and ⋯ menus, ⌘K, `rowrow ws
+  rename|archive|unarchive|remove`, a swipe on iOS). Archiving hides the workspace, the
+  worktrees under it and their agents (through the workspace: `src/shared/workspaces.ts`,
+  their own flags untouched), stops their runs and refuses new agents, sends and worktrees
+  there until it's unarchived. Removing (`workspaces.remove`, `workspaces/lifecycle.ts`)
+  makes rowrow forget it and the worktrees registered under it, never their files; refused
+  while one of their agents works; their agents are archived with the reason, and their
+  turn baselines, snapshots, pull request cache and Coach permission go.
 - **Worktrees.** "New worktree" creates a branch and a linked worktree from the freshly
   fetched default branch of `origin` (never assumed to be `main`), registers it as a
   workspace in the repository's group, and runs the repository's hooks. Removal refuses
-  a dirty checkout unless forced and never deletes the branch.
+  a dirty checkout unless forced and never deletes the branch; rowrow then forgets the
+  workspace and archives its agents.
 - **Hooks** come from `rowrow.json` at the repository root: `worktree.setup`, `opened`,
   `teardown`, `removed`. A failed teardown blocks removal.
 - **Diffs** have three scopes: working tree, branch (against the merge base with the

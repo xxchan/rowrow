@@ -23,8 +23,8 @@ file when something lands.
 
 - **Keyboard shortcuts sheet**: `?` anywhere, or the keyboard button beside Settings.
 - **Right-click menus** (long press on touch): an agent's actions on its rows in the nav and
-  on Home (the same list as its ⋯ menu), a workspace's (new agent here, copy path), and a
-  changed file's (copy path, stage, discard).
+  on Home (the same list as its ⋯ menu), a workspace's (the same list as its page's ⋯
+  menu), and a changed file's (copy path, stage, discard).
 - **Small things from roamgate 0.8** (#347, #353, #354, #368): double-click an agent's title
   to rename it; a title suffix per server ("rowrow · Work") for its tabs and installed app;
   per-device preferences (theme, Changes scope, inspector width) follow across open tabs; on a
@@ -58,6 +58,12 @@ file when something lands.
 - **Pinned agents** (#295, D-046): Pin agent in an agent's menu puts it first in the side nav,
   on Home, in its workspace and in ⌘K, on every device; a pin on its row unpins it, and a
   pinned agent can't be archived. `rowrow agent pin|unpin`.
+- **Workspace management** (#5, D-047): New workspace from a + beside the side nav's
+  Workspaces (and ⌘K), with an optional name; Rename… (or double-click), Archive…/Unarchive
+  and Remove from rowrow… in a workspace's right-click and ⋯ menus and in ⌘K, a swipe on
+  iOS, `rowrow ws rename|archive|unarchive|remove`. Archive hides it with its worktrees and
+  agents and stops their runs; Remove forgets it (never its files) and archives its agents.
+  Archived workspaces wait folded at the bottom of the side nav.
 - **Worktree hooks, shown before they run** (#296): the New worktree and Remove dialogs (and
   the new-agent form with New worktree on) say which file the hooks come from (rowrow.json,
   or roamgate.json / paseo.json read for compatibility), where it is, and what will run.

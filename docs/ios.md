@@ -47,7 +47,7 @@ away if you want others.
 | Agents | Inbox | Needs you, Working, Idle; search; swipe and long-press actions; the connection's state |
 | | Conversation | turns (answer first, work folded), the composer, next agent, changes, ⋯ actions |
 | | Changes, Diff | scopes, file actions, line comments, the review bar |
-| Workspaces | List | repositories with their worktrees, changed files, agents' states |
+| Workspaces | List | repositories with their worktrees, changed files, agents' states; a swipe or long press renames, archives or removes one (D-047), archived ones last |
 | | Workspace | agents, changes, history, file search, pull request, new agent or worktree here |
 | | History, Commit, Search, File | read-only views of the checkout |
 | Settings | | the server, notifications, quick replies, devices (pair one with a QR code), runtimes, servers, sign out |

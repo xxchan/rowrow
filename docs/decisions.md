@@ -1285,3 +1285,44 @@ to, and places that move aren't places; attention stays visible on every row.
 
 **Revisit when** people pin so many agents that the Pinned group pushes "Needs you" off the
 first screen, or want to pin workspaces too.
+
+## D-047 Archive hides a workspace; Remove makes rowrow forget it, never its files (2026-10-09)
+
+**Context.** A workspace could only be added, from a corner of the New agent dialog, and
+`workspaces.update {archived}` existed with no UI: archiving hid the workspace but left its
+agents in every list, sendable, and nothing could take a workspace out of rowrow at all. The
+owner asked for roamgate's workspace management (#5: create, rename, close), with archive and
+delete. rowrow's workspace is a directory and its agents are the durable unit (D-007), so
+"delete" can't mean the folder, and an agent's log is never deleted.
+
+**Decision.** Two acts, kept apart:
+
+- **Archive** (`workspaces.update {archived}`, reversible) hides the workspace, the linked
+  worktrees under it and the agents in all of them, and stops their runs. While it's archived,
+  nobody can start an agent there, send, resume, or make a worktree of it: the server refuses
+  with "unarchive the workspace". The agents are hidden *through* the workspace
+  (`src/shared/workspaces.ts`: `workspaceArchived`, `agentListed`); their own `archived` flags
+  and pins are left alone, so Unarchive brings back exactly what was there. Archived
+  workspaces wait in a folded Archived section at the bottom of the side nav.
+- **Remove** (`workspaces.remove {id}`) makes rowrow forget the workspace and the linked
+  worktrees registered under it: the database rows and the per-workspace things rowrow kept
+  (turn baselines, the pull request cache, the repository's snapshots once no workspace of it
+  is left, Coach's permission to read it). It never touches a file, a checkout or a branch.
+  Its agents are archived (pinned ones unpinned), with the reason in their logs
+  (`agent.updated` with `reason`), and keep their logs; they then name their workspace
+  "removed workspace". Adding the folder again makes a new workspace. Remove is refused while
+  one of those agents is working, checked when it runs (PRINCIPLES.md, product 4), and its
+  confirmation says what rowrow forgets, that the files stay, which worktrees go with it, and
+  how many agents will be archived. "Remove this worktree" (which deletes a checkout rowrow
+  made) now ends the same way: rowrow forgets the workspace and archives its agents, rather
+  than leaving an archived workspace whose folder is gone.
+
+**Why.** Archive is the everyday "out of my way" and must be cheap to undo, so it changes
+nothing it can't restore; stopping the runs keeps a hidden agent from burning quota or
+needing you unseen. Remove is the cleanup, and the only safe meaning of "delete" for a folder
+rowrow doesn't own: forgetting. Archiving the agents rather than deleting them keeps the
+promise that logs are facts (PRINCIPLES.md, engineering 1).
+
+**Revisit when** people want rowrow to delete the folder too (then a separate, explicit act
+with its own confirmation, like Remove this worktree), or want a removed workspace's agents
+to come back when its folder is added again.
