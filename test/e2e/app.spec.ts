@@ -682,6 +682,109 @@ test("download a file or a folder from the inspector, and hear why when it can't
   await expect(page.getByText(/huge\.iso is 257 MiB: downloads stop at 256 MiB/)).toBeVisible();
 });
 
+test("files open in tabs: a click reuses the temporary one, a double-click or Enter keeps it", async ({
+  page,
+  rowrow,
+}, info) => {
+  const repo = rowrow.repo();
+  for (const [file, text] of [
+    ["alpha.ts", "the alpha file"],
+    ["beta.ts", "the beta file"],
+    ["gamma.ts", "the gamma file"],
+    ["docs/alpha.ts", "the other alpha"],
+  ] as const) {
+    fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+    fs.writeFileSync(path.join(repo, file), `${text}\n`);
+  }
+  commit(repo, "files");
+  const phone = info.project.name === "phone";
+  const inspector = await inspect(page, rowrow, phone, repo, "Files");
+  const tabs = inspector.getByRole("tablist", { name: "Open files" });
+  const tab = (name: string) => tabs.getByRole("tab", { name, exact: true });
+  const preview = inspector.getByRole("region", { name: "File preview" });
+  const back = async (): Promise<void> => {
+    await inspector.getByRole("button", { name: "Back to results" }).click();
+  };
+
+  // A click opens the temporary tab; the next click reuses it.
+  await inspector.getByRole("treeitem", { name: /^alpha\.ts/ }).click();
+  await expect(preview.getByText("the alpha file")).toBeVisible();
+  await expect(tab("alpha.ts")).toHaveAttribute("title", "alpha.ts · Double-click to keep open");
+  await back();
+  await inspector.getByRole("treeitem", { name: /^beta\.ts/ }).click();
+  await expect(preview.getByText("the beta file")).toBeVisible();
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
+
+  // A double-click on the tab keeps it; the next file gets a temporary tab of its own.
+  await tab("beta.ts").dblclick();
+  await expect(tab("beta.ts")).toHaveAttribute("title", "beta.ts");
+  await back();
+  await inspector.getByRole("treeitem", { name: /^gamma\.ts/ }).click();
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  // Enter keeps the focused temporary tab; arrows move between tabs.
+  await tab("gamma.ts").focus();
+  await page.keyboard.press("Enter");
+  await expect(tab("gamma.ts")).toHaveAttribute("title", "gamma.ts");
+  await page.keyboard.press("ArrowLeft");
+  await expect(tab("beta.ts")).toHaveAttribute("aria-selected", "true");
+  await expect(preview.getByText("the beta file")).toBeVisible();
+
+  // Two files of one name say which folder each is in.
+  await back();
+  await inspector.getByRole("treeitem", { name: /^alpha\.ts/ }).click();
+  await tab("alpha.ts").dblclick();
+  await back();
+  await inspector.getByRole("treeitem", { name: /docs/ }).click();
+  // Folders come first: docs/alpha.ts is the first alpha.ts now.
+  await inspector
+    .getByRole("treeitem", { name: /^alpha\.ts/ })
+    .first()
+    .click();
+  await expect(tab("docs/alpha.ts")).toContainText("docs");
+  await expect(tab("alpha.ts")).toHaveText("alpha.ts");
+
+  // Closing a tab shows its neighbor; the tabs are still there after a reload.
+  await tabs.getByRole("button", { name: "Close beta.ts" }).click();
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
+  await page.reload();
+  if (phone) await page.getByRole("button", { name: /Changes/ }).click();
+  await inspector.getByRole("tab", { name: "Files", exact: true }).click();
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
+  await expect(tab("docs/alpha.ts")).toHaveAttribute("aria-selected", "true");
+  await expect(preview.getByText("the other alpha")).toBeVisible();
+
+  // Delete closes the focused tab; files deleted on disk lose theirs.
+  await tab("docs/alpha.ts").focus();
+  await page.keyboard.press("Delete");
+  await expect(tab("alpha.ts")).toHaveAttribute("aria-selected", "true");
+  await expect(tab("alpha.ts")).toBeFocused();
+  fs.rmSync(path.join(repo, "alpha.ts"));
+  fs.rmSync(path.join(repo, "gamma.ts"));
+  const { state } = await rowrow.client.state.get();
+  const ws = Object.values(state.workspaces).find((w) => w.path === repo);
+  await rowrow.client.workspaces.refresh({ id: ws?.id ?? "" });
+  await expect(tabs).toHaveCount(0);
+  await expect(inspector.getByRole("treeitem", { name: /^beta\.ts/ })).toBeVisible();
+  if (phone) return;
+
+  // Wide enough, the tree and the preview sit side by side: a double-click in the tree keeps.
+  await page.goto(`${rowrow.url}/w/${ws?.id ?? ""}`);
+  const wide = page.getByRole("region", { name: "Inspector" });
+  await wide.getByRole("tab", { name: "Files", exact: true }).click();
+  await wide.getByRole("treeitem", { name: /^beta\.ts/ }).dblclick();
+  const wideTabs = wide.getByRole("tablist", { name: "Open files" });
+  await expect(wideTabs.getByRole("tab", { name: "beta.ts", exact: true })).toHaveAttribute(
+    "title",
+    "beta.ts",
+  );
+  await wide.getByRole("treeitem", { name: /^docs/ }).click();
+  await wide.getByRole("treeitem", { name: /^alpha\.ts/ }).click();
+  await expect(wideTabs.getByRole("tab")).toHaveCount(2);
+  await expect(wide.getByRole("region", { name: "File preview" }).getByText("the other alpha")).toBeVisible();
+  await expect(wide.getByRole("treeitem", { name: /^beta\.ts/ })).toBeVisible();
+  await expect(wide.getByRole("button", { name: "Back to results" })).toHaveCount(0);
+});
+
 test("view a file as it was in a commit from the history, then go back to its diff", async ({
   page,
   rowrow,

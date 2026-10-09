@@ -34,6 +34,8 @@ file when something lands.
   diagram and sanitized so a diagram can't load anything.
 - **Changes as one scroll** (#340): every file's diff in one scroll, loaded as you reach it; a
   File index to jump; generated files and big diffs wait behind View diff.
+- **File preview tabs** (#309): a click previews a file in a temporary tab, a double-click
+  keeps it; the tree and the preview side by side when the inspector is wide.
 
 - **rowrow on npm** (D-018): 0.1.0, published by GitHub Actions from a version tag with
   trusted publishing and provenance; `npx rowrow serve` to try it.

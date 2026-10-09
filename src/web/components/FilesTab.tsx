@@ -1,10 +1,13 @@
 // A workspace's checkout: browse it as a tree (files.list, colored by git status) or find
 // anything in it (roamgate #227): file names and contents in one search, .gitignore honored
 // (files.search, D-021). A file opens a read-only preview, at the matching line for a search
-// hit; "Mention" puts the path in the agent's message, since agents read files by path. A
-// tree row's menu (right-click, long press, or its ⋯) and the preview download a file, or a
-// folder as .tar.gz (roamgate #312). The History tab opens the same preview on a commit's file
-// as it was then (`at`).
+// hit, in a tab (roamgate #309, lib/file-tabs.ts): a single click uses the temporary tab, a
+// double-click keeps it. As wide as roamgate's split (640 px) the tree and the preview sit
+// side by side; narrower, the preview covers the tree and Back returns to it. "Mention" puts
+// the path in the agent's message, since agents read files by path. A tree row's menu
+// (right-click, long press, or its ⋯) and the preview download a file, or a folder as .tar.gz
+// (roamgate #312). The History tab opens the same preview on a commit's file as it was then
+// (`at`).
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,6 +27,7 @@ import { ArrowLeft, AtSign, Copy, Download, FileText as FileIcon, LoaderCircle, 
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -33,12 +37,35 @@ import {
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import type { ChangedFile, FileText, SearchResult } from "../../shared/schemas.ts";
+import { readPref, writePref } from "../lib/device-prefs.ts";
 import { downloadFromWorkspace } from "../lib/download.ts";
+import { closeTab, keepTab, openTab, parseTabs, pruneTabs, type FileTabs } from "../lib/file-tabs.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { ErrorText } from "./ErrorText.tsx";
+import { FileTabStrip } from "./FileTabs.tsx";
 import { copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
 import { MermaidDiagram, mermaidRenderer } from "./MermaidDiagram.tsx";
+
+/** Where the tree and the preview sit side by side (roamgate's inspector split). */
+const SPLIT_PX = 640;
+
+const tabsKey = (workspaceId: string): string => `rowrow.fileTabs.${workspaceId}`;
+
+interface Opened {
+  readonly workspaceId: string;
+  readonly tabs: FileTabs;
+  /** Narrow: the preview covers the tree. */
+  readonly shown: boolean;
+  /** The line the last opening asked for (a search hit). */
+  readonly line: { path: string; line: number } | null;
+}
+
+/** A workspace's tabs as this device left them: its file showing again, over the tree. */
+function restore(workspaceId: string): Opened {
+  const tabs = parseTabs(readPref(tabsKey(workspaceId)));
+  return { workspaceId, tabs, shown: tabs.active !== null, line: null };
+}
 
 export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentId?: string }) {
   const client = useClient();
@@ -49,7 +76,50 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
     data: SearchResult | null;
     error: string | null;
   } | null>(null);
-  const [preview, setPreview] = useState<{ path: string; line: number | null } | null>(null);
+  const [state, setState] = useState(() => restore(workspaceId));
+  const opened = state.workspaceId === workspaceId ? state : restore(workspaceId);
+  // What the tree last listed: tabs of files that are gone drop out.
+  const [listed, setListed] = useState<{ workspaceId: string; paths: ReadonlySet<string> } | null>(null);
+  const tabs =
+    listed?.workspaceId === workspaceId
+      ? pruneTabs(opened.tabs, (path) => listed.paths.has(path))
+      : opened.tabs;
+  const box = useRef<HTMLDivElement>(null);
+  const nav = useRef<HTMLDivElement>(null);
+  const [split, setSplit] = useState(false);
+  const panelId = useId();
+
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (element === null) return;
+    const observer = new ResizeObserver(([entry]) => {
+      // Hidden (another inspector tab) measures 0: keep the layout it had.
+      if (entry !== undefined && entry.contentRect.width > 0) setSplit(entry.contentRect.width >= SPLIT_PX);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  /** The next tabs (stored for this workspace), and whether the preview covers the tree. */
+  const update = (change: (opened: Opened) => Partial<Omit<Opened, "workspaceId">>): void => {
+    const now = { ...opened, tabs };
+    const next = { ...now, ...change(now) };
+    if (next.tabs !== opened.tabs) writePref(tabsKey(workspaceId), JSON.stringify(next.tabs));
+    setState(next);
+  };
+  const open = (path: string, line: number | null = null): void =>
+    update((o) => ({
+      tabs: openTab(o.tabs, path),
+      shown: true,
+      line: line === null ? null : { path, line },
+    }));
+  const keep = (path: string): void => update((o) => ({ tabs: keepTab(o.tabs, path) }));
+  const select = (path: string): void => update((o) => ({ tabs: openTab(o.tabs, path), shown: true }));
+  const close = (path: string): void => update((o) => ({ tabs: closeTab(o.tabs, path) }));
+  const onListed = useCallback(
+    (paths: readonly string[]): void => setListed({ workspaceId, paths: new Set(paths) }),
+    [workspaceId],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 250);
@@ -79,19 +149,20 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
 
   const shown = debounced === "" ? null : result;
   const loading = debounced !== "" && result?.query !== debounced;
+  const active = tabs.active;
+  const covering = !split && opened.shown && active !== null;
   return (
-    <>
-      {preview !== null && (
-        <FilePreview
-          workspaceId={workspaceId}
-          path={preview.path}
-          line={preview.line}
-          onBack={() => setPreview(null)}
-          {...(agentId === undefined ? {} : { agentId })}
-        />
-      )}
+    <div ref={box} className="flex h-full min-h-0">
       {/* Hidden, not unmounted, under a preview: the tree keeps its open folders and scroll. */}
-      <div className={cn("flex h-full min-h-0 flex-col", preview !== null && "hidden")}>
+      <div
+        ref={nav}
+        tabIndex={-1}
+        className={cn(
+          "flex min-h-0 min-w-0 flex-col outline-none",
+          split ? "w-[38%] max-w-80 min-w-48 shrink-0 border-r" : "flex-1",
+          covering && "hidden",
+        )}
+      >
         <div className="shrink-0 border-b px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -109,23 +180,75 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
           </div>
         </div>
         {debounced === "" ? (
-          <FileBrowser workspaceId={workspaceId} onOpen={(path) => setPreview({ path, line: null })} />
+          <FileBrowser
+            workspaceId={workspaceId}
+            onOpen={(path) => open(path)}
+            onKeep={keep}
+            onListed={onListed}
+          />
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {shown?.error !== null && shown?.error !== undefined ? (
               <ErrorText className="px-1">{shown.error}</ErrorText>
             ) : shown?.data === null || shown?.data === undefined ? null : (
-              <Results data={shown.data} onOpen={(path, line) => setPreview({ path, line })} />
+              <Results data={shown.data} onOpen={open} onKeep={keep} />
             )}
           </div>
         )}
       </div>
-    </>
+      {(split || covering) && (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <FileTabStrip
+            tabs={tabs}
+            panelId={panelId}
+            onSelect={select}
+            onKeep={keep}
+            onClose={close}
+            // Not the search box: on a phone that would open the keyboard.
+            onEmpty={() => nav.current?.focus()}
+          />
+          <div
+            id={panelId}
+            role="tabpanel"
+            aria-label={active ?? "File preview"}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            {active === null ? (
+              <p className="px-4 py-10 text-center text-xs text-muted-foreground">
+                Open a file from the tree or a search to preview it here.
+              </p>
+            ) : (
+              <FilePreview
+                key={active}
+                workspaceId={workspaceId}
+                path={active}
+                line={opened.line?.path === active ? opened.line.line : null}
+                {...(split ? {} : { onBack: () => update(() => ({ shown: false })) })}
+                {...(agentId === undefined ? {} : { agentId })}
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-/** Every file of the checkout as a tree, git's view of each colored in; clicking a file opens it. */
-function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (path: string) => void }) {
+/**
+ * Every file of the checkout as a tree, git's view of each colored in; clicking a file opens
+ * it, double-clicking keeps its tab. `onListed` hears every listing that wasn't cut short.
+ */
+function FileBrowser({
+  workspaceId,
+  onOpen,
+  onKeep,
+  onListed,
+}: {
+  workspaceId: string;
+  onOpen: (path: string) => void;
+  onKeep: (path: string) => void;
+  onListed: (paths: readonly string[]) => void;
+}) {
   const client = useClient();
   const gitVersion = useApp((s) => s.state?.workspaces[workspaceId]?.git?.updatedAt ?? 0);
   const { model } = useFileTree({
@@ -168,6 +291,7 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
         }
         model.setGitStatus(changes === null ? [] : changes.files.flatMap(gitStatus));
         setLoaded({ workspaceId, count: files.paths.length, truncated: files.truncated, error: null });
+        if (!files.truncated) onListed(files.paths);
       } catch (error) {
         report("warn", "files.list_failed", error, { workspaceId, gitVersion });
         if (!cancelled)
@@ -182,7 +306,7 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
     return () => {
       cancelled = true;
     };
-  }, [client, model, workspaceId, gitVersion]);
+  }, [client, model, workspaceId, gitVersion, onListed]);
 
   const longPress = useLongPress();
   const state = loaded?.workspaceId === workspaceId ? loaded : null;
@@ -211,6 +335,11 @@ function FileBrowser({ workspaceId, onOpen }: { workspaceId: string; onOpen: (pa
           const row = rowOf(event.nativeEvent);
           if (row?.dataset.itemType === "file" && row.dataset.itemPath !== undefined)
             onOpen(row.dataset.itemPath);
+        }}
+        onDoubleClick={(event) => {
+          const row = rowOf(event.nativeEvent);
+          if (row?.dataset.itemType === "file" && row.dataset.itemPath !== undefined)
+            onKeep(row.dataset.itemPath);
         }}
         {...longPress}
         renderContextMenu={(item, context) => {
@@ -375,9 +504,11 @@ function gitStatus(
 function Results({
   data,
   onOpen,
+  onKeep,
 }: {
   data: SearchResult;
   onOpen: (path: string, line: number | null) => void;
+  onKeep: (path: string) => void;
 }) {
   const byFile = new Map<string, SearchResult["lines"]>();
   for (const hit of data.lines) byFile.set(hit.path, [...(byFile.get(hit.path) ?? []), hit]);
@@ -394,6 +525,7 @@ function Results({
               key={path}
               type="button"
               onClick={() => onOpen(path, null)}
+              onDoubleClick={() => onKeep(path)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/60"
             >
               <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -412,6 +544,7 @@ function Results({
               <button
                 type="button"
                 onClick={() => onOpen(path, null)}
+                onDoubleClick={() => onKeep(path)}
                 className="truncate rounded-md px-2 pt-1.5 pb-0.5 text-left font-mono text-[11.5px] text-muted-foreground hover:text-foreground"
               >
                 {path}
@@ -421,6 +554,7 @@ function Results({
                   key={hit.line}
                   type="button"
                   onClick={() => onOpen(path, hit.line)}
+                  onDoubleClick={() => onKeep(path)}
                   className="flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left hover:bg-accent/60"
                 >
                   <span className="w-8 shrink-0 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
@@ -490,7 +624,8 @@ export function FilePreview({
   workspaceId: string;
   path: string;
   line: number | null;
-  onBack: () => void;
+  /** Back to the tree or the results (none when they're beside it). */
+  onBack?: () => void;
   backLabel?: string;
   agentId?: string;
   /** The commit to read it at (files.read `rev`), and what to say about that version. */
@@ -539,10 +674,12 @@ export function FilePreview({
       aria-label={at === undefined ? "File preview" : "Historical file preview"}
     >
       <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-        <Button variant="ghost" size="icon" className="size-8" aria-label={backLabel} onClick={onBack}>
-          <ArrowLeft />
-        </Button>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={path}>
+        {onBack !== undefined && (
+          <Button variant="ghost" size="icon" className="size-8" aria-label={backLabel} onClick={onBack}>
+            <ArrowLeft />
+          </Button>
+        )}
+        <span className="min-w-0 flex-1 truncate px-1 font-mono text-[12.5px]" title={path}>
           {path}
         </span>
         {at !== undefined && (
