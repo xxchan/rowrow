@@ -7,6 +7,7 @@ import { Bot, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
+import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { NewAgentForm, useNewAgent } from "../components/NewAgentDialog.tsx";
 import { PageHeader } from "../components/Shell.tsx";
@@ -28,13 +29,13 @@ export function HomePage({ route }: { route: Route }) {
   const agents = useMemo(
     () =>
       Object.values(state.agents)
-        .filter((a) => !a.summary.archived)
+        .filter((a) => agentListed(state.workspaces, a))
         .sort(
           (a, b) =>
             ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
             b.summary.lastActivityAt - a.summary.lastActivityAt,
         ),
-    [state.agents],
+    [state.agents, state.workspaces],
   );
   const rest = agents.filter((a) => a.pinnedAt === null);
   const groups: [string, AgentState[]][] = [
@@ -158,7 +159,7 @@ function AgentRow({ agent, state, now }: { agent: AgentState; state: AppState; n
                 </span>
               )}
               {agent.summary.tasks.length > 0 && ` · ${agent.summary.tasks.length} in background`}
-              {` · ${ws?.label ?? "?"}`}
+              {` · ${workspaceLabel(state.workspaces, agent.summary.workspaceId)}`}
               {branch !== undefined && branch !== null && branch !== ws?.label && ` (${branch})`}
               {` · ${runtime}`}
             </div>

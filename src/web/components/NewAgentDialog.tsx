@@ -35,6 +35,7 @@ import { attachFiles, clearFiles, detachFile, filesOf, readyFiles } from "../lib
 import { defaultNote, versionNumber } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup, type NewAgentContext } from "../../shared/new-agent-setup.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { useApp, useClient, usePendingAttachments } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
@@ -132,7 +133,7 @@ export function NewAgentForm({
   const workspaces = useMemo(
     () =>
       Object.values(state?.workspaces ?? {})
-        .filter((w) => !w.archived)
+        .filter((w) => !workspaceArchived(state?.workspaces ?? {}, w.id))
         .sort((a, b) => a.label.localeCompare(b.label)),
     [state?.workspaces],
   );

@@ -1,4 +1,5 @@
-// One workspace: its git state, its agents, and its worktrees.
+// One workspace: its git state, its agents, and its worktrees. Its ⋯ menu has what its
+// right-click menu in the side nav has (WorkspaceActions.tsx), and its worktree actions.
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,14 +23,26 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ORPCError } from "@orpc/client";
-import { Ellipsis, GitBranch, LoaderCircle, Pin, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Ellipsis,
+  GitBranch,
+  LoaderCircle,
+  Pin,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { byPin, type AppState, type Workspace } from "../../shared/schemas.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
 import { HookReview } from "../components/HookReview.tsx";
@@ -39,7 +52,9 @@ import {
   savedInspectorTab,
   type InspectorTab,
 } from "../components/Inspector.tsx";
+import { MenuActions } from "../components/MenuActions.tsx";
 import { useNewAgent } from "../components/NewAgentDialog.tsx";
+import { openWorkspaceDialog, useUnarchive, useWorkspaceActions } from "../components/WorkspaceActions.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
@@ -69,11 +84,33 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
     .sort((a, b) => byPin(a, b) || b.summary.lastActivityAt - a.summary.lastActivityAt);
   const worktrees = Object.values(state.workspaces).filter((w) => w.parentId === ws.id);
   const git = ws.git;
+  // Archived itself, or a worktree of an archived repository (D-047).
+  const archived = workspaceArchived(state.workspaces, ws.id);
+  const parent = ws.parentId === null ? undefined : state.workspaces[ws.parentId];
+  const unarchive = useUnarchive();
 
   const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
   const [newWorktree, setNewWorktree] = useState(false);
   const [removing, setRemoving] = useState<"ask" | "dirty" | null>(null);
   const [busy, setBusy] = useState(false);
+  const actions = useWorkspaceActions(ws, {
+    here: true,
+    top:
+      git === null || ws.missing || archived
+        ? []
+        : [{ label: "New worktree…", icon: <GitBranch />, run: () => setNewWorktree(true) }],
+    danger:
+      git?.linked === true && !ws.missing
+        ? [
+            {
+              label: "Remove this worktree…",
+              icon: <Trash2 />,
+              destructive: true,
+              run: () => setRemoving("ask"),
+            },
+          ]
+        : [],
+  });
 
   const remove = async (force: boolean): Promise<void> => {
     if (client === null) return;
@@ -120,6 +157,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
       <PageHeader
         route={route}
         title={ws.label}
+        onRename={() => openWorkspaceDialog("rename", ws.id)}
         subtitle={
           <span className="font-mono">
             {ws.path}
@@ -131,34 +169,53 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
             <Button variant="ghost" size="icon" aria-label="Refresh" onClick={() => void refresh()}>
               <RefreshCw />
             </Button>
-            {git !== null && !ws.missing && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Workspace actions">
-                    <Ellipsis />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => setNewWorktree(true)}>
-                    <GitBranch /> New worktree…
-                  </DropdownMenuItem>
-                  {git.linked && (
-                    <DropdownMenuItem variant="destructive" onSelect={() => setRemoving("ask")}>
-                      <Trash2 /> Remove this worktree…
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Workspace actions">
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <MenuActions
+                  actions={actions}
+                  parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }}
+                />
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {!archived && (
+              <Button size="sm" onClick={() => open({ workspaceId: ws.id })}>
+                <Plus /> <span className="hidden sm:inline">New agent here</span>
+                <span className="sm:hidden">New agent</span>
+              </Button>
             )}
-            <Button size="sm" onClick={() => open({ workspaceId: ws.id })}>
-              <Plus /> <span className="hidden sm:inline">New agent here</span>
-              <span className="sm:hidden">New agent</span>
-            </Button>
           </>
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-4xl flex-col gap-6 px-3 py-4 md:px-6 md:py-6">
+          {archived && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm"
+            >
+              <Archive className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                {ws.archived
+                  ? "Archived: hidden with its worktrees and agents, and no agent can start or be messaged here."
+                  : `Archived with ${parent?.label ?? "its repository"}: hidden, and no agent can start or be messaged here.`}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const target = ws.archived ? ws : parent;
+                  if (target !== undefined) unarchive(target);
+                }}
+              >
+                <ArchiveRestore /> {ws.archived ? "Unarchive" : `Unarchive ${parent?.label ?? "it"}`}
+              </Button>
+            </div>
+          )}
           {facts !== null && (
             <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
               <GitBranch className="size-3.5" /> {facts}
@@ -168,14 +225,16 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
             {agents.length === 0 ? (
               <div className="rounded-lg border border-dashed px-4 py-8 text-center">
                 <p className="text-sm text-muted-foreground">No agents here yet.</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => open({ workspaceId: ws.id })}
-                >
-                  New agent here
-                </Button>
+                {!archived && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => open({ workspaceId: ws.id })}
+                  >
+                    New agent here
+                  </Button>
+                )}
               </div>
             ) : (
               <ul className="divide-y overflow-hidden rounded-lg border bg-card">
@@ -257,7 +316,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
         open={removing === "ask"}
         onCancel={() => setRemoving(null)}
         title="Remove this worktree?"
-        description={`Deletes the checkout at ${ws.path}. The branch ${git?.branch ?? ""} is kept, so nothing committed is lost. Agents here stop.`}
+        description={`Deletes the checkout at ${ws.path}. The branch ${git?.branch ?? ""} is kept, so nothing committed is lost. Agents here stop and are archived.`}
         action="Remove"
         busy={busy}
         onAction={() => void remove(false)}
@@ -317,7 +376,7 @@ function Confirm({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-white hover:bg-destructive/90"
+            variant="destructive"
             disabled={busy}
             onClick={(event) => {
               event.preventDefault();

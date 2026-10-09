@@ -18,6 +18,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { GroupImperativeHandle } from "react-resizable-panels";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type { AgentState, AppState } from "../../shared/schemas.ts";
+import { workspaceLabel } from "../../shared/workspaces.ts";
 import { openAgentDialog, useAgentActions } from "../components/AgentActions.tsx";
 import { MenuActions } from "../components/MenuActions.tsx";
 import { needsYou } from "../components/CommandMenu.tsx";
@@ -123,9 +124,9 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const facts = [
     runtime,
     ws === undefined
-      ? null
+      ? workspaceLabel(state.workspaces, summary.workspaceId)
       : `${ws.label}${branch === null || branch === undefined || branch === ws.label ? "" : ` (${branch})`}`,
-  ].filter((fact): fact is string => fact !== null);
+  ];
 
   const chat = <Chat agent={agent} onSwitchModel={() => openAgentDialog("model", agent.id)} />;
   return (

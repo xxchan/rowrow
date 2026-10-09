@@ -67,6 +67,7 @@ import { canCoach, CANT_COACH, COACH_TOOLS_LEAKED, type CoachChat } from "../../
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, AppState, CoachSettings, ModelInfo } from "../../shared/schemas.ts";
 import type { Timeline } from "../../shared/timeline.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import {
   closeCoach,
   COACH_MIN_WIDTH,
@@ -390,7 +391,7 @@ function allowedWorkspaces(state: AppState): string[] {
   const { fullAccess, workspaces } = state.settings.coach;
   return (fullAccess ? Object.keys(state.workspaces) : workspaces).filter((id) => {
     const ws = state.workspaces[id];
-    return ws !== undefined && !ws.archived && !ws.missing;
+    return ws !== undefined && !workspaceArchived(state.workspaces, id) && !ws.missing;
   });
 }
 
@@ -1116,7 +1117,7 @@ function CoachSettingsView({
     (a, b) => Number(canCoach(b.id)) - Number(canCoach(a.id)) || a.name.localeCompare(b.name),
   );
   const workspaces = Object.values(state.workspaces)
-    .filter((ws) => !ws.archived)
+    .filter((ws) => !workspaceArchived(state.workspaces, ws.id))
     .sort((a, b) => a.label.localeCompare(b.label));
   const allowed = new Set(draft.workspaces);
   const locked = working || !connected || saving;

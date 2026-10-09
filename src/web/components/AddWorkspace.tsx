@@ -17,13 +17,17 @@ interface Listing {
 export function AddWorkspace({
   onAdded,
   onCancel,
+  named = false,
 }: {
   onAdded: (workspaceId: string) => void;
   onCancel: () => void;
+  /** Offer a name for it (else it's named after the folder). */
+  named?: boolean;
 }) {
   const client = useClient();
   const [listing, setListing] = useState<Listing | null>(null);
   const [path, setPath] = useState("");
+  const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +53,10 @@ export function AddWorkspace({
     setBusy(true);
     setError(null);
     try {
-      const ws = await client.workspaces.add({ path: target });
+      const ws = await client.workspaces.add({
+        path: target,
+        ...(label.trim() === "" ? {} : { label: label.trim() }),
+      });
       onAdded(ws.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -119,6 +126,15 @@ export function AddWorkspace({
               </li>
             ))}
           </ul>
+        )}
+        {named && (
+          <Input
+            aria-label="Name (optional)"
+            value={label}
+            maxLength={200}
+            onChange={(event) => setLabel(event.currentTarget.value)}
+            placeholder="Name (optional): the folder's name when empty"
+          />
         )}
         {error !== null && <ErrorText>{error}</ErrorText>}
       </div>

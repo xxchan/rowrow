@@ -63,6 +63,8 @@ export class Workspaces {
     const existing = this.list().find((w) => w.path === real);
     if (existing !== undefined) {
       if (existing.archived) this.update(existing.id, { archived: false });
+      if (label !== undefined && label !== "" && label !== existing.customLabel)
+        this.update(existing.id, { label });
       return this.get(existing.id) ?? existing;
     }
     const row: Row = {

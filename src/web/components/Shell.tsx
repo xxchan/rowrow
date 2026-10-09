@@ -1,7 +1,7 @@
 // The frame every page lives in: an attention-first side nav (PRINCIPLES.md, product 1).
 // The agents you pinned come first (D-046); "Needs you" lists the others that are blocked or
 // finished unseen; below it, workspaces hold their agents, and linked worktrees nest under
-// their repository. On a phone the
+// their repository; archived workspaces wait folded at the bottom (D-047). On a phone the
 // nav is a sheet, opened from each page's header (PageHeader), which shows how many
 // agents need you. Coach (D-044) opens from every page's header and sits beside the page.
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
+  ArchiveRestore,
   ChevronRight,
   Folder,
   FolderGit2,
@@ -23,12 +24,14 @@ import {
   Plus,
   Search,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { appName, byPin, type AgentState, type AppState, type Workspace } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
+import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
@@ -42,6 +45,7 @@ import { ConnectionBanner } from "./ConnectionBanner.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
 import { ShortcutsDialog, useShortcuts } from "./ShortcutsDialog.tsx";
 import { UpdateBanner } from "./UpdateBanner.tsx";
+import { openWorkspaceDialog, useUnarchive, WorkspaceDialogs } from "./WorkspaceActions.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
@@ -86,6 +90,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       <CommandMenu route={route} />
       <ShortcutsDialog />
       <AgentDialogs />
+      <WorkspaceDialogs />
       <Toaster position="top-center" />
     </div>
   );
@@ -158,8 +163,8 @@ function Nav({ route }: { route: Route }) {
   const state = useApp((s) => s.state) as AppState;
   const openNewAgent = useNewAgent((s) => s.open);
   const agents = useMemo(
-    () => Object.values(state.agents).filter((a) => !a.summary.archived),
-    [state.agents],
+    () => Object.values(state.agents).filter((a) => agentListed(state.workspaces, a)),
+    [state.agents, state.workspaces],
   );
   const pinned = useMemo(() => agents.filter((a) => a.pinnedAt !== null).sort(byPin), [agents]);
   const urgent = useMemo(() => needsYou(state).filter((a) => a.pinnedAt === null), [state]);
@@ -170,6 +175,14 @@ function Nav({ route }: { route: Route }) {
         .sort((a, b) => a.label.localeCompare(b.label)),
     [state.workspaces],
   );
+  const archived = useMemo(
+    () =>
+      Object.values(state.workspaces)
+        .filter((w) => w.archived)
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [state.workspaces],
+  );
+  const unarchive = useUnarchive();
   const selectedAgent = route.name === "agent" ? route.agentId : null;
   const selectedWorkspace = route.name === "workspace" ? route.workspaceId : null;
 
@@ -178,7 +191,7 @@ function Nav({ route }: { route: Route }) {
   // In a workspace a pinned agent leads, marked with the pin; in the Pinned section that's moot.
   const agentRow = (agent: AgentState, depth: number | null, showWorkspace = false): ReactNode => {
     const dot = statusDot(agent);
-    const ws = showWorkspace ? state.workspaces[agent.summary.workspaceId]?.label : undefined;
+    const ws = showWorkspace ? workspaceLabel(state.workspaces, agent.summary.workspaceId) : undefined;
     return (
       <AgentContextMenu key={agent.id} agent={agent}>
         <NavRow
@@ -226,11 +239,15 @@ function Nav({ route }: { route: Route }) {
       ...worktrees.flatMap((c) => agents.filter((a) => a.summary.workspaceId === c.id)),
     ].sort((a, b) => ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention])[0];
     const dot = worst === undefined || worst.attention === "idle" ? null : statusDot(worst);
-    const Icon = ws.git === null ? Folder : ws.git.linked ? GitBranch : FolderGit2;
     const row = (
       <WorkspaceContextMenu workspace={ws}>
-        <NavRow href={`/w/${ws.id}`} selected={ws.id === selectedWorkspace} indent={indent(depth)}>
-          <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <NavRow
+          href={`/w/${ws.id}`}
+          selected={ws.id === selectedWorkspace}
+          indent={indent(depth)}
+          {...renameOnDoubleClick(() => openWorkspaceDialog("rename", ws.id))}
+        >
+          <WorkspaceIcon ws={ws} className="size-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">{ws.label}</span>
           {dot !== null && <StatusDot tone={dot.tone} label={dot.label} />}
         </NavRow>
@@ -306,11 +323,29 @@ function Nav({ route }: { route: Route }) {
         {urgent.length > 0 && (
           <NavSection label="Needs you">{urgent.map((agent) => agentRow(agent, null, true))}</NavSection>
         )}
-        <NavSection label="Workspaces">
+        <NavSection
+          label="Workspaces"
+          action={
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-6 text-muted-foreground hover:bg-sidebar-accent"
+                  aria-label="New workspace"
+                  onClick={() => openWorkspaceDialog("add")}
+                >
+                  <Plus />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>New workspace</TooltipContent>
+            </Tooltip>
+          }
+        >
           {roots.length === 0 ? (
             <button
               type="button"
-              onClick={() => openNewAgent({})}
+              onClick={() => openWorkspaceDialog("add")}
               className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground hover:bg-sidebar-accent md:h-8"
             >
               <Plus className="size-4" /> Add a workspace
@@ -319,6 +354,51 @@ function Nav({ route }: { route: Route }) {
             roots.map((ws) => workspaceRow(ws, 0))
           )}
         </NavSection>
+        {archived.length > 0 && (
+          <Collapsible className="group/archived pt-4">
+            <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 pb-1 text-[11px] font-medium tracking-wider text-muted-foreground uppercase hover:text-foreground">
+              <ChevronRight className="size-3 transition-transform group-data-[state=open]/archived:rotate-90" />
+              {`Archived · ${archived.length}`}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              {archived.map((ws) => (
+                <WorkspaceContextMenu key={ws.id} workspace={ws}>
+                  <div className="flex items-center gap-0.5 rounded-md pr-1 hover:bg-sidebar-accent">
+                    <NavRow
+                      href={`/w/${ws.id}`}
+                      selected={ws.id === selectedWorkspace}
+                      indent={indent(0)}
+                      className="min-w-0 flex-1 text-muted-foreground hover:bg-transparent"
+                    >
+                      <WorkspaceIcon ws={ws} className="size-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{ws.label}</span>
+                    </NavRow>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-7 shrink-0 text-muted-foreground hover:bg-sidebar"
+                      aria-label={`Unarchive ${ws.label}`}
+                      title="Unarchive"
+                      onClick={() => unarchive(ws)}
+                    >
+                      <ArchiveRestore />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-7 shrink-0 text-muted-foreground hover:bg-sidebar hover:text-destructive"
+                      aria-label={`Remove ${ws.label} from rowrow…`}
+                      title="Remove from rowrow…"
+                      onClick={() => openWorkspaceDialog("remove", ws.id)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </WorkspaceContextMenu>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
       <div className="flex items-center gap-1 border-t border-sidebar-border px-2 py-2">
         <div className="min-w-0 flex-1">
@@ -349,6 +429,11 @@ function Nav({ route }: { route: Route }) {
   );
 }
 
+function WorkspaceIcon({ ws, className }: { ws: Workspace; className: string }) {
+  if (ws.git === null) return <Folder className={className} />;
+  return ws.git.linked ? <GitBranch className={className} /> : <FolderGit2 className={className} />;
+}
+
 /**
  * Double-click to rename (roamgate #354). The first click still does what a click does (a row
  * opens its agent), and the double-click selects no text.
@@ -365,12 +450,15 @@ function renameOnDoubleClick(rename: () => void) {
   };
 }
 
-function NavSection({ label, children }: { label: string; children: ReactNode }) {
+function NavSection({ label, action, children }: { label: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="pt-4">
-      <h2 className="px-2 pb-1 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-        {label}
-      </h2>
+      <div className="flex items-center justify-between pr-1">
+        <h2 className="px-2 pb-1 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+          {label}
+        </h2>
+        {action}
+      </div>
       {children}
     </section>
   );

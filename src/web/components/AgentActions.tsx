@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 import {
   Archive,
   ArchiveRestore,
-  Copy,
   Cpu,
   ExternalLink,
   FolderOpen,
@@ -42,12 +41,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import type { AgentState, ModelInfo, Workspace } from "../../shared/schemas.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import { defaultNote, title } from "../lib/format.ts";
 import { navigate } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { CONTEXT_PARTS, copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
 import { useNewAgent } from "./NewAgentDialog.tsx";
+import { useWorkspaceActions } from "./WorkspaceActions.tsx";
 
 /** Which agent's Rename or Model and effort dialog is open. */
 export const useAgentDialog = create<{ kind: "rename" | "model" | null; agentId: string | null }>(() => ({
@@ -63,6 +64,9 @@ export function openAgentDialog(kind: "rename" | "model", agentId: string): void
 export function useAgentActions(agent: AgentState, { here = false } = {}): MenuAction[] {
   const client = useClient();
   const ws = useApp((s) => s.state?.workspaces[agent.summary.workspaceId]);
+  const wsArchived = useApp((s) =>
+    s.state === null ? false : workspaceArchived(s.state.workspaces, agent.summary.workspaceId),
+  );
   const openNewAgent = useNewAgent((s) => s.open);
   const { summary } = agent;
   const pinned = agent.pinnedAt !== null;
@@ -109,7 +113,7 @@ export function useAgentActions(agent: AgentState, { here = false } = {}): MenuA
           },
         ]),
     "separator",
-    ...workspaceItems(ws, openNewAgent),
+    ...workspaceItems(ws, wsArchived, openNewAgent),
     "separator",
     {
       label: summary.archived ? "Unarchive" : "Archive",
@@ -124,11 +128,20 @@ export function useAgentActions(agent: AgentState, { here = false } = {}): MenuA
 
 function workspaceItems(
   ws: Workspace | undefined,
+  archived: boolean,
   openNewAgent: (options: { workspaceId: string }) => void,
 ): MenuAction[] {
   if (ws === undefined) return [];
   return [
-    { label: `New agent in ${ws.label}`, icon: <Plus />, run: () => openNewAgent({ workspaceId: ws.id }) },
+    ...(archived
+      ? []
+      : [
+          {
+            label: `New agent in ${ws.label}`,
+            icon: <Plus />,
+            run: () => openNewAgent({ workspaceId: ws.id }),
+          },
+        ]),
     { label: `Open workspace ${ws.label}`, icon: <FolderOpen />, run: () => navigate(`/w/${ws.id}`) },
   ];
 }
@@ -179,24 +192,23 @@ function AgentContextMenuContent({ agent }: { agent: AgentState }) {
   );
 }
 
-/** Right-click (or long-press) a workspace's row: start an agent there, open it, copy its path. */
+/** Right-click (or long-press) a workspace's row for its actions (WorkspaceActions.tsx). */
 export function WorkspaceContextMenu({ workspace, children }: { workspace: Workspace; children: ReactNode }) {
-  const openNewAgent = useNewAgent((s) => s.open);
-  const href = `/w/${workspace.id}`;
-  const actions: MenuAction[] = [
-    { label: "New agent here", icon: <Plus />, run: () => openNewAgent({ workspaceId: workspace.id }) },
-    { label: "Open in a new tab", icon: <ExternalLink />, run: () => window.open(href, "_blank") },
-    "separator",
-    { label: "Copy path", icon: <Copy />, run: () => void copyText(workspace.path, "Path") },
-  ];
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56" aria-label={`Actions for ${workspace.label}`}>
-        <ContextMenuLabel>{workspace.label}</ContextMenuLabel>
-        <MenuActions actions={actions} parts={CONTEXT_PARTS} />
-      </ContextMenuContent>
+      <WorkspaceContextMenuContent workspace={workspace} />
     </ContextMenu>
+  );
+}
+
+function WorkspaceContextMenuContent({ workspace }: { workspace: Workspace }) {
+  const actions = useWorkspaceActions(workspace);
+  return (
+    <ContextMenuContent className="w-56" aria-label={`Actions for ${workspace.label}`}>
+      <ContextMenuLabel>{workspace.label}</ContextMenuLabel>
+      <MenuActions actions={actions} parts={CONTEXT_PARTS} />
+    </ContextMenuContent>
   );
 }
 

@@ -222,6 +222,116 @@ test("double-click an agent's title to rename it", async ({ page, rowrow }, info
   await expect(page.getByRole("heading", { name: "second" })).toBeVisible();
 });
 
+test("add a workspace from the side bar, rename, archive, unarchive and remove it", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  const repo = rowrow.repo();
+  await rowrow.open(page);
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  const openNav = async (): Promise<void> => {
+    if (phone) await page.getByRole("button", { name: /Open navigation/ }).click();
+  };
+  const menu = async (item: string): Promise<void> => {
+    await page.getByRole("button", { name: "Workspace actions" }).click();
+    await page.getByRole("menuitem", { name: item }).click();
+  };
+
+  // New: the + beside Workspaces, with a name of your own.
+  await openNav();
+  await nav.getByRole("button", { name: "New workspace" }).click();
+  const add = page.getByRole("dialog", { name: "Add a workspace" });
+  await add.getByLabel("Path").fill(repo);
+  await add.getByLabel("Name (optional)").fill("Website");
+  await add.getByRole("button", { name: "Add this folder" }).click();
+  await expect(page.getByRole("heading", { name: "Website", exact: true })).toBeVisible();
+  const id = new URL(page.url()).pathname.split("/").at(-1) ?? "";
+
+  // Rename, from the ⋯ menu, and by double-clicking its row in the side nav.
+  await menu("Rename…");
+  const rename = page.getByRole("dialog", { name: "Rename workspace" });
+  await expect(rename.getByLabel("Name")).toBeFocused();
+  await page.keyboard.type("Site");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Site", exact: true })).toBeVisible();
+  if (!phone) {
+    await nav.getByRole("link", { name: "Site", exact: true }).dblclick();
+    await expect(rename.getByLabel("Name")).toHaveValue("Site");
+    await page.keyboard.press("Escape");
+    await expect(rename).toBeHidden();
+  }
+
+  // Archive: it says what it stops, then the workspace and its agent are hidden.
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: id,
+    runtime: "scripted",
+    title: "builder",
+    input: { inputId: randomUUID(), text: "/sleep 60000" },
+  });
+  await expect
+    .poll(async () => (await rowrow.client.state.get()).state.agents[agent.id]?.attention)
+    .toBe("working");
+  await menu("Archive…");
+  const archive = page.getByRole("alertdialog", { name: "Archive Site?" });
+  await expect(archive).toContainText("1 agent is working there: archiving stops it.");
+  await archive.getByRole("button", { name: "Archive" }).click();
+  await expect(page.getByText(/^Archived: hidden with its worktrees and agents/)).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: /New agent/ })).toBeHidden();
+  await openNav();
+  await expect(nav.getByRole("link", { name: /builder/ })).toBeHidden();
+  await expect(nav.getByRole("link", { name: "Site", exact: true })).toBeHidden();
+
+  // Unarchive, from the Archived section at the bottom of the side nav: all as it was.
+  await nav.getByRole("button", { name: "Archived · 1" }).click();
+  await expect(nav.getByRole("link", { name: "Site", exact: true })).toBeVisible();
+  await nav.getByRole("button", { name: "Unarchive Site" }).click();
+  await expect(nav.getByRole("button", { name: /^Archived/ })).toBeHidden();
+  await expect(nav.getByRole("link", { name: /builder/ })).toBeVisible();
+  if (phone) await page.keyboard.press("Escape");
+
+  // Remove: rowrow forgets it, the folder stays, its agent is archived.
+  await menu("Remove from rowrow…");
+  const remove = page.getByRole("alertdialog", { name: "Remove Site from rowrow?" });
+  await expect(remove).toContainText(`rowrow forgets ${repo}. The folder and its files stay.`);
+  await expect(remove).toContainText("1 agent will be archived; its conversation is kept.");
+  await remove.getByRole("button", { name: "Remove from rowrow" }).click();
+  await expect(page).toHaveURL(`${rowrow.url}/`);
+  await openNav();
+  await expect(nav.getByRole("link", { name: "Site", exact: true })).toBeHidden();
+  const { state } = await rowrow.client.state.get();
+  expect(state.workspaces[id]).toBeUndefined();
+  expect(state.agents[agent.id]?.summary.archived).toBe(true);
+  expect(fs.existsSync(path.join(repo, "README.md"))).toBe(true);
+});
+
+test("⌘K: a new workspace, and the one you're in removed when you type delete", async ({
+  page,
+  rowrow,
+}, info) => {
+  test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  await rowrow.open(page, `/w/${ws.id}`);
+  await expect(page.getByRole("heading", { name: ws.label, exact: true })).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("delete workspace");
+  await expect(page.getByRole("option", { name: /Remove workspace from rowrow/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.keyboard.press("Enter");
+  const remove = page.getByRole("alertdialog", { name: `Remove ${ws.label} from rowrow?` });
+  await expect(remove).toContainText("No agents work there.");
+  await remove.getByRole("button", { name: "Cancel" }).click();
+
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("new workspace");
+  await expect(page.getByRole("option", { name: "New workspace" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Add a workspace" })).toBeVisible();
+});
+
 test("⌘K: say what a new agent should do, and it starts", async ({ page, rowrow }, info) => {
   test.skip(info.project.name === "phone", "keyboard shortcuts are a desktop affordance");
   await rowrow.client.workspaces.add({ path: rowrow.repo() });

@@ -80,6 +80,7 @@ const clickable: Role[] = [
 ];
 const landmarks: Role[] = [
   "dialog",
+  "alertdialog",
   "region",
   "tabpanel",
   "navigation",

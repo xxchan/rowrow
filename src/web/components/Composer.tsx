@@ -30,6 +30,7 @@ import type { Attachment, InputMode } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult, SkillInfo } from "../../shared/schemas.ts";
 import { steerSupport } from "../../shared/summary.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import { attachFiles, detachFile, filesOf, putBack, readyFiles } from "../lib/attachments.ts";
 import {
   attachmentsOf,
@@ -105,7 +106,11 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   };
   const working = agent.attention === "working";
   const archived = agent.summary.archived;
-  const disabled = archived || client === null;
+  // An agent of an archived workspace waits for the workspace (D-047).
+  const shelved = useApp((s) =>
+    s.state === null ? false : workspaceArchived(s.state.workspaces, agent.summary.workspaceId),
+  );
+  const disabled = archived || shelved || client === null;
   const empty = draft.trim() === "" && attached.length === 0;
   const uploading = attached.some((file) => file.state === "uploading");
   const steer = steerSupport(agent.summary.runtime);
@@ -363,9 +368,11 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
           placeholder={
             archived
               ? "Archived. Unarchive it to continue."
-              : working
-                ? "Queue a message for after this turn…"
-                : "Message the agent…"
+              : shelved
+                ? "Its workspace is archived. Unarchive the workspace to continue."
+                : working
+                  ? "Queue a message for after this turn…"
+                  : "Message the agent…"
           }
           onChange={(event) => setDraft(agent.id, event.currentTarget.value)}
           onKeyDown={onKeyDown}

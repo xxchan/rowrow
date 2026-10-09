@@ -128,7 +128,7 @@ const workspaces = {
   add: oc
     .route({
       summary:
-        "Register a directory (usually a git checkout) as a workspace. Returns the existing one if the path is already registered.",
+        "Register a directory (usually a git checkout) as a workspace. Returns the existing one if the path is already registered (unarchived, and renamed when a label is given).",
     })
     .input(z.object({ path: z.string().min(1), label: z.string().optional() }))
     .output(Workspace),

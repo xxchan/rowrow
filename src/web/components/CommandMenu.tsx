@@ -1,5 +1,6 @@
 // ⌘K: jump to any agent or workspace, run an action (herdr's goto picker), or type what a new
-// agent should do and start it (D-023). ⌘J: go to the next agent that needs you, in
+// agent should do and start it (D-023). New workspace, and Rename, Archive and Remove for the
+// workspace you're in (D-047). ⌘J: go to the next agent that needs you, in
 // attention order. C: a new agent, set up for the page you're on. ⌘,: Settings. ?: every
 // shortcut (ShortcutsDialog). Everything reachable by keyboard.
 import {
@@ -13,12 +14,24 @@ import {
 } from "@/components/ui/command";
 import { useCommandState } from "cmdk";
 import { commandFilter } from "../lib/command-filter.ts";
-import { Folder, House, Keyboard, Pencil, Plus, Settings } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Folder,
+  FolderPlus,
+  House,
+  Keyboard,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { byPin, type AgentState, type AppState } from "../../shared/schemas.ts";
 import { ATTENTION_RANK } from "../../shared/summary.ts";
+import { agentListed, workspaceArchived, workspaceLabel } from "../../shared/workspaces.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup } from "../../shared/new-agent-setup.ts";
@@ -28,6 +41,7 @@ import { report } from "../lib/telemetry.ts";
 import { useNewAgent } from "./NewAgentDialog.tsx";
 import { AgentAvatar } from "./AgentIcon.tsx";
 import { useShortcuts } from "./ShortcutsDialog.tsx";
+import { openWorkspaceDialog, useUnarchive } from "./WorkspaceActions.tsx";
 
 export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean) => void }>((set) => ({
   isOpen: false,
@@ -37,7 +51,7 @@ export const useCommandMenu = create<{ isOpen: boolean; setOpen: (open: boolean)
 /** Agents that need you, most urgent first (blocked, then done), newest first within a kind. */
 export function needsYou(state: AppState): AgentState[] {
   return Object.values(state.agents)
-    .filter((a) => !a.summary.archived && (a.attention === "blocked" || a.attention === "done"))
+    .filter((a) => agentListed(state.workspaces, a) && (a.attention === "blocked" || a.attention === "done"))
     .sort(
       (a, b) =>
         ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
@@ -59,6 +73,7 @@ export function CommandMenu({ route }: { route: Route }) {
   const client = useClient();
   const state = useApp((s) => s.state);
   const openNewAgent = useNewAgent((s) => s.open);
+  const unarchive = useUnarchive();
   // What's typed, and whether it matches nothing, as cmdk sees it (the palette resets when it closes).
   const [search, setSearch] = useState({ query: "", noMatch: false });
 
@@ -144,18 +159,31 @@ export function CommandMenu({ route }: { route: Route }) {
     state === null
       ? []
       : Object.values(state.agents)
-          .filter((a) => !a.summary.archived && !urgentIds.has(a.id))
+          .filter((a) => agentListed(state.workspaces, a) && !urgentIds.has(a.id))
           .sort(
             (a, b) =>
               byPin(a, b) ||
               ATTENTION_RANK[b.attention] - ATTENTION_RANK[a.attention] ||
               b.summary.lastActivityAt - a.summary.lastActivityAt,
           );
-  const workspaces = state === null ? [] : Object.values(state.workspaces).filter((w) => !w.archived);
+  const workspaces =
+    state === null
+      ? []
+      : Object.values(state.workspaces).filter((w) => !workspaceArchived(state.workspaces, w.id));
+  // The workspace you're in: its page, or the agent's on screen.
+  const here =
+    state === null
+      ? undefined
+      : route.name === "workspace"
+        ? state.workspaces[route.workspaceId]
+        : route.name === "agent"
+          ? state.workspaces[state.agents[route.agentId]?.summary.workspaceId ?? ""]
+          : undefined;
 
   const agentItem = (agent: AgentState) => {
     const dot = statusDot(agent);
     const ws = state?.workspaces[agent.summary.workspaceId];
+    const wsLabel = state === null ? "" : workspaceLabel(state.workspaces, agent.summary.workspaceId);
     return (
       <CommandItem
         key={agent.id}
@@ -178,7 +206,7 @@ export function CommandMenu({ route }: { route: Route }) {
           ring="ring-popover"
         />
         <span className="truncate">{title(agent)}</span>
-        <span className="ml-auto truncate text-xs text-muted-foreground">{`${dot.label} · ${ws?.label ?? ""}`}</span>
+        <span className="ml-auto truncate text-xs text-muted-foreground">{`${dot.label} · ${wsLabel}`}</span>
       </CommandItem>
     );
   };
@@ -252,6 +280,52 @@ export function CommandMenu({ route }: { route: Route }) {
             <Plus /> New agent
             <CommandShortcut>C</CommandShortcut>
           </CommandItem>
+          <CommandItem
+            value="action:new-workspace"
+            keywords={["New workspace", "add workspace", "create workspace", "folder", "repository"]}
+            onSelect={() => run(() => openWorkspaceDialog("add"))}
+          >
+            <FolderPlus /> New workspace
+          </CommandItem>
+          {here !== undefined && (
+            <>
+              <CommandItem
+                value="action:rename-workspace"
+                keywords={["Rename workspace", "workspace name", here.label]}
+                onSelect={() => run(() => openWorkspaceDialog("rename", here.id))}
+              >
+                <Pencil /> Rename workspace
+                <span className="ml-auto truncate text-xs text-muted-foreground">{here.label}</span>
+              </CommandItem>
+              <CommandItem
+                value="action:archive-workspace"
+                keywords={[here.archived ? "Unarchive workspace" : "Archive workspace", "hide", here.label]}
+                onSelect={() =>
+                  run(() => (here.archived ? unarchive(here) : openWorkspaceDialog("archive", here.id)))
+                }
+              >
+                {here.archived ? <ArchiveRestore /> : <Archive />}
+                {here.archived ? "Unarchive workspace" : "Archive workspace"}
+                <span className="ml-auto truncate text-xs text-muted-foreground">{here.label}</span>
+              </CommandItem>
+              <CommandItem
+                value="action:remove-workspace"
+                keywords={[
+                  "Remove workspace from rowrow",
+                  "delete workspace",
+                  "remove workspace",
+                  "close workspace",
+                  "forget",
+                  here.label,
+                ]}
+                className="text-destructive data-[selected=true]:bg-destructive/10 data-[selected=true]:text-destructive *:[svg]:text-destructive!"
+                onSelect={() => run(() => openWorkspaceDialog("remove", here.id))}
+              >
+                <Trash2 /> Remove workspace from rowrow
+                <span className="ml-auto truncate text-xs text-muted-foreground">{here.label}</span>
+              </CommandItem>
+            </>
+          )}
           <CommandItem
             value="action:home"
             keywords={["All agents", "home", "inbox"]}
