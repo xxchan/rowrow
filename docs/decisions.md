@@ -1211,3 +1211,51 @@ and report a session's effective tools (oar#253): today claude still loads the u
 servers, CLAUDE.md and hooks (docs/upstream.md);
 when another runtime gains a tool deny list; or when the assistant needs to outlive a run
 (tokens are per run).
+
+## D-045 Coach's actions: proposals you confirm, receipts it reads, Full access by consent (2026-10-09)
+
+**Context.** Coach (D-044) finds what needs doing, but acting on it meant leaving Coach for the
+agent or the workspace. roamgate's Ranger proposes the operation on a card you confirm, and has a
+high-permission mode that skips the card. PRINCIPLES.md product 4 says rowrow never sends input
+on your behalf; the owner approved Ranger's shape: Coach only reads and proposes, every action is
+a preview you confirm, its outcome comes only from the server's receipt (the model may not claim
+success), an uncertain outcome is never retried by itself, and workspace content stays untrusted.
+
+**Decision.** Three of Ranger's six operations, the ones rowrow has: create a worktree
+(`propose_worktree_create`), start an agent with an exact first message (`propose_agent_start`),
+send an agent an exact message (`propose_agent_prompt`). Tabs and splits have no rowrow
+equivalent. Each is a `coach.propose*` procedure the run's token may call; `coach.confirm` and
+`coach.cancel` are not on its list.
+
+- **A proposal is frozen** in the chat's log (`coach.proposal`): the target with its label, every
+  parameter (for a worktree the branch, "latest origin default branch", the setup hook the
+  checkout says it runs, the source path; for a message its exact text), Ranger's summary
+  sentence. Confirm runs exactly that. At most 8 a turn; a message is at most 20,000 characters.
+- **Running one** re-checks the target (still there, still allowed), records `executing` before
+  anything happens, then a receipt (`coach.action`: succeeded, failed or uncertain, with what
+  rowrow saw: the workspace it registered on that branch, the input the agent's log recorded and
+  how its runtime took it). A message's id is the input's, so it can never be delivered twice; a
+  setup hook that changed since the card is not run; a branch that already exists is refused.
+  One action runs at a time, never while Coach is answering, and never twice (CONFLICT).
+- **Previews expire** as Ranger's do, each saying why: a new question replaces them, Stop
+  (`coach.stop`), leaving the chat, settings that narrow what Coach may act on, a restart. An
+  action running at a restart becomes uncertain, never replayed.
+- **The model learns outcomes** from the next message's frame: the latest 8 receipts in the
+  turn's scope, as "Recorded operation outcomes (server receipts, not proof of task
+  completion)". Its prompt says a pending proposal was not executed.
+- **A worktree you confirmed** joins Coach's allowed workspaces, so the next message can start
+  an agent in it. Nothing else widens what it may read.
+- **Full access** (`settings.coach.fullAccess`, off by default) is on only through a dialog that
+  says what it allows; off is one click. While on, every workspace (also ones made later) is in
+  scope, proposals run at once and return their receipt, the run gets Ranger's high-permission
+  prompt and tool descriptions, and Coach's header says "Full access". A run opened in the other
+  mode is restarted before the next message; turning it off mid-turn leaves later proposals
+  pending. What it sends is marked as Coach's (`by: agent <chat>`), not yours.
+
+**Why.** The card is the confirmation PRINCIPLES.md asks for, and what it shows is what runs,
+because the server froze it. Receipts in the log are facts the model reads, not claims it makes.
+Full access is the owner's explicit, revocable choice, made in rowrow, never by the model.
+
+**Revisit when** an operation can't be frozen at proposal time (it would need a second
+confirmation), when Coach gains scheduled runs (whether they may act under Full access), or when
+a receipt needs a check rowrow can't make itself (a runtime that can't say it took the input).

@@ -59,6 +59,11 @@ file when something lands.
   conversations, changes, background output) in the workspaces you allow, on your own claude or
   pi with its tools turned off and rowrow's read-only tools instead; a window floating, pinned
   or maximized beside every page (⌘⌥⇧A), full screen on a phone. roamgate's Ranger, rebuilt.
+- **Coach, phase 2** (D-045): Coach proposes creating a worktree, starting an agent or sending
+  one a message, on a card with the target, every parameter and the exact text; you confirm, and
+  it reads rowrow's receipt (succeeded, failed, uncertain) with your next message. Full access,
+  only through a dialog and marked in Coach's header, lets it act on every workspace without
+  asking.
 
 ## Parked
 
@@ -80,12 +85,10 @@ file when something lands.
 
 ## Coach, next (D-044)
 
-1. Proposals Coach makes and you confirm on a card: start an agent, send it a message, create
-   a worktree; then Full access, which skips the confirmation.
-2. Scheduled checks: a prompt Coach runs on a schedule, and a notification only when what you
+1. Scheduled checks: a prompt Coach runs on a schedule, and a notification only when what you
    asked about happens.
-3. Coach in the iOS app.
-4. Only rowrow's MCP server on claude (docs/upstream.md).
+2. Coach in the iOS app.
+3. Only rowrow's MCP server on claude (docs/upstream.md).
 
 ## The Mac app, next
 

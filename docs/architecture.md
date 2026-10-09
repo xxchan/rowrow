@@ -81,7 +81,7 @@ to the agent; everything the UI shows about an agent is computed from it.
 type Entry = { seq: number; at: number } & (
   | { kind: "agent.created"; workspaceId; runtime; model?; title?; role?; by } // role "coach": D-044
   | { kind: "agent.updated"; changes; by }              // title, model, archived
-  | { kind: "input"; inputId; text; mode; by; scope? }  // what you sent, before delivery
+  | { kind: "input"; inputId; text; mode; by; scope?; fullAccess? } // what you sent, before delivery
   | { kind: "input.result"; inputId; landed; code?; reason? } // where it landed
   | { kind: "run.started"; runId; runtime; model?; cwd; resume?; sessionId }
   | { kind: "run.failed"; runId; error }                // could not start
@@ -89,6 +89,8 @@ type Entry = { seq: number; at: number } & (
   | { kind: "run.ended"; runId; reason; code? }         // idle, stopped, exited, shutdown, crashed
   | { kind: "host.error"; code; message }
   | { kind: "notification.sent"; title; body; dedupKey?; by } // notify.send: an agent told you
+  | { kind: "coach.proposal"; proposal; by }           // Coach proposed an action: D-045
+  | { kind: "coach.action"; actionId; status; detail; by } // what became of it: the receipt
 );
 ```
 
@@ -190,8 +192,8 @@ Status vocabulary, in priority order (a workspace shows its highest):
 
 ## Coach
 
-Coach (D-044) is rowrow's assistant: it reads the agents of the workspaces you allow and
-helps you keep track of them, and does no coding itself. It is roamgate's Ranger, built from
+Coach (D-044) is rowrow's assistant: it reads the agents of the workspaces you allow, helps
+you keep track of them and proposes actions you confirm (D-045), and does no coding itself. It is roamgate's Ranger, built from
 rowrow's own parts.
 
 - **A chat is an agent** with `role: "coach"`: same actor, log, runs, transcript, stop, model
@@ -207,15 +209,24 @@ rowrow's own parts.
   coach` (`src/cli/mcp.ts`), whose environment holds a token minted for that run. Only claude
   and pi take all three; the picker says why the others can't be Coach. The tools claude says
   it loaded are checked: any but rowrow's is a warning in the log and in the chat.
-- **Its tools** are four reads, each a `coach.*` procedure: `agents_status`, `agent_history`
+- **Its tools** are four reads and three proposals, each a `coach.*` procedure. The reads: `agents_status`, `agent_history`
   (the `agent view` fold, paged back by turns), `agent_changes` (files, or one file's diff) and
   `agent_background` (background commands and the end of their output). The token reaches only
-  these, and they read only agents in the turn's scope; results are bounded (80 items, 8,000
+  these and the proposals, and they reach only the turn's scope; results are bounded (80 items, 8,000
   characters a message, 32,000 a read) and say when they were read and when something was cut.
+- **Its actions** (D-045): `propose_worktree_create`, `propose_agent_start` and
+  `propose_agent_prompt` freeze a proposal in the chat's log (`coach.proposal`). Your Confirm
+  (`coach.confirm`, never on the token's list) re-checks the target, records `executing`, runs
+  exactly what was frozen (`src/server/coach/actions.ts`) and records rowrow's receipt
+  (`coach.action`: succeeded, failed or uncertain); the next message's frame carries the latest
+  receipts to the model. Previews expire with their question, a stop, narrower settings or a
+  restart. With Full access (`settings.coach.fullAccess`, on only through a dialog) every
+  workspace is in scope and a proposal runs at once.
 - **Its window** (`src/web/components/Coach.tsx`) opens from every page's header or ⌘⌥⇧A:
   floating at the right, pinned beside the page, or maximized; full screen on a phone. Its
   conversation is the transcript component, with each answer's tool calls folded into "Work
-  performed (N)", and a wave bar to jump between messages.
+  performed (N)", its actions as cards under the answer that proposed them
+  (`CoachActionCard.tsx`), and a wave bar to jump between messages.
 
 ## Replicating state to clients
 
