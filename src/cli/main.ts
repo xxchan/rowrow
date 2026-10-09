@@ -20,6 +20,7 @@ import {
 } from "../shared/schemas.ts";
 import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
+import { agentListed, workspaceArchived, workspaceLabel } from "../shared/workspaces.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
 import { connect, resolveTarget, type Client } from "./client.ts";
 import { formatLogin, formatLogout, login } from "./login.ts";
@@ -59,7 +60,8 @@ Service (keeps the server running: starts at login, restarts after a crash)
   rowrow service status|start|stop|restart|uninstall
 
 Agents
-  rowrow agents [--all] [--coach]  list agents: pinned, then the ones that need you; --coach: Coach's chats
+  rowrow agents [--all] [--coach]  list agents: pinned, then the ones that need you; --all: archived
+                                   ones too; --coach: Coach's chats
   rowrow agent new <workspace> [--runtime claude] [--model M] [--title T] [prompt…] [--attach FILE]… [--wait]
   rowrow agent send <agent> <text…> [--attach FILE]… [--steer | --interrupt] [--wait]
                                    while it works: queued for after the turn; --steer: into it now
@@ -74,9 +76,14 @@ Agents
   (an <agent> is its id, a unique id prefix, or a unique part of its title)
 
 Workspaces
-  rowrow ws                        list workspaces
+  rowrow ws [--all]                list workspaces; --all: the archived ones too
   rowrow ws add <path> [--label L]
   rowrow ws browse [path]
+  rowrow ws rename <workspace> <label…> | --reset      --reset: back to the folder's (or branch's) name
+  rowrow ws archive|unarchive <workspace>   archived: hidden with its worktrees and agents, their
+                                   runs stopped, nothing sent there until it's unarchived
+  rowrow ws remove <workspace>     rowrow forgets it (and the worktrees under it) and archives its
+                                   agents; the folder and its files stay. Refused while one works
   rowrow ws log <workspace> [--limit 20]                 the branch's commits, newest first
   rowrow ws show <workspace> <commit> [--path FILE]      a commit and its files, or one file's diff
   rowrow ws search <workspace> <text…> [--names | --content]
@@ -166,6 +173,7 @@ async function main(argv: string[]): Promise<void> {
       "team-id": { type: "string" },
       key: { type: "string" },
       off: { type: "boolean" },
+      reset: { type: "boolean" },
     },
   });
   const str = (name: string): string | undefined => {
@@ -360,7 +368,7 @@ async function main(argv: string[]): Promise<void> {
         }
         const { state } = await client.state.get();
         const agents = Object.values(state.agents)
-          .filter((a) => bool("all") || !a.summary.archived)
+          .filter((a) => bool("all") || agentListed(state.workspaces, a))
           .sort(byAttention);
         out(agents, () =>
           agents.length === 0
@@ -475,18 +483,26 @@ async function main(argv: string[]): Promise<void> {
           );
         } else if (sub !== undefined && ["log", "show", "search", "read", "download", "pr"].includes(sub)) {
           await inspectCommand(client, sub, args, { str, bool, strings, json, out, trace });
+        } else if (sub !== undefined && ["rename", "archive", "unarchive", "remove"].includes(sub)) {
+          await manageCommand(client, sub, args, { str, bool, strings, json, out, trace });
+        } else if (sub !== undefined) {
+          throw new Error(`unknown ws command "${sub}"; rowrow help lists them`);
         } else {
           const { state } = await client.state.get();
-          const list = Object.values(state.workspaces);
+          const list = Object.values(state.workspaces).filter(
+            (w) => bool("all") || !workspaceArchived(state.workspaces, w.id),
+          );
+          const hidden = Object.keys(state.workspaces).length - list.length;
           out(list, () =>
-            list.length === 0
+            list.length === 0 && hidden === 0
               ? "No workspaces yet. Add one: rowrow ws add <path>"
-              : list
-                  .map(
+              : [
+                  ...list.map(
                     (w) =>
-                      `${w.id}  ${w.label.padEnd(24)} ${w.git?.branch ?? "-"}${w.git !== null && w.git.changed > 0 ? ` (${w.git.changed} changed)` : ""}  ${w.path}${w.missing ? "  [missing]" : ""}`,
-                  )
-                  .join("\n"),
+                      `${w.id}  ${w.label.padEnd(24)} ${w.git?.branch ?? "-"}${w.git !== null && w.git.changed > 0 ? ` (${w.git.changed} changed)` : ""}  ${w.path}${w.missing ? "  [missing]" : ""}${workspaceArchived(state.workspaces, w.id) ? "  [archived]" : ""}`,
+                  ),
+                  ...(hidden === 0 ? [] : [`(${hidden} archived: rowrow ws --all lists them)`]),
+                ].join("\n"),
           );
         }
         return;
@@ -700,6 +716,47 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
   }
 }
 
+/** Rename, archive, unarchive or remove a workspace (D-047). */
+async function manageCommand(client: Client, sub: string, args: string[], h: Helpers): Promise<void> {
+  const [ref = "", ...rest] = args;
+  const { state } = await client.state.get();
+  const found = findWorkspace(state, ref);
+  if (found === null) throw new Error(`no workspace matches "${ref}" (rowrow ws --all lists them)`);
+  const id = found.id;
+  switch (sub) {
+    case "rename": {
+      const label = rest.join(" ").trim();
+      if (!h.bool("reset") && label === "")
+        throw new Error("usage: rowrow ws rename <workspace> <label…> (or --reset)");
+      const ws = await client.workspaces.update({ id, label: h.bool("reset") ? null : label });
+      h.out(ws, () => `renamed: ${ws.label}`);
+      return;
+    }
+    case "archive":
+    case "unarchive": {
+      const ws = await client.workspaces.update({ id, archived: sub === "archive" });
+      h.out(ws, () =>
+        sub === "archive"
+          ? `archived ${ws.label}: hidden with its worktrees and agents (rowrow ws unarchive ${ws.id} brings them back)`
+          : `unarchived ${ws.label}`,
+      );
+      return;
+    }
+    case "remove": {
+      const where = state.workspaces[id]?.path ?? id;
+      const result = await client.workspaces.remove({ id });
+      const worktrees = result.removed.length - 1;
+      h.out(result, () =>
+        [
+          `rowrow forgot ${where}${worktrees > 0 ? ` and ${worktrees} worktree${worktrees === 1 ? "" : "s"} under it` : ""}; the files are untouched.`,
+          `${result.archived.length} agent${result.archived.length === 1 ? "" : "s"} archived${result.archived.length === 0 ? "" : ` (rowrow agents --all lists them)`}.`,
+        ].join("\n"),
+      );
+      return;
+    }
+  }
+}
+
 /** The workspace inspector, read-only: history, search, files, the pull request. */
 async function inspectCommand(client: Client, sub: string, args: string[], h: Helpers): Promise<void> {
   const [ref = "", ...rest] = args;
@@ -862,7 +919,7 @@ const MARK: Record<Attention, string> = { blocked: "✋", done: "✓", working: 
 
 function formatAgent(a: AgentState, state: AppState): string {
   const s = a.summary;
-  const ws = state.workspaces[s.workspaceId]?.label ?? "?";
+  const ws = workspaceLabel(state.workspaces, s.workspaceId);
   const phase =
     s.status.kind === "running"
       ? ` ${typeof s.status.phase === "string" ? s.status.phase : s.status.phase.tool}`

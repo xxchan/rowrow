@@ -31,6 +31,7 @@ import { Db } from "./store/db.ts";
 import { closeLog, log, logFile, serializeError, setupLog } from "./telemetry/log.ts";
 import { SnapshotStore } from "./git/snapshots.ts";
 import { createGitOps } from "./workspaces/git-ops.ts";
+import { WorkspaceLifecycle } from "./workspaces/lifecycle.ts";
 import { Workspaces } from "./workspaces/service.ts";
 import { detectInstall, npmRegistry, UpdateChecker } from "./updates.ts";
 
@@ -236,6 +237,7 @@ export async function startServer(
     agentTitle: (agentId) => (agents.has(agentId) ? agents.summary(agentId).title : null),
     ...(options.gh === undefined ? {} : { gh: options.gh }),
   });
+  const lifecycle = new WorkspaceLifecycle({ workspaces, agents, settings, git });
   coach = new CoachService({
     agents,
     log: agentLog,
@@ -271,6 +273,7 @@ export async function startServer(
     state,
     settings,
     workspaces,
+    lifecycle,
     agents,
     coach,
     agentLog,
@@ -281,7 +284,7 @@ export async function startServer(
     apns,
     live,
     notifier,
-    badge: () => needingYou(agents),
+    badge: () => needingYou(agents, workspaces),
     presence,
     git,
     uploadsDir: paths.uploads,

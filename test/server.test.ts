@@ -1,11 +1,13 @@
 // The server end to end, in-process: real HTTP and WebSocket, real oar sessions (the
 // scripted runtime), the real database on a throwaway home. What these prove is what a
 // browser, the CLI and agents can rely on.
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
@@ -771,11 +773,163 @@ describe("git", () => {
     expect(wt.git?.linked).toBe(true);
     expect(wt.label).toBe("feature/x");
 
+    const { agent } = await t.client.agents.create({ workspaceId: wt.id, runtime: "scripted" });
     fs.writeFileSync(path.join(wt.path, "wip.txt"), "unsaved work\n");
     await expect(t.client.workspaces.removeWorktree({ id: wt.id })).rejects.toThrow(/uncommitted changes/);
     await t.client.workspaces.removeWorktree({ id: wt.id, force: true });
     expect(fs.existsSync(wt.path)).toBe(false);
-    expect((await t.client.state.get()).state.workspaces[wt.id]?.archived).toBe(true);
+    // rowrow forgets it, and its agents are archived with the reason in their logs.
+    const { state } = await t.client.state.get();
+    expect(state.workspaces[wt.id]).toBeUndefined();
+    expect(state.agents[agent.id]?.summary.archived).toBe(true);
+    const { entries } = await t.client.agents.entries({ agentId: agent.id, after: -1 });
+    expect(entries.findLast((e) => e.kind === "agent.updated")).toMatchObject({
+      reason: `its worktree was removed (${wt.path})`,
+    });
+  });
+});
+
+describe("workspaces (D-047)", () => {
+  const working = async (server: TestServer, agentId: string): Promise<true> =>
+    eventually(async () =>
+      (await server.client.state.get()).state.agents[agentId]?.attention === "working" ? true : undefined,
+    );
+
+  it("renames a workspace, and an empty label brings back the derived name", async () => {
+    t = await startTestServer();
+    const ws = await t.client.workspaces.add({ path: t.repo("named") });
+    const renamed = await t.client.workspaces.update({ id: ws.id, label: "Website" });
+    expect(renamed.label).toBe("Website");
+    const reset = await t.client.workspaces.update({ id: ws.id, label: null });
+    expect(reset.label).toBe(ws.label);
+  });
+
+  it("archiving hides a workspace with its worktrees and agents, stops their runs and refuses new work; unarchiving brings back exactly that", async () => {
+    t = await startTestServer();
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const { workspace: wt } = await t.client.workspaces.createWorktree({ id: ws.id, branch: "side" });
+    const { agent: busy } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      input: input("/sleep 30000"),
+    });
+    const { agent: shelved } = await t.client.agents.create({ workspaceId: ws.id, runtime: "scripted" });
+    await t.client.agents.update({ agentId: shelved.id, archived: true });
+    const { agent: inWorktree } = await t.client.agents.create({ workspaceId: wt.id, runtime: "scripted" });
+    await t.client.agents.update({ agentId: inWorktree.id, pinned: true });
+    await working(t, busy.id);
+
+    const archived = await t.client.workspaces.update({ id: ws.id, archived: true });
+    expect(archived.archived).toBe(true);
+    let { state } = await t.client.state.get();
+    expect(state.agents[busy.id]?.summary.run).toBeNull();
+    expect(state.agents[busy.id]?.attention).not.toBe("working");
+    // Hidden through the workspace: their own flags are as they were.
+    expect(state.agents[busy.id]?.summary.archived).toBe(false);
+    expect(state.agents[inWorktree.id]?.summary.archived).toBe(false);
+    expect(state.agents[inWorktree.id]?.pinnedAt).not.toBeNull(); // hidden with it, still pinned
+    expect(state.workspaces[wt.id]?.archived).toBe(false);
+
+    for (const workspaceId of [ws.id, wt.id])
+      await expect(t.client.agents.create({ workspaceId, runtime: "scripted" })).rejects.toThrow(
+        /is archived: unarchive the workspace/,
+      );
+    await expect(
+      t.client.agents.send({ agentId: inWorktree.id, inputId: newInputId(), text: "hi", mode: "auto" }),
+    ).rejects.toThrow(/its workspace, .*, is archived: unarchive the workspace to send/);
+    await expect(t.client.workspaces.createWorktree({ id: ws.id })).rejects.toThrow(/is archived/);
+
+    await t.client.workspaces.update({ id: ws.id, archived: false });
+    ({ state } = await t.client.state.get());
+    expect(state.agents[shelved.id]?.summary.archived).toBe(true);
+    const sent = await t.client.agents.send({
+      agentId: inWorktree.id,
+      inputId: newInputId(),
+      text: "/echo back",
+      mode: "auto",
+    });
+    const waited = await t.client.agents.wait({
+      agentId: inWorktree.id,
+      afterSeq: sent.seq,
+      timeoutMs: 5000,
+    });
+    expect(waited.agent.summary.preview).toBe("back");
+  });
+
+  it("removing forgets a workspace and its worktrees, never their files, and archives their agents; refused while one works", async () => {
+    t = await startTestServer();
+    const repo = t.repo();
+    const ws = await t.client.workspaces.add({ path: repo });
+    const other = await t.client.workspaces.add({ path: t.repo("other") });
+    const { workspace: wt } = await t.client.workspaces.createWorktree({ id: ws.id, branch: "kept" });
+    const { agent: here, sent } = await t.client.agents.create({
+      workspaceId: ws.id,
+      runtime: "scripted",
+      input: input("/echo done"),
+    });
+    await t.client.agents.wait({ agentId: here.id, afterSeq: sent?.seq ?? -1, timeoutMs: 5000 });
+    await t.client.agents.update({ agentId: here.id, pinned: true });
+    const { agent: there } = await t.client.agents.create({
+      workspaceId: wt.id,
+      runtime: "scripted",
+      input: input("/sleep 30000"),
+    });
+    const { settings } = (await t.client.state.get()).state;
+    await t.client.settings.update({ coach: { ...settings.coach, workspaces: [ws.id, wt.id, other.id] } });
+
+    await working(t, there.id);
+    await expect(t.client.workspaces.remove({ id: ws.id })).rejects.toThrow(
+      /an agent is working in .*: stop it or let it finish/,
+    );
+    await t.client.agents.stop({ agentId: there.id });
+
+    const result = await t.client.workspaces.remove({ id: ws.id });
+    expect(result.removed).toEqual([ws.id, wt.id]);
+    expect(result.archived.sort()).toEqual([here.id, there.id].sort());
+    const { state } = await t.client.state.get();
+    expect(state.workspaces[ws.id]).toBeUndefined();
+    expect(state.workspaces[wt.id]).toBeUndefined();
+    expect(state.settings.coach.workspaces).toEqual([other.id]);
+    // The folders, the worktree's checkout and its branch are all still there.
+    expect(fs.existsSync(path.join(repo, "README.md"))).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(true);
+    // The agents are archived (a pinned one unpinned), their logs kept, with why.
+    expect(state.agents[here.id]?.summary.archived).toBe(true);
+    expect(state.agents[here.id]?.pinnedAt).toBeNull();
+    const { entries } = await t.client.agents.entries({ agentId: here.id, after: -1 });
+    expect(entries.some((e) => e.kind === "oar")).toBe(true);
+    expect(entries.findLast((e) => e.kind === "agent.updated")).toMatchObject({
+      changes: { archived: true },
+      reason: `its workspace was removed from rowrow (${repo})`,
+    });
+    await expect(t.client.workspaces.remove({ id: ws.id })).rejects.toThrow(/not found/);
+
+    // Adding the folder again is a new workspace.
+    const again = await t.client.workspaces.add({ path: repo });
+    expect(again.id).not.toBe(ws.id);
+  });
+
+  it("is what `rowrow ws rename|archive|unarchive|remove` do", async () => {
+    const server = await startTestServer();
+    t = server;
+    const ws = await server.client.workspaces.add({ path: server.repo() });
+    const rowrow = async (...args: string[]): Promise<string> => {
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [path.resolve(import.meta.dirname, "../src/cli/main.ts"), ...args],
+        { env: { ...process.env, ROWROW_URL: server.server.url, ROWROW_TOKEN: server.token } },
+      );
+      return stdout.trim();
+    };
+    expect(await rowrow("ws", "rename", ws.id, "My", "site")).toBe("renamed: My site");
+    expect(await rowrow("ws", "archive", "My site")).toMatch(/^archived My site: hidden/);
+    expect(await rowrow("ws")).toBe("(1 archived: rowrow ws --all lists them)");
+    expect(await rowrow("ws", "--all")).toMatch(/My site .* \[archived\]$/);
+    expect(await rowrow("ws", "unarchive", ws.id)).toBe("unarchived My site");
+    expect(await rowrow("ws", "rename", ws.id, "--reset")).toBe(`renamed: ${ws.label}`);
+    expect(await rowrow("ws", "remove", ws.id)).toBe(
+      `rowrow forgot ${ws.path}; the files are untouched.\n0 agents archived.`,
+    );
   });
 
   it("says which hook file and commands a worktree will run, before running them", async () => {

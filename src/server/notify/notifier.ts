@@ -110,7 +110,7 @@ export class Notifier {
 
   /** How many agents need you: the apps' badge. */
   needingYou(): number {
-    return needingYou(this.agents);
+    return needingYou(this.agents, this.workspaces);
   }
 
   private async fire(agentId: string, expected: Attention): Promise<void> {
@@ -288,11 +288,16 @@ function wait(ms: number): string {
   return ms < 60_000 ? `${Math.max(1, Math.ceil(ms / 1000))} s` : `${Math.ceil(ms / 60_000)} min`;
 }
 
-/** Agents that need you (blocked, or done and not seen), archived ones aside. */
-export function needingYou(agents: AgentService): number {
+/** Agents that need you (blocked, or done and not seen), archived ones and archived workspaces' aside. */
+export function needingYou(agents: AgentService, workspaces: Workspaces): number {
   return agents
     .list()
-    .filter((a) => !a.summary.archived && (a.attention === "blocked" || a.attention === "done")).length;
+    .filter(
+      (a) =>
+        !a.summary.archived &&
+        !workspaces.archived(a.summary.workspaceId) &&
+        (a.attention === "blocked" || a.attention === "done"),
+    ).length;
 }
 
 /** What happened, in a title and a line: "X finished" and the tail of what it said. */

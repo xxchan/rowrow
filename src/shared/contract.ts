@@ -133,7 +133,10 @@ const workspaces = {
     .input(z.object({ path: z.string().min(1), label: z.string().optional() }))
     .output(Workspace),
   update: oc
-    .route({ summary: "Rename (label; null restores the derived name) or archive a workspace." })
+    .route({
+      summary:
+        "Rename (label; null restores the derived name) or archive a workspace. Archiving hides it, the linked worktrees under it and their agents, and stops their runs; nobody can start or message an agent there until it is unarchived. The agents' own archived flags are untouched, so unarchiving brings back exactly what was there.",
+    })
     .input(
       z.object({
         id: workspaceId,
@@ -142,6 +145,18 @@ const workspaces = {
       }),
     )
     .output(Workspace),
+  remove: oc
+    .route({
+      summary:
+        "Remove a workspace from rowrow, with the linked worktrees registered under it. Its folder, files, checkouts and branches are untouched. Refused while one of its agents is working. Its agents are archived (their logs are kept); adding the path again makes a new workspace.",
+    })
+    .input(z.object({ id: workspaceId }))
+    .output(
+      z.object({
+        removed: z.array(z.string()).describe("The workspaces rowrow forgot: this one, then its worktrees."),
+        archived: z.array(z.string()).describe("The agents archived with them."),
+      }),
+    ),
   refresh: oc
     .route({ summary: "Re-read a workspace's git facts (branch, upstream, changed files) now." })
     .input(z.object({ id: workspaceId }))
@@ -187,7 +202,7 @@ const workspaces = {
   removeWorktree: oc
     .route({
       summary:
-        "Remove a linked worktree workspace: runs the teardown hook (a failure stops removal), removes the checkout (refused when dirty unless force), keeps the branch.",
+        "Remove a linked worktree workspace: runs the teardown hook (a failure stops removal), removes the checkout (refused when dirty unless force), keeps the branch. rowrow then forgets the workspace and archives its agents.",
     })
     .input(z.object({ id: workspaceId, force: z.boolean().optional() }))
     .output(ok),

@@ -67,7 +67,13 @@ export type EntryBody =
       readonly title?: string;
       readonly by: Actor;
     }
-  | { readonly kind: "agent.updated"; readonly changes: AgentChanges; readonly by: Actor }
+  | {
+      readonly kind: "agent.updated";
+      readonly changes: AgentChanges;
+      readonly by: Actor;
+      /** Why, when it followed from something else: archived because its workspace was removed (D-047). */
+      readonly reason?: string;
+    }
   | {
       readonly kind: "input";
       readonly inputId: string;

@@ -171,6 +171,11 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
   return {
     async createWorktree(workspaceId, options) {
       const source = gitWorkspace(workspaceId);
+      if (workspaces.archived(workspaceId))
+        throw new UserError(
+          `${source.label} is archived: unarchive the workspace to make a worktree of it`,
+          "PRECONDITION_FAILED",
+        );
       let created;
       try {
         created = await createWorktree({
@@ -272,9 +277,23 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         throw new UserError(error instanceof Error ? error.message : String(error));
       }
       await hook("removed", ws.path, source, source);
-      workspaces.update(workspaceId, { archived: true });
-      void workspaces.refresh(workspaceId).catch(() => undefined);
       log.info("worktree.removed", { ws: workspaceId, force });
+    },
+
+    async forget(ws) {
+      prCache.delete(ws.id);
+      prInFlight.delete(ws.id);
+      const turns = db.run("delete from agent_turns where workspace_id = ?", ws.id).changes;
+      // The repository's snapshots go with the last workspace of it rowrow knows.
+      const repo = ws.git?.repoKey;
+      const kept = workspaces.list().some((w) => w.id !== ws.id && w.git?.repoKey === repo);
+      if (repo !== undefined && !kept)
+        await store
+          .drop(repo)
+          .catch((error: unknown) =>
+            log.warn("git.snapshot.drop_failed", { ws: ws.id, err: serializeError(error) }),
+          );
+      log.info("workspace.git_forgotten", { ws: ws.id, turns, snapshots: repo !== undefined && !kept });
     },
 
     async changes(workspaceId, scope: DiffScope, agentId?: string): Promise<Changes> {

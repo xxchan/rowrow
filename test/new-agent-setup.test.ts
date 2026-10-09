@@ -136,6 +136,13 @@ describe("resolveSetup", () => {
       "ws_api",
     );
     expect(resolveSetup(state(), { kind: "agent", agentId: "ag_gone" }, NO_PREFS).workspaceId).toBe("ws_api");
+    // Nor a worktree of an archived repository (D-047).
+    const shelved = state();
+    const workspaces = { ...shelved.workspaces, ws_api: { ...workspace("ws_api", "api"), archived: true } };
+    expect(
+      resolveSetup({ ...shelved, workspaces }, { kind: "workspace", workspaceId: "ws_tree" }, NO_PREFS)
+        .workspaceId,
+    ).toBe("ws_web");
   });
 
   test("no workspaces and no runtimes: nothing to pick", () => {

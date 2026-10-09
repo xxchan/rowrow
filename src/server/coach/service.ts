@@ -351,7 +351,7 @@ export class CoachService {
     const all = ids ?? this.deps.workspaces.list().map((ws) => ws.id);
     return all.filter((id) => {
       const ws = this.deps.workspaces.get(id);
-      return ws !== undefined && !ws.archived && !ws.missing;
+      return ws !== undefined && !this.deps.workspaces.archived(id) && !ws.missing;
     });
   }
 
@@ -610,7 +610,12 @@ export class CoachService {
   /** A workspace this turn may act on. Out of scope and unknown read the same. */
   private workspaceIn(chatId: string, workspaceId: string): Workspace {
     const ws = this.deps.workspaces.get(workspaceId);
-    if (ws === undefined || ws.archived || ws.missing || !this.scopeOf(chatId).includes(workspaceId))
+    if (
+      ws === undefined ||
+      this.deps.workspaces.archived(workspaceId) ||
+      ws.missing ||
+      !this.scopeOf(chatId).includes(workspaceId)
+    )
       throw new UserError(
         `Workspace ${workspaceId} isn't in this turn's authorized workspaces.`,
         "FORBIDDEN",
@@ -719,7 +724,7 @@ export class CoachService {
   private targetAllowed(proposal: CoachProposal): boolean {
     const settings = this.deps.settings.get().coach;
     const ws = this.deps.workspaces.get(proposal.workspaceId);
-    if (ws === undefined || ws.archived || ws.missing) return false;
+    if (ws === undefined || this.deps.workspaces.archived(ws.id) || ws.missing) return false;
     if (!settings.fullAccess && !settings.workspaces.includes(ws.id)) return false;
     if (proposal.agentId === undefined) return true;
     const agent = this.deps.agents.get(proposal.agentId);

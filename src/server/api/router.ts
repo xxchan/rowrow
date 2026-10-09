@@ -46,6 +46,7 @@ import type { Push } from "../notify/push.ts";
 import type { SettingsService } from "../settings.ts";
 import type { StateStore } from "../state/store.ts";
 import { log, matches, newTraceId, onLog, queryLog, serializeError, withContext } from "../telemetry/log.ts";
+import type { WorkspaceLifecycle } from "../workspaces/lifecycle.ts";
 import type { Workspaces } from "../workspaces/service.ts";
 import { channel } from "./channel.ts";
 import { checkAttachments, readUpload, saveUpload } from "./uploads.ts";
@@ -77,10 +78,14 @@ export interface GitOps {
     workspace: Workspace;
     hook: { ran: boolean; ok: boolean; output: string } | null;
   }>;
+  /** Removes the checkout; forgetting the workspace is the lifecycle's (D-047). */
   removeWorktree(workspaceId: string, force: boolean): Promise<void>;
   /** The setup hook a worktree of this workspace's repository would run, as its checkout says; null for none. */
   worktreeSetup(workspaceId: string): Promise<string | null>;
   hooks(workspaceId: string, action: "create" | "remove"): Promise<WorktreeHooks>;
+  /** A workspace rowrow forgot: drop its pull request cache, turn baselines and, with the last
+   * workspace of its repository, the repository's snapshots. */
+  forget(workspace: Workspace): Promise<void>;
   changes(workspaceId: string, scope: DiffScope, agentId?: string): Promise<Changes>;
   diff(
     workspaceId: string,
@@ -116,6 +121,8 @@ export interface Services {
   updates(): UpdateChecker | null;
   readonly state: StateStore;
   readonly workspaces: Workspaces;
+  /** Archiving and removing workspaces, with their agents (D-047). */
+  readonly lifecycle: WorkspaceLifecycle;
   readonly agents: AgentService;
   readonly coach: CoachService;
   readonly agentLog: AgentLog;
@@ -261,11 +268,14 @@ export function createRouter(s: Services) {
 
     workspaces: {
       add: os.workspaces.add.handler(async ({ input }) => s.workspaces.add(input.path, input.label)),
-      update: os.workspaces.update.handler(({ input }) =>
-        s.workspaces.update(input.id, {
+      update: os.workspaces.update.handler(async ({ input }) =>
+        s.lifecycle.update(input.id, {
           ...(input.label === undefined ? {} : { label: input.label }),
           ...(input.archived === undefined ? {} : { archived: input.archived }),
         }),
+      ),
+      remove: os.workspaces.remove.handler(async ({ input, context }) =>
+        s.lifecycle.remove(input.id, context.actor),
       ),
       refresh: os.workspaces.refresh.handler(async ({ input }) => s.workspaces.refresh(input.id)),
       browse: os.workspaces.browse.handler(({ input }) => {
@@ -282,8 +292,9 @@ export function createRouter(s: Services) {
         }),
       ),
       hooks: os.workspaces.hooks.handler(({ input }) => s.git.hooks(input.id, input.action)),
-      removeWorktree: os.workspaces.removeWorktree.handler(async ({ input }) => {
+      removeWorktree: os.workspaces.removeWorktree.handler(async ({ input, context }) => {
         await s.git.removeWorktree(input.id, input.force ?? false);
+        await s.lifecycle.worktreeRemoved(input.id, context.actor);
         return { ok: true as const };
       }),
     },

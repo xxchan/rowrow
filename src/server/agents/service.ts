@@ -214,6 +214,11 @@ export class AgentService {
     by: Actor;
   }): AgentState {
     const ws = this.deps.workspaces.require(input.workspaceId);
+    if (this.deps.workspaces.archived(ws.id))
+      throw new UserError(
+        `${ws.label} is archived: unarchive the workspace to start an agent there`,
+        "PRECONDITION_FAILED",
+      );
     if (this.deps.runtimes.info(input.runtime) === undefined)
       throw new UserError(`unknown runtime "${input.runtime}"`);
     const id = newId("ag");
@@ -265,8 +270,7 @@ export class AgentService {
 
   async send(agentId: string, input: SendInput): Promise<SendResult> {
     const agent = this.require(agentId);
-    if (agent.summary.archived)
-      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    this.refuseArchived(agent);
     if (agent.summary.title === null && agent.summary.inputs === 0) {
       this.deps.log.append(agentId, {
         kind: "agent.updated",
@@ -277,6 +281,18 @@ export class AgentService {
       });
     }
     return agent.actor.send(input);
+  }
+
+  /** Nothing is sent to an archived agent, or to one in an archived workspace (D-047). */
+  private refuseArchived(agent: Agent): void {
+    if (agent.summary.archived)
+      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    const { workspaceId } = agent.summary;
+    if (agent.summary.role !== "coach" && this.deps.workspaces.archived(workspaceId))
+      throw new UserError(
+        `its workspace, ${this.deps.workspaces.get(workspaceId)?.label ?? workspaceId}, is archived: unarchive the workspace to send`,
+        "PRECONDITION_FAILED",
+      );
   }
 
   /** Take a held input back (D-035). */
@@ -291,16 +307,14 @@ export class AgentService {
   /** Send a held input now: steered into the running turn, or as the next turn. */
   sendNow(agentId: string, inputId: string): Promise<SendResult> {
     const agent = this.require(agentId);
-    if (agent.summary.archived)
-      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    this.refuseArchived(agent);
     return agent.actor.sendNow(inputId);
   }
 
   /** Send held inputs again after a pause. */
   resume(agentId: string, by: Actor): Promise<void> {
     const agent = this.require(agentId);
-    if (agent.summary.archived)
-      throw new UserError("this agent is archived; unarchive it to send", "PRECONDITION_FAILED");
+    this.refuseArchived(agent);
     return agent.actor.resume(by);
   }
 
@@ -312,6 +326,7 @@ export class AgentService {
     return this.require(agentId).actor.stop(reason);
   }
 
+  /** `reason`: why, when the change follows from something else (its workspace was removed). */
   async update(
     agentId: string,
     changes: {
@@ -322,6 +337,7 @@ export class AgentService {
       pinned?: boolean;
     },
     by: Actor,
+    reason?: string,
   ): Promise<AgentState> {
     const agent = this.require(agentId);
     const s = agent.summary;
@@ -350,7 +366,12 @@ export class AgentService {
         : { archived: changes.archived }),
     };
     if (Object.keys(effective).length > 0)
-      this.deps.log.append(agentId, { kind: "agent.updated", changes: effective, by });
+      this.deps.log.append(agentId, {
+        kind: "agent.updated",
+        changes: effective,
+        by,
+        ...(reason === undefined ? {} : { reason }),
+      });
     // A new model or effort takes effect in a new run, resuming the conversation on the next input.
     if (effective.model !== undefined || effective.effort !== undefined) await agent.actor.stop("restart");
     if (effective.archived === true) await agent.actor.stop("archived");
@@ -402,12 +423,12 @@ export class AgentService {
     await this.deps.turnStarted?.(summary.workspaceId, agentId);
   }
 
-  /** Stop the live runs of every agent in a workspace (its checkout is about to go away). */
-  async stopAllIn(workspaceId: string): Promise<void> {
+  /** Stop the live runs of every agent in a workspace (its checkout is about to go away, or it was archived). */
+  async stopAllIn(workspaceId: string, reason: RunEndReason = "stopped"): Promise<void> {
     await Promise.all(
       [...this.agents.values()]
-        .filter((a) => a.summary.workspaceId === workspaceId)
-        .map(async (a) => a.actor.stop("stopped")),
+        .filter((a) => a.summary.workspaceId === workspaceId && a.summary.role !== "coach")
+        .map(async (a) => a.actor.stop(reason)),
     );
   }
 

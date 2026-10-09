@@ -1,12 +1,14 @@
 // Workspaces: directories agents work in (docs/decisions.md, D-007). The registry is in
 // the database; git facts are read from the checkout and kept fresh in AppState. A linked
 // worktree is grouped under the workspace of its repository's main checkout, derived from
-// git (same common dir), never stored.
+// git (same common dir), never stored. What archiving and removing do to the agents is
+// ./lifecycle.ts (D-047).
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { newId } from "../../shared/ids.ts";
 import type { GitSummary, Workspace } from "../../shared/schemas.ts";
+import { workspaceArchived } from "../../shared/workspaces.ts";
 import { readGitSummary } from "../git/summary.ts";
 import type { StateStore } from "../state/store.ts";
 import type { Db } from "../store/db.ts";
@@ -101,13 +103,20 @@ export class Workspaces {
     return this.get(id) ?? current;
   }
 
-  /** Forget a workspace (the directory is untouched). */
-  remove(id: string): void {
+  /** Forget a workspace: its row and its place in AppState. The directory is untouched. */
+  forget(id: string): void {
+    clearTimeout(this.soon.get(id));
+    this.soon.delete(id);
     this.db.run("delete from workspaces where id = ?", id);
-    this.state.update("workspaces.remove", (draft) => {
+    this.state.update("workspaces.forget", (draft) => {
       delete draft.workspaces[id];
     });
     this.relink();
+  }
+
+  /** Archived, or a linked worktree of an archived repository: no agent starts or is sent to there. */
+  archived(id: string): boolean {
+    return workspaceArchived(this.state.get().state.workspaces, id);
   }
 
   require(id: string): Workspace {

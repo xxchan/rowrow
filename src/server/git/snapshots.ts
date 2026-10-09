@@ -173,7 +173,13 @@ export class SnapshotStore {
     log.info("git.snapshot.pruned", { root: this.root, maxAgeMs, ...tally });
   }
 
-  private storeDir(repo: Located): string {
+  /** Delete a repository's snapshots (`commonDir` is its GitSummary.repoKey): rowrow no longer knows it. */
+  async drop(commonDir: string): Promise<void> {
+    await fs.promises.rm(this.storeDir({ commonDir }), { recursive: true, force: true });
+    log.info("git.snapshot.dropped", { repo: commonDir });
+  }
+
+  private storeDir(repo: Pick<Located, "commonDir">): string {
     return path.join(this.root, createHash("sha256").update(repo.commonDir).digest("hex").slice(0, 16));
   }
 

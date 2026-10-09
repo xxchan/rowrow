@@ -3,6 +3,7 @@
 // and in the iOS app (through the kit); the remembered choices are each device's own, kept
 // by the web app's NewAgentDialog and by the iOS app.
 import type { AppState, Workspace } from "./schemas.ts";
+import { workspaceArchived } from "./workspaces.ts";
 
 /** How to start an agent, apart from where and what to say. `null` is the runtime's default. */
 export interface AgentSetup {
@@ -37,7 +38,7 @@ export interface ResolvedSetup extends AgentSetup {
 function usable(state: AppState, id: string | null | undefined): Workspace | null {
   if (id === null || id === undefined) return null;
   const ws = state.workspaces[id];
-  return ws === undefined || ws.archived ? null : ws;
+  return ws === undefined || workspaceArchived(state.workspaces, id) ? null : ws;
 }
 
 /**
