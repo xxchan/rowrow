@@ -374,6 +374,10 @@ message says what to do next.
     `files.read` previews a file (D-021).
   - *Downloads*: `files.download` sends any file, or a folder as a .tar.gz of what the tree
     shows, up to 256 MiB, as a GET the browser can fetch with its cookie (D-042).
+  - *File links*: a path in an agent's transcript (inline code, the file a tool call names, a
+    search's or a command's output) that names a file `files.list` lists opens it in Files at
+    its line. The check is a pure function in the browser over the list the tree loads
+    (`src/shared/file-refs.ts`), so no procedure; Open in Files on a diff does the same (D-054).
   - *Pull request*: the branch's GitHub PR (state, checks, review decision), read with the
     host's `gh`, so rowrow holds no token; every other outcome is an explicit state (D-020).
 

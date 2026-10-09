@@ -2,10 +2,12 @@
 // review comments on it), the files (search and preview), the history (commits and the
 // branch's pull request), and commands run there (D-052). Tabs stay mounted, so switching
 // keeps a search, a commit or a command's output open. A folder that isn't a git checkout has
-// only Commands.
+// only Commands. A file asked for (a path clicked in the transcript, Open in Files on a diff)
+// turns it to Files, which shows it (lib/file-links.ts).
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent } from "react";
 import { readPref, writePref } from "../lib/device-prefs.ts";
+import { onFileOpen } from "../lib/file-links.ts";
 import { ChangesView } from "./ChangesView.tsx";
 import { CommandsTab } from "./CommandsTab.tsx";
 import { HistoryTab } from "./HistoryTab.tsx";
@@ -35,6 +37,16 @@ export function Inspector({
   onTabChange: (tab: InspectorTab) => void;
   onDelivered?: () => void;
 }) {
+  const toFiles = useEffectEvent(() => {
+    if (tab !== "files") onTabChange("files");
+  });
+  useEffect(
+    () =>
+      onFileOpen((request) => {
+        if (git && request.workspaceId === workspaceId) toFiles();
+      }),
+    [git, workspaceId],
+  );
   return (
     <Tabs
       value={git ? tab : "commands"}

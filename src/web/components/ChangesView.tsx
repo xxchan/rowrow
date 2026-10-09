@@ -6,7 +6,8 @@
 // change, which happens after every turn. Uncommitted files can be staged, unstaged, discarded
 // or deleted; each action carries the file's stamp, so nothing happens to a file that changed
 // since you looked (D-019). A file the last turn changed can be reverted to before the turn,
-// unless it changed since the turn ended (D-051).
+// unless it changed since the turn ended (D-051). Open in Files on a file's header shows the
+// whole file in the Files tab (roamgate's diff header button, D-054).
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +29,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ORPCError } from "@orpc/client";
-import { Ellipsis, LoaderCircle, RefreshCw } from "lucide-react";
+import { Ellipsis, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -64,6 +65,7 @@ import {
   writeCollapsed,
   type LoadedDiff,
 } from "../lib/diff-loading.ts";
+import { openFile } from "../lib/file-links.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import type { LineRef } from "./DiffView.tsx";
@@ -723,6 +725,7 @@ function ChangeList({
       addAnnotation(workspaceId, { kind: "diff", path, scope, ...ref }, text),
     [workspaceId, scope],
   );
+  const openInFiles = useCallback((path: string): void => openFile(workspaceId, path), [workspaceId]);
   const act = useCallback(
     (file: ChangedFile, action: FileAction): void => live.current.onAction?.(file, action),
     [],
@@ -776,6 +779,7 @@ function ChangeList({
                 register={register}
                 onToggle={toggle}
                 onView={open}
+                onOpenFile={openInFiles}
                 onComment={comment}
                 onAction={onAction === undefined ? undefined : act}
                 onRevert={onRevert === undefined ? undefined : revertFile}
@@ -805,6 +809,7 @@ const FileSection = memo(function FileSection({
   register,
   onToggle,
   onView,
+  onOpenFile,
   onComment,
   onAction,
   onRevert,
@@ -823,6 +828,8 @@ const FileSection = memo(function FileSection({
   register: (key: string, element: HTMLElement | null) => void;
   onToggle: (path: string, collapsed: boolean) => void;
   onView: (path: string) => void;
+  /** Shows the file itself in the Files tab. */
+  onOpenFile: (path: string) => void;
   onComment: (path: string, ref: LineRef, comment: string) => void;
   onAction: ((file: ChangedFile, action: FileAction) => void) | undefined;
   onRevert: ((file: ChangedFile) => void) | undefined;
@@ -830,6 +837,8 @@ const FileSection = memo(function FileSection({
   reverted: boolean;
 }) {
   const path = file.path;
+  // A deleted file has nothing left to open.
+  const opens = file.status !== "deleted";
   const actions = onAction === undefined || file.stamp === undefined ? [] : actionsFor(file);
   const menu: MenuAction[] = actions.map((action) => ({
     label:
@@ -881,28 +890,46 @@ const FileSection = memo(function FileSection({
           onToggle={() => onToggle(path, collapsed)}
           annotations={annotations}
           badge={badge}
-          menu={menu}
+          menu={
+            opens
+              ? [{ label: "Open in Files", icon: <FolderOpen />, run: () => onOpenFile(path) }, ...menu]
+              : menu
+          }
           actions={
-            menu.length === 0 ? undefined : (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-7 shrink-0 text-muted-foreground md:opacity-0 md:group-hover/file:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
-                    aria-label={`Actions for ${path}`}
-                  >
-                    <Ellipsis />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <MenuActions
-                    actions={menu}
-                    parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }}
-                  />
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )
+            <>
+              {opens && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 text-muted-foreground"
+                  aria-label={`Open ${path} in Files`}
+                  title="Open in Files"
+                  onClick={() => onOpenFile(path)}
+                >
+                  <FolderOpen />
+                </Button>
+              )}
+              {menu.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 shrink-0 text-muted-foreground md:opacity-0 md:group-hover/file:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                      aria-label={`Actions for ${path}`}
+                    >
+                      <Ellipsis />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <MenuActions
+                      actions={menu}
+                      parts={{ Item: DropdownMenuItem, Separator: DropdownMenuSeparator }}
+                    />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
           }
         />
       </div>

@@ -1549,3 +1549,41 @@ Rows still show the time of the latest activity ("2 min ago"); only the order ch
 **Revisit when** people miss "most recently active" as an order (it could come back as an
 option), or work handed from agent to agent becomes common enough that the receiving agent
 should rise too.
+
+## D-054 Paths the agent mentions open in the inspector: a click, and only files the checkout lists (2026-10-09)
+
+**Context.** Agents point at files all the time: `src/a.ts:42` in a reply, the file a Read or an
+Edit touched, a search's hits. roamgate links paths only in its terminal: Cmd/Ctrl-click (a long
+press on touch) opens a menu whose "Preview file" shows the file in the inspector's temporary
+tab, without the line; its agent history links nothing, and a diff's header has an "Open in
+Files" button. rowrow has no terminal (D-001, D-052): the transcript is where the agent points.
+
+**Decision.** In an agent's transcript (`src/shared/file-refs.ts`, `FileLinks.tsx`):
+
+- **What links:** inline code whose whole text is a path, with a line if it says one (`:42`,
+  `:42:7`, `#L42`, `(42,7)`); the file a tool call's row names (oar's `classifyTool` paths, else
+  the input's `file_path`, `path`…), at a read's `offset` or a Codex file change's first changed
+  line; and paths in the expanded output of a search or a command, found with roamgate's
+  terminal rules. Prose outside backticks and code blocks don't link; Markdown links stay links.
+- **Only files `files.list` lists**, checked in the browser against the list it loads for the
+  tree anyway (one request per workspace and git change, shared with the tree): relative to the
+  agent's folder or the checkout's top, absolute under either, without a diff's `a/` or `b/`, or
+  a bare name or suffix exactly one listed file has (Codex's convention for file references). A
+  path needs a `/` or a `.`, so words and commands stay text. Anything outside the checkout,
+  ignored (node_modules), missing, or past a list cut at 50,000 files stays text. No procedure.
+- **A plain click** (a tap) on the dotted-underlined path opens the inspector beside the agent
+  (the sheet on a phone) on Files, with the file in the temporary tab as a single click in the
+  tree does, scrolled to the line and highlighted. A changed file's header in Changes gets
+  roamgate's Open in Files button (and right-click item) for the whole file; clicking the header
+  still folds its diff.
+
+**Why.** A modifier is roamgate's because a terminal's plain click selects text; the transcript
+has no such use for it, and a phone has no Cmd (PRINCIPLES.md, product 6). A menu with one item
+is a detour. Checking against the list the client already loads costs nothing per reply, where a
+server check would cost a round trip for each mention and a procedure for what the list
+answers; and linking only what exists keeps lookalikes (`a.b`, `1.2.3`, `console.log`) plain
+without a list of exceptions. The line is the point of most mentions, so it is kept.
+
+**Revisit when** paths in prose (outside backticks) are common enough to want links, checkouts
+over 50,000 files leave too many mentions plain (then a batched existence check, through the
+contract), or the iOS app gets links (the kit would export `file-refs.ts`).

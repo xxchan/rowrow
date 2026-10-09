@@ -4,7 +4,8 @@
 // "agent"): selection comments quote only what the agent wrote (SelectionComment), and the
 // wave bar marks each one (ConversationWave), previewing what they mark data-preview. Coach's
 // chats (D-044) read the same fold: an answer's text, with the tools it called folded into one
-// "Work performed" group under it.
+// "Work performed" group under it. In an agent's transcript, paths that name files of its
+// workspace open them in the inspector (FileLinks.tsx, D-054).
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
@@ -24,7 +25,7 @@ import type { CredentialProblem, FailureClass } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Bell, Check, ChevronRight, CircleAlert, CircleX, ExternalLink, LoaderCircle } from "lucide-react";
-import { Fragment, memo, useState, type ReactNode } from "react";
+import { Fragment, memo, useMemo, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import { coachToolLabel } from "../../shared/coach.ts";
 import { mentionSegments, type CoachMention } from "../../shared/coach-mentions.ts";
@@ -32,6 +33,7 @@ import type { Actor, Attachment, EntryOf } from "../../shared/entries.ts";
 import type { AppState } from "../../shared/schemas.ts";
 import { actorLabel } from "../../shared/render-text.ts";
 import { droppedWords, duration, failureHint } from "../../shared/describe.ts";
+import { toolFileTarget } from "../../shared/file-refs.ts";
 import { signInSteps } from "../../shared/sign-in.ts";
 import { toolImages, toolText } from "../../shared/tool-output.ts";
 import { closeCoach } from "../lib/coach.ts";
@@ -58,6 +60,7 @@ import {
 import { SentAttachments } from "./Attachments.tsx";
 import { CoachActionCard } from "./CoachActionCard.tsx";
 import { MentionLink } from "./CoachMentions.tsx";
+import { FileLink, InlineCode, LinkedText, useFileLinks } from "./FileLinks.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 
@@ -749,6 +752,8 @@ function SystemLine({
 }
 
 const plugins = { code, cjk, renderers: [mermaidRenderer] };
+// Inline code that names a file of the checkout opens it (FileLinks.tsx).
+const components = { inlineCode: InlineCode };
 
 /** One lane (the agent, or a sub-agent) inside a turn: text, reasoning, tool calls in order. */
 function Section({
@@ -786,6 +791,7 @@ function Section({
             <Streamdown
               className="min-w-0 text-sm leading-relaxed [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_h4]:text-sm"
               plugins={plugins}
+              components={components}
               isAnimating={streaming && index === lastIndex}
               shikiTheme={["github-light", "tokyo-night"]}
               linkSafety={{ enabled: false }}
@@ -920,6 +926,7 @@ function ToolGroup({ parts, runtime }: { parts: ToolPart[]; runtime: string }) {
 }
 
 function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
+  const links = useFileLinks();
   const action = classifyTool(runtime, part.tool, part.input);
   const output = toolText(part) ?? "";
   const images = toolImages(part);
@@ -929,6 +936,11 @@ function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
       ? duration(part.endedAt - part.startedAt)
       : null;
   const detail = toolDetail(action.kind, part.input, output);
+  // The file it read or edited, when the checkout has it, opens in the inspector (FileLinks.tsx).
+  const target = useMemo(
+    () => (links === null ? null : toolFileTarget(runtime, part.tool, part.input, links.files)),
+    [links, runtime, part.tool, part.input],
+  );
   const status =
     part.result === "running" ? (
       <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
@@ -946,7 +958,13 @@ function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
           className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted-foreground"
           title={(action.paths?.length ?? 0) > 1 ? action.paths?.join("\n") : undefined}
         >
-          {action.detail}
+          {target === null ? (
+            action.detail
+          ) : (
+            <FileLink target={target} className="pointer-events-auto max-w-full truncate align-bottom">
+              {action.detail}
+            </FileLink>
+          )}
           {/* One call can touch several files (Codex's file changes): the rest are in the tooltip. */}
           {(action.paths?.length ?? 0) > 1 && ` +${(action.paths?.length ?? 0) - 1} more`}
         </span>
@@ -961,20 +979,37 @@ function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
       )}
     </>
   );
+  const chevron = (
+    <ChevronRight
+      className={cn(
+        "size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/tool:rotate-90",
+        took === null ? "ml-auto" : "ml-0.5",
+      )}
+    />
+  );
+  // Only what may name files: a search's hits, a command's line and output.
+  const linked = action.kind === "search" || action.kind === "run_command";
   return (
     <Collapsible className="group/tool">
       {detail === null ? (
         <div className="flex min-h-8 items-center gap-2 px-2.5 py-1.5">{row}</div>
-      ) : (
+      ) : target === null ? (
         <CollapsibleTrigger className="flex min-h-8 w-full items-center gap-2 px-2.5 py-1.5 text-left hover:bg-accent/50">
           {row}
-          <ChevronRight
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/tool:rotate-90",
-              took === null ? "ml-auto" : "ml-0.5",
-            )}
-          />
+          {chevron}
         </CollapsibleTrigger>
+      ) : (
+        // The path is a link of its own (a button can't hold one): the row's toggle lies under it.
+        <div className="relative flex min-h-8 items-center px-2.5 py-1.5">
+          <CollapsibleTrigger
+            aria-label={`${part.tool} ${action.detail ?? ""}`}
+            className="absolute inset-0 hover:bg-accent/50"
+          />
+          <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
+            {row}
+            {chevron}
+          </div>
+        </div>
       )}
       {part.result === "failed" && output !== "" && (
         <p className="px-2.5 pb-1.5 pl-8 text-xs break-words text-destructive">{output.slice(0, 300)}</p>
@@ -982,7 +1017,7 @@ function ToolCall({ part, runtime }: { part: ToolPart; runtime: string }) {
       {detail !== null && (
         <CollapsibleContent>
           <pre className="max-h-80 overflow-auto border-t bg-code px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap">
-            {detail.slice(0, 20_000)}
+            {linked ? <LinkedText text={detail.slice(0, 20_000)} /> : detail.slice(0, 20_000)}
           </pre>
         </CollapsibleContent>
       )}

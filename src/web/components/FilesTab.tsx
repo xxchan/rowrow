@@ -7,7 +7,8 @@
 // the path in the agent's message, since agents read files by path. A tree row's menu
 // (right-click, long press, or its ⋯) and the preview download a file, or a folder as .tar.gz
 // (roamgate #312). The History tab opens the same preview on a commit's file as it was then
-// (`at`).
+// (`at`). A path clicked in an agent's transcript, or Open in Files on a diff, opens here as a
+// single click in the tree does, at its line (D-054, lib/file-links.ts).
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,6 +28,7 @@ import { ArrowLeft, AtSign, Copy, Download, FileText as FileIcon, LoaderCircle, 
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useRef,
@@ -39,6 +41,7 @@ import { Streamdown } from "streamdown";
 import type { ChangedFile, FileText, SearchResult } from "../../shared/schemas.ts";
 import { readPref, writePref } from "../lib/device-prefs.ts";
 import { downloadFromWorkspace } from "../lib/download.ts";
+import { listFiles, onFileOpen, pendingFileOpen, tookFileOpen, type FileOpen } from "../lib/file-links.ts";
 import { closeTab, keepTab, openTab, parseTabs, pruneTabs, type FileTabs } from "../lib/file-tabs.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
@@ -57,14 +60,30 @@ interface Opened {
   readonly tabs: FileTabs;
   /** Narrow: the preview covers the tree. */
   readonly shown: boolean;
-  /** The line the last opening asked for (a search hit). */
+  /** The line the last opening asked for (a search hit, a path's line): a new one each time. */
   readonly line: { path: string; line: number } | null;
 }
 
-/** A workspace's tabs as this device left them: its file showing again, over the tree. */
+/**
+ * A workspace's tabs as this device left them: its file showing again, over the tree; or the
+ * file a click asked for before this view mounted, opened in them.
+ */
 function restore(workspaceId: string): Opened {
   const tabs = parseTabs(readPref(tabsKey(workspaceId)));
-  return { workspaceId, tabs, shown: tabs.active !== null, line: null };
+  const asked = pendingFileOpen(workspaceId);
+  return asked === null
+    ? { workspaceId, tabs, shown: tabs.active !== null, line: null }
+    : opening({ workspaceId, tabs, shown: false, line: null }, asked.path, asked.line);
+}
+
+/** Shows a file in the temporary tab (or its own), over the tree, at `line`. */
+function opening(opened: Opened, path: string, line: number | null): Opened {
+  return {
+    ...opened,
+    tabs: openTab(opened.tabs, path),
+    shown: true,
+    line: line === null ? null : { path, line },
+  };
 }
 
 export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentId?: string }) {
@@ -107,15 +126,26 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
     if (next.tabs !== opened.tabs) writePref(tabsKey(workspaceId), JSON.stringify(next.tabs));
     setState(next);
   };
-  const open = (path: string, line: number | null = null): void =>
-    update((o) => ({
-      tabs: openTab(o.tabs, path),
-      shown: true,
-      line: line === null ? null : { path, line },
-    }));
+  const open = (path: string, line: number | null = null): void => update((o) => opening(o, path, line));
   const keep = (path: string): void => update((o) => ({ tabs: keepTab(o.tabs, path) }));
   const select = (path: string): void => update((o) => ({ tabs: openTab(o.tabs, path), shown: true }));
   const close = (path: string): void => update((o) => ({ tabs: closeTab(o.tabs, path) }));
+  // A file asked for from elsewhere: opened here, once. One asked for before this view mounted
+  // opened with it (restore), and its tab is kept like any other.
+  const asked = useEffectEvent((request: FileOpen) => {
+    if (request.workspaceId !== workspaceId) return;
+    tookFileOpen(request.id);
+    open(request.path, request.line);
+  });
+  const took = useEffectEvent((request: FileOpen) => {
+    tookFileOpen(request.id);
+    writePref(tabsKey(workspaceId), JSON.stringify(tabs));
+  });
+  useEffect(() => {
+    const before = pendingFileOpen(workspaceId);
+    if (before !== null) took(before);
+    return onFileOpen(asked);
+  }, [workspaceId]);
   const onListed = useCallback(
     (paths: readonly string[]): void => setListed({ workspaceId, paths: new Set(paths) }),
     [workspaceId],
@@ -222,7 +252,7 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
                 key={active}
                 workspaceId={workspaceId}
                 path={active}
-                line={opened.line?.path === active ? opened.line.line : null}
+                line={opened.line?.path === active ? opened.line : null}
                 {...(split ? {} : { onBack: () => update(() => ({ shown: false })) })}
                 {...(agentId === undefined ? {} : { agentId })}
               />
@@ -275,7 +305,7 @@ function FileBrowser({
     void (async () => {
       try {
         const [files, changes] = await Promise.all([
-          client.files.list({ workspaceId }),
+          listFiles(client, workspaceId, gitVersion),
           client.git.changes({ workspaceId, scope: "working" }).catch((error: unknown) => {
             report("warn", "files.tree_status_failed", error, { workspaceId, gitVersion });
             return null;
@@ -623,7 +653,8 @@ export function FilePreview({
 }: {
   workspaceId: string;
   path: string;
-  line: number | null;
+  /** The line to show (a new object scrolls to it again). */
+  line: { readonly line: number } | null;
   /** Back to the tree or the results (none when they're beside it). */
   onBack?: () => void;
   backLabel?: string;
@@ -640,6 +671,12 @@ export function FilePreview({
   const [view, setView] = useState<"rendered" | "source">(
     (markdown || diagram) && line === null ? "rendered" : "source",
   );
+  // A line asked for: show it in the source, where lines are.
+  const [lineShown, setLineShown] = useState(line);
+  if (lineShown !== line) {
+    setLineShown(line);
+    if (line !== null) setView("source");
+  }
   const scroller = useRef<HTMLDivElement>(null);
   const draft = useDrafts((s) => (agentId === undefined ? "" : (s.byAgent[agentId] ?? "")));
 
@@ -662,9 +699,10 @@ export function FilePreview({
 
   const text = file?.key === key ? file.data?.text : undefined;
   useLayoutEffect(() => {
-    if (text === undefined || line === null || scroller.current === null) return;
-    scroller.current.scrollTop = Math.max(0, (line - 1) * LINE - scroller.current.clientHeight / 3);
-  }, [text, line]);
+    const element = scroller.current;
+    if (text === undefined || line === null || view !== "source" || element === null) return;
+    element.scrollTop = Math.max(0, (line.line - 1) * LINE - element.clientHeight / 3);
+  }, [text, line, view]);
 
   const lines = text === undefined ? 0 : text.split("\n").length;
   const download = (): void => void downloadFromWorkspace(workspaceId, path, "file");
@@ -780,8 +818,9 @@ export function FilePreview({
             {line !== null && (
               <div
                 aria-hidden="true"
+                data-line={line.line}
                 className="pointer-events-none absolute inset-x-0 bg-primary/15"
-                style={{ top: 8 + (line - 1) * LINE, height: LINE }}
+                style={{ top: 8 + (line.line - 1) * LINE, height: LINE }}
               />
             )}
             <pre className="sticky left-0 z-10 border-r bg-code px-3 py-2 text-right text-muted-foreground/60 select-none">

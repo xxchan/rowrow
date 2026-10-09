@@ -25,6 +25,7 @@ import { needsYou } from "../components/CommandMenu.tsx";
 import { Composer } from "../components/Composer.tsx";
 import { ConversationWave } from "../components/ConversationWave.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
+import { FileLinks } from "../components/FileLinks.tsx";
 import {
   Inspector,
   saveInspectorTab,
@@ -37,6 +38,7 @@ import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { Transcript } from "../components/Transcript.tsx";
 import { onPrefChange, readPref, writePref } from "../lib/device-prefs.ts";
+import { onFileOpen } from "../lib/file-links.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
 import { navigate, type Route } from "../lib/router.ts";
@@ -116,6 +118,19 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
     setShowChanges(open);
     if (wide) writePref(CHANGES_KEY, open ? "1" : "0");
   };
+  // A path clicked in the transcript opens the inspector on Files, which shows the file.
+  const wsId = ws?.id;
+  useEffect(
+    () =>
+      onFileOpen((request) => {
+        if (request.workspaceId !== wsId) return;
+        setTab("files");
+        saveInspectorTab("files");
+        setShowChanges(true);
+        if (wide) writePref(CHANGES_KEY, "1");
+      }),
+    [wsId, wide],
+  );
   const changed = ws?.git?.changed ?? 0;
 
   // Who and where; what it runs on (model, effort, context) sits by the composer.
@@ -328,7 +343,9 @@ function Chat({ agent, onSwitchModel }: { agent: AgentState; onSwitchModel: () =
                 />
               )
             ) : (
-              <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
+              <FileLinks workspaceId={agent.summary.workspaceId}>
+                <Transcript timeline={transcript.timeline} runtime={agent.summary.runtime} />
+              </FileLinks>
             )}
           </div>
         </div>

@@ -958,6 +958,61 @@ test("files open in tabs: a click reuses the temporary one, a double-click or En
   await expect(wide.getByRole("button", { name: "Back to results" })).toHaveCount(0);
 });
 
+test("a path the agent mentions opens in the inspector's Files, at its line", async ({
+  page,
+  rowrow,
+}, info) => {
+  const phone = info.project.name === "phone";
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "mentions files",
+    input: { inputId: randomUUID(), text: "/write notes.txt\nthe question\nthe answer is 42\nthe end" },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  const next = await rowrow.client.agents.send({
+    agentId: agent.id,
+    inputId: randomUUID(),
+    text: "/echo It's in `notes.txt:2`, not in `missing.txt` or `1.2.3`.",
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: next.seq, timeoutMs: 10_000 });
+  await rowrow.client.workspaces.refresh({ id: ws.id });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const inspector = phone ? page.getByRole("dialog") : page.getByRole("region", { name: "Inspector" });
+  const preview = inspector.getByRole("region", { name: "File preview" });
+  const tab = inspector.getByRole("tablist", { name: "Open files" }).getByRole("tab", { name: "notes.txt" });
+
+  // The file the Write call wrote opens in the temporary tab, the inspector opening for it.
+  await expect(inspector).toBeHidden();
+  await page.getByRole("button", { name: "notes.txt", exact: true }).first().click();
+  await expect(inspector.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(preview.getByText("the answer is 42")).toBeVisible();
+  await expect(tab).toHaveAttribute("title", "notes.txt · Double-click to keep open");
+  await expect(preview.locator("[data-line]")).toHaveCount(0);
+  if (phone) await page.keyboard.press("Escape");
+
+  // Inline code in the reply opens it at the line it names; what names no file stays text.
+  await page.getByRole("button", { name: "notes.txt:2" }).click();
+  await expect(preview.locator('[data-line="2"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "missing.txt" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "1.2.3" })).toHaveCount(0);
+
+  // A changed file's header opens the whole file.
+  await inspector.getByRole("tab", { name: "Changes" }).click();
+  await inspector.getByRole("tab", { name: "Uncommitted" }).click();
+  await inspector.getByRole("button", { name: "Open notes.txt in Files" }).click();
+  await expect(inspector.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(preview.getByText("the answer is 42")).toBeVisible();
+  await expect(preview.locator("[data-line]")).toHaveCount(0);
+});
+
 test("view a file as it was in a commit from the history, then go back to its diff", async ({
   page,
   rowrow,

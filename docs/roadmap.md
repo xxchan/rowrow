@@ -8,6 +8,11 @@ file when something lands.
 
 ## Done recently
 
+- **File paths open in the inspector** (D-054): a path in a reply's inline code (`src/a.ts:42`,
+  `#L42`), the file a tool call read or edited, and paths in a search's or a command's output
+  open the file in Files' temporary tab at that line, the inspector opening for it (the sheet on
+  a phone); Open in Files on a diff's header shows the whole file. Only files the checkout has
+  link. In the iOS app: not yet.
 - **Lists that hold still** (D-053): agents sort by when you last sent them a message, not by
   their activity, so two agents at work no longer swap places under your finger; the same order
   on every device, the iOS app and `rowrow agents` included.
@@ -120,9 +125,8 @@ file when something lands.
 ## Next, in build order
 
 1. **Transcript search** on the server (the iPhone home-screen app has no find-in-page).
-2. **File paths open in the inspector**, from tool calls, inline code and diffs.
-3. **Notification preferences and per-agent mute.**
-4. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
+2. **Notification preferences and per-agent mute.**
+3. **"rowrow was updated: Reload" banner**, then `rowrow update` for npm installs (the app
    already says when a newer version is out, D-025).
 
 ## Coach, next (D-044)
@@ -149,6 +153,10 @@ file when something lands.
 4. Widgets and Live Activities, content-free (PRINCIPLES.md, product 7): counts, not names.
 5. Commands in a workspace (D-052): `commands.*` calls in `RowrowCore/Procedures.swift`, and a
    Commands screen beside the workspace's inspector.
+6. File paths open the file (D-054): the kit (`src/kit/kit.ts`) exports `src/shared/file-refs.ts`
+   (`checkoutFiles`, `fileTarget`, `toolFileRef`, `findFileRefs`) over the app's `files.list`;
+   `TurnView.swift` makes inline code and a tool row's path tappable, opening `HistoryView.swift`'s
+   `FileView`, taught to scroll to a line.
 
 ## Later (P2)
 
