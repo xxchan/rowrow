@@ -38,6 +38,7 @@ import { useApp } from "../lib/store.ts";
 import {
   held,
   landedIn,
+  laneOf,
   outcomeOf,
   placeNotes,
   steerUnread,
@@ -143,6 +144,7 @@ function Run({
                 timeline={timeline}
                 runtime={runtime}
                 open={index === view.openTurn}
+                rootSessionId={view.rootSessionId}
                 agentStopped={stoppedByAgent(run, message.id)}
                 coach={coach}
               />
@@ -163,6 +165,7 @@ const Message = memo(function Message({
   timeline,
   runtime,
   open,
+  rootSessionId,
   agentStopped,
   coach,
 }: {
@@ -170,6 +173,8 @@ const Message = memo(function Message({
   timeline: Timeline;
   runtime: string;
   open: boolean;
+  /** The run's own session: a section from another one is a sub-agent's (laneOf). */
+  rootSessionId: string | undefined;
   /** An aborted turn the runtime stopped itself, not you. */
   agentStopped: boolean;
   coach: boolean;
@@ -217,6 +222,7 @@ const Message = memo(function Message({
             <Section
               key={index}
               section={section}
+              lane={laneOf(section, rootSessionId)}
               runtime={runtime}
               streaming={open && index === message.sections.length - 1}
             />
@@ -714,10 +720,13 @@ const plugins = { code, cjk, renderers: [mermaidRenderer] };
 /** One lane (the agent, or a sub-agent) inside a turn: text, reasoning, tool calls in order. */
 function Section({
   section,
+  lane,
   runtime,
   streaming,
 }: {
   section: ViewSection;
+  /** The sub-agent it came from, outermost first; empty for the agent itself. */
+  lane: readonly string[];
   runtime: string;
   streaming: boolean;
 }) {
@@ -772,11 +781,10 @@ function Section({
         break;
     }
   }
-  const lane = section.agentPath.length === 0 ? null : section.agentPath.join(" / ");
-  return lane === null ? (
+  return lane.length === 0 ? (
     <>{out}</>
   ) : (
-    <Disclosure label={`Sub-agent ${lane}`} defaultOpen={streaming}>
+    <Disclosure label={`Sub-agent ${lane.join(" / ")}`} defaultOpen={streaming}>
       <div className="flex flex-col gap-3 border-l-2 pl-3">{out}</div>
     </Disclosure>
   );

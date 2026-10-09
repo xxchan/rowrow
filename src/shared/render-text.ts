@@ -4,7 +4,7 @@
 import { appRequestKind, type ViewMessage, type ViewNotice, type ViewPart } from "@botiverse/oar/observe";
 import { droppedWords, failureHint } from "./describe.ts";
 import type { Actor, Attachment, EntryOf } from "./entries.ts";
-import { placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
+import { laneOf, placeNotes, stoppedByAgent, type Timeline } from "./timeline.ts";
 import { toolText } from "./tool-output.ts";
 
 export interface RenderTextOptions {
@@ -51,7 +51,9 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         out.push(...notes.before.map((note) => notifiedLine(note.entry)));
         for (const message of block.view.messages) {
           const byAgent = stoppedByAgent(block, message.id);
-          out.push(...renderMessage(message, timeline, { toolChars, textChars }, byAgent));
+          out.push(
+            ...renderMessage(message, timeline, block.view.rootSessionId, { toolChars, textChars }, byAgent),
+          );
           out.push(...(notes.after.get(message.id) ?? []).map((note) => notifiedLine(note.entry)));
         }
         if (block.ended !== undefined) {
@@ -85,6 +87,7 @@ function attachmentLines(attachments: readonly Attachment[] | undefined): string
 function renderMessage(
   message: ViewMessage,
   timeline: Timeline,
+  rootSessionId: string | undefined,
   cut: { toolChars: number; textChars: number },
   agentStopped = false,
 ): string[] {
@@ -106,9 +109,9 @@ function renderMessage(
     case "turn": {
       const lines: string[] = [];
       for (const section of message.sections) {
-        const indent = "  ".repeat(section.agentPath.length + 1);
-        if (section.agentPath.length > 0)
-          lines.push(`${"  ".repeat(section.agentPath.length)}↳ ${section.agentPath.join(" / ")}`);
+        const lane = laneOf(section, rootSessionId);
+        const indent = "  ".repeat(lane.length + 1);
+        if (lane.length > 0) lines.push(`${"  ".repeat(lane.length)}↳ ${lane.join(" / ")}`);
         for (const part of section.parts) lines.push(...renderPart(part, indent, cut));
       }
       const { outcome } = message;

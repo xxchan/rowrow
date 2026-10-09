@@ -9,7 +9,12 @@
 // may start at any entry (a window that begins mid-run gets a run block without its
 // start), because oar's view adopts a turn it joins midway.
 import type { RawEvent } from "@botiverse/oar";
-import { initialSessionView, reduceSessionView, type SessionView } from "@botiverse/oar/observe";
+import {
+  initialSessionView,
+  reduceSessionView,
+  type SessionView,
+  type ViewSection,
+} from "@botiverse/oar/observe";
 import type { Entry, EntryOf } from "./entries.ts";
 import { echoesInput } from "./summary.ts";
 
@@ -258,6 +263,19 @@ export function landedIn(block: InputBlock | undefined): "steered" | "queued" | 
  */
 export function steerUnread(block: InputBlock | undefined, observations: number, runtime: string): boolean {
   return landedIn(block) === "steered" && echoesInput(runtime) && observations === 0;
+}
+
+/**
+ * The sub-agent a section of a turn came from, outermost first; empty for the agent itself.
+ * oar's lane is the pair (sessionId, agentPath): claude names a sub-agent by its agentPath, but
+ * codex and grok run each one as a session of its own ("nested" attribution), whose work
+ * arrives under the child's sessionId with an empty agentPath, often while the agent itself is
+ * still writing. That session is the sub-agent.
+ */
+export function laneOf(section: ViewSection, rootSessionId: string | undefined): readonly string[] {
+  return rootSessionId === undefined || section.sessionId === rootSessionId
+    ? section.agentPath
+    : [section.sessionId, ...section.agentPath];
 }
 
 /** The live run's view, if the latest run block has not ended. */

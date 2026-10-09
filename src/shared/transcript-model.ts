@@ -23,6 +23,7 @@ import { toolText } from "./tool-output.ts";
 import {
   held,
   landedIn,
+  laneOf,
   outcomeOf,
   placeNotes,
   steerUnread,
@@ -285,7 +286,14 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
         out.push({ id, deps: [message], make: () => note(id, noticeText(message.notice)) });
         break;
       case "turn":
-        turnItems(id, message, index === view.openTurn && ended === undefined, runtime, out);
+        turnItems(
+          id,
+          message,
+          index === view.openTurn && ended === undefined,
+          view.rootSessionId,
+          runtime,
+          out,
+        );
         break;
     }
   };
@@ -306,7 +314,14 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
   }
 }
 
-function turnItems(turnId: string, turn: ViewTurn, open: boolean, runtime: string, out: Pending[]): void {
+function turnItems(
+  turnId: string,
+  turn: ViewTurn,
+  open: boolean,
+  rootSessionId: string | undefined,
+  runtime: string,
+  out: Pending[],
+): void {
   out.push({ id: turnId, deps: [open], make: () => ({ kind: "turn", id: turnId, open }) });
   turn.sections.forEach((section, s) => {
     const lastSection = s === turn.sections.length - 1;
@@ -315,10 +330,10 @@ function turnItems(turnId: string, turn: ViewTurn, open: boolean, runtime: strin
       if (part.kind === "app_request" && appRequestKind(part.type) === "service") return;
       const id = `${turnId}:${s}:${p}`;
       const streaming = open && lastSection && p === section.parts.length - 1;
-      const where = { id, turn: turnId, lane: section.agentPath };
+      const where = { id, turn: turnId, lane: laneOf(section, rootSessionId) };
       out.push({
         id,
-        deps: [part, streaming],
+        deps: [part, streaming, rootSessionId],
         make: (clip) => partItem(part, where, streaming, runtime, clip),
       });
     });
