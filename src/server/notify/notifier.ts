@@ -6,7 +6,9 @@
 // app) to devices that have no focused window. When agents stop needing you (you saw them, or
 // answered), the apps' badges follow, and their notifications for them go away.
 //
-// Agents can also notify you themselves (notify.send, `rowrow notify`): see `send`.
+// Agents can also notify you themselves (notify.send, `rowrow notify`): see `send`. Coach's
+// scheduled tasks (D-050) notify about their runs: see `taskNotice`.
+import { taskUrl } from "../../shared/coach-tasks.ts";
 import type { Actor, EntryOf } from "../../shared/entries.ts";
 import type { AgentSummary, Attention } from "../../shared/summary.ts";
 import type { AgentLog } from "../agents/log.ts";
@@ -248,6 +250,48 @@ export class Notifier {
       }),
     ]);
     log.info("notify.notice_sent", { agent: agentId, seq: entry.seq, live, web, app });
+  }
+
+  /**
+   * A notification about a Coach task's run (D-050): it opens Coach on that task and run.
+   * Browsers with a focused window show it from AppState (coach.tasks' lastNotice), so they get
+   * no Web Push or Mac alert; the iOS app gets it through APNs either way, like an agent's notice.
+   */
+  async taskNotice(notice: { taskId: string; runId: string; title: string; body: string }): Promise<void> {
+    if (this.closed) return;
+    const url = taskUrl(notice.taskId, notice.runId);
+    const tag = `coach-task:${notice.taskId}:${notice.runId}`;
+    const active = (deviceId: string): boolean => this.presence.deviceActive(deviceId);
+    const badge = this.needingYou();
+    const live = this.live.alert(
+      {
+        kind: "alert",
+        agentId: "",
+        attention: "notice",
+        title: notice.title,
+        subtitle: "Coach",
+        body: notice.body,
+        url,
+        seq: -1,
+        badge,
+      },
+      active,
+    );
+    const [web, app] = await Promise.all([
+      this.push.send({ title: notice.title, body: `Coach · ${notice.body}`, url, tag }, active),
+      this.apns.alert({
+        title: notice.title,
+        subtitle: "Coach",
+        body: notice.body,
+        generic: "A Coach task notified you.",
+        thread: `coach-task:${notice.taskId}`,
+        collapse: tag,
+        badge,
+        relevance: 0.8,
+        data: { coachTask: notice.taskId, coachRun: notice.runId, url },
+      }),
+    ]);
+    log.info("notify.task_notice_sent", { task: notice.taskId, run: notice.runId, live, web, app });
   }
 
   private clearLater(agentId: string): void {

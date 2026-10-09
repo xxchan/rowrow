@@ -37,6 +37,7 @@ import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import { UserError } from "../errors.ts";
 import type { UpdateChecker } from "../updates.ts";
 import type { CoachService } from "../coach/service.ts";
+import type { CoachTasks } from "../coach/tasks.ts";
 import type { CoachGrant } from "../coach/tokens.ts";
 import type { Apns } from "../notify/apns.ts";
 import type { LiveNotices } from "../notify/live.ts";
@@ -125,6 +126,8 @@ export interface Services {
   readonly lifecycle: WorkspaceLifecycle;
   readonly agents: AgentService;
   readonly coach: CoachService;
+  /** Coach's scheduled tasks (D-050). */
+  readonly tasks: CoachTasks;
   readonly agentLog: AgentLog;
   readonly runtimes: Runtimes;
   readonly usage: UsageService;
@@ -163,6 +166,9 @@ const COACH_CALLS = new Set([
   "coach.proposeWorktree",
   "coach.proposeAgent",
   "coach.proposePrompt",
+  "coach.listTasks",
+  "coach.proposeTask",
+  "coach.notify",
 ]);
 
 /** Presence of an HTTP client's state.watch stream: its own name, scoped to the device that chose it. */
@@ -500,6 +506,34 @@ export function createRouter(s: Services) {
       ),
       proposePrompt: os.coach.proposePrompt.handler(async ({ input, context }) =>
         s.coach.proposePrompt(chatOf(context, input.chatId), input, proposer(context)),
+      ),
+      tasks: os.coach.tasks.handler(() => s.tasks.list()),
+      taskRuns: os.coach.taskRuns.handler(({ input }) => s.tasks.runs(input.taskId)),
+      createTask: os.coach.createTask.handler(({ input }) => {
+        const { requestId, ...task } = input;
+        return s.tasks.create(task, { fullAccess: s.settings.get().coach.fullAccess, requestId });
+      }),
+      updateTask: os.coach.updateTask.handler(({ input }) => {
+        const { taskId, ...task } = input;
+        return s.tasks.update(taskId, task);
+      }),
+      pauseTask: os.coach.pauseTask.handler(({ input }) => s.tasks.pause(input.taskId, input.paused)),
+      runTask: os.coach.runTask.handler(({ input }) => s.tasks.runNow(input.taskId)),
+      stopTask: os.coach.stopTask.handler(async ({ input, context }) =>
+        s.tasks.stop(input.taskId, context.actor),
+      ),
+      deleteTask: os.coach.deleteTask.handler(async ({ input, context }) => {
+        await s.tasks.delete(input.taskId, context.actor);
+        return { ok: true as const };
+      }),
+      listTasks: os.coach.listTasks.handler(({ input, context }) =>
+        s.coach.listTasks(chatOf(context, input.chatId)),
+      ),
+      proposeTask: os.coach.proposeTask.handler(async ({ input, context }) =>
+        s.coach.proposeTask(chatOf(context, input.chatId), input, proposer(context)),
+      ),
+      notify: os.coach.notify.handler(({ input, context }) =>
+        s.coach.notify(chatOf(context, input.chatId), input),
       ),
       agentsStatus: os.coach.agentsStatus.handler(({ input, context }) =>
         s.coach.agentsStatus(chatOf(context, input.chatId), input),

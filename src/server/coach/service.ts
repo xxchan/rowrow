@@ -8,6 +8,9 @@
 // message, 32,000 a read). Its actions (D-045) live here too: a proposal is frozen in the
 // chat's log and waits for your Confirm (or, with Full access, runs at once); each one runs
 // alone, is recorded as executing before anything happens, and ends with rowrow's receipt.
+// A scheduled task's run (D-050) is a chat this opens for the timer in tasks.ts: the task's
+// prompt sent as rowrow's, with what Coach may read now, and a notification tool instead of the
+// task tools.
 import type { SessionOptions } from "@botiverse/oar";
 import fs from "node:fs/promises";
 import {
@@ -38,6 +41,7 @@ import {
   type AgentsStatusResult,
   type CoachChat,
 } from "../../shared/coach.ts";
+import type { CoachTask, TaskNoticeInput } from "../../shared/coach-tasks.ts";
 import { statusDot } from "../../shared/describe.ts";
 import type { Actor, EntryOf } from "../../shared/entries.ts";
 import { renderText } from "../../shared/render-text.ts";
@@ -52,9 +56,17 @@ import { UserError } from "../errors.ts";
 import type { SettingsService } from "../settings.ts";
 import { log, serializeError, withContext } from "../telemetry/log.ts";
 import type { Workspaces } from "../workspaces/service.ts";
-import { execute, proposeAgent, proposePrompt, proposeWorktree, type Receipt } from "./actions.ts";
+import {
+  execute,
+  proposeAgent,
+  proposePrompt,
+  proposeTask,
+  proposeWorktree,
+  type Receipt,
+} from "./actions.ts";
 import { claudeSignIn } from "./claude-settings.ts";
 import { coachSystemPrompt, turnText } from "./prompt.ts";
+import { taskForModel, type CoachTasks, type TaskRunner } from "./tasks.ts";
 import type { CoachTokens } from "./tokens.ts";
 import { BUILTIN_TOOLS, LAUNCH_ARGS, leakedTools } from "./tools.ts";
 
@@ -84,8 +96,10 @@ function coachActor(chatId: string): Actor {
   return { kind: "agent", agentId: chatId };
 }
 
-export class CoachService {
+export class CoachService implements TaskRunner {
   private readonly deps: CoachDeps;
+  /** Its scheduled tasks (D-050), made after it: they start their runs through it. */
+  private tasks: CoachTasks | null = null;
   /** coach.send, one at a time: a second one sees the first's chat. */
   private sending: Promise<unknown> = Promise.resolve();
 
@@ -115,6 +129,15 @@ export class CoachService {
       if (!this.ownSettingsChange && narrowed(before, after)) this.expireCurrent(ACTION_COPY.configChanged);
       before = after;
     });
+  }
+
+  attachTasks(tasks: CoachTasks): void {
+    this.tasks = tasks;
+  }
+
+  private requireTasks(): CoachTasks {
+    if (this.tasks === null) throw new Error("Coach's tasks are not ready");
+    return this.tasks;
   }
 
   /** Runs whose tools were already found wanting: said once a run. */
@@ -282,6 +305,7 @@ export class CoachService {
         updatedAt: chat.summary.lastActivityAt,
         messages: chat.summary.inputs,
         current: chat.id === current,
+        taskId: chat.summary.task?.taskId ?? null,
       }));
   }
 
@@ -321,6 +345,8 @@ export class CoachService {
             ROWROW_URL: this.deps.url(),
             ROWROW_TOKEN: this.deps.tokens.mint(agentId, runId),
             ...(fullAccess ? { ROWROW_COACH_FULL_ACCESS: "1" } : {}),
+            // A task's run notifies, and proposes no tasks (D-050).
+            ...(this.tasks?.isRun(agentId) === true ? { ROWROW_COACH_TASK_RUN: "1" } : {}),
           },
         },
       ],
@@ -339,7 +365,113 @@ export class CoachService {
       scope.map((id) => ({ workspaceId: id, label: this.deps.workspaces.get(id)?.label ?? id })),
       receiptsFor(this.actions(agentId), scope),
       text,
+      this.tasks?.frame(agentId) ?? null,
     );
+  }
+
+  // ─── Scheduled tasks (D-050) ──────────────────────────────────────────────
+
+  /**
+   * Open a task's run: a new chat, archived until you open it (so it never replaces the one you
+   * have), sent the task's prompt as rowrow's with what Coach may read now, on Coach's runtime,
+   * model and effort now. It acts without asking only when the task was saved with Full access
+   * and Full access is still on. Refused, saying why, when Coach can't run or has nothing to read.
+   */
+  async startTaskRun(
+    task: CoachTask,
+    runId: string,
+    inputId: string,
+    opened: (chatId: string) => void,
+  ): Promise<SendResult> {
+    const settings = this.deps.settings.get().coach;
+    if (!canCoach(settings.runtime)) throw new UserError(CANT_COACH, "PRECONDITION_FAILED");
+    const runtime = this.deps.runtimes.info(settings.runtime);
+    if (runtime === undefined || !runtime.installed)
+      throw new UserError(
+        `${runtime?.name ?? settings.runtime} isn't installed here: pick another runtime in Coach's settings.`,
+        "PRECONDITION_FAILED",
+      );
+    const scope = this.available(settings.fullAccess ? undefined : settings.workspaces);
+    if (scope.length === 0)
+      throw new UserError(
+        settings.fullAccess
+          ? "Add a workspace to rowrow first: Coach reads agents in workspaces."
+          : "Choose the workspaces Coach may read in its settings first.",
+        "PRECONDITION_FAILED",
+      );
+    const system: Actor = { kind: "system" };
+    const chat = this.deps.agents.createCoach({
+      runtime: settings.runtime,
+      by: system,
+      task: { taskId: task.id, runId, title: task.title },
+      ...(settings.model === null ? {} : { model: settings.model }),
+      ...(settings.effort === null ? {} : { effort: settings.effort }),
+    });
+    opened(chat.id);
+    const fullAccess = task.fullAccess && settings.fullAccess;
+    log.info("coach.task.run_opened", {
+      chat: chat.id,
+      task: task.id,
+      run: runId,
+      workspaces: scope.length,
+      fullAccess,
+    });
+    return this.deps.agents.sendTaskRun(chat.id, {
+      inputId,
+      text: task.prompt,
+      mode: "auto",
+      by: system,
+      scope,
+      ...(fullAccess ? { fullAccess: true as const } : {}),
+    });
+  }
+
+  /** Stop a task's run: its proposals still waiting go with it, then its turn (or its idle run). */
+  async stopTaskRun(chatId: string, by: Actor): Promise<void> {
+    this.expire(chatId, ACTION_COPY.stopped, by);
+    const { accepted } = await this.deps.agents.abort(chatId);
+    if (!accepted) await this.deps.agents.stop(chatId, "stopped");
+  }
+
+  /** A task's run has its own tools: a chat's task tools aren't among them. */
+  private chatOnly(chatId: string): void {
+    this.chat(chatId);
+    if (this.tasks?.isRun(chatId) === true)
+      throw new UserError(
+        "A scheduled task's run can't list or propose tasks: use send_user_notification.",
+        "FORBIDDEN",
+      );
+  }
+
+  /** Coach's tool list_coach_tasks: every task, and the time and time zone it reads dates in. */
+  listTasks(chatId: string): { now: string; timeZone: string; tasks: Record<string, unknown>[] } {
+    this.chatOnly(chatId);
+    return {
+      now: new Date().toISOString(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      tasks: this.requireTasks().list().map(taskForModel),
+    };
+  }
+
+  /** Coach's tool propose_coach_task: a task you confirm (with Full access, enabled at once). */
+  async proposeTask(
+    chatId: string,
+    args: {
+      title: string;
+      prompt: string;
+      schedule: CoachTask["schedule"];
+      notify?: CoachTask["notify"] | undefined;
+    },
+    by: Actor,
+  ): Promise<CoachActionView> {
+    this.chatOnly(chatId);
+    return this.propose(chatId, proposeTask(args), by);
+  }
+
+  /** Coach's tool send_user_notification, from a task's run. */
+  notify(chatId: string, input: TaskNoticeInput): ReturnType<CoachTasks["notify"]> {
+    this.chat(chatId);
+    return this.requireTasks().notify(chatId, input);
   }
 
   // ─── Coach's tools ────────────────────────────────────────────────────────
@@ -700,7 +832,8 @@ export class CoachService {
         `This action is ${statusWord(action.proposal.kind, action.status).toLowerCase()} already: it never runs twice.`,
         "CONFLICT",
       );
-    if (busy(chat)) throw new UserError(WAIT_TO_DECIDE, "CONFLICT");
+    // A task is enabled even while Coach answers, as Ranger's are: it changes nothing Coach reads.
+    if (busy(chat) && action.proposal.kind !== "create_task") throw new UserError(WAIT_TO_DECIDE, "CONFLICT");
     return action;
   }
 
@@ -738,6 +871,7 @@ export class CoachService {
 
   /** The target is still there, and still one Coach may act on. */
   private targetAllowed(proposal: CoachProposal): boolean {
+    if (proposal.kind === "create_task") return true;
     const settings = this.deps.settings.get().coach;
     const ws = this.deps.workspaces.get(proposal.workspaceId);
     if (ws === undefined || this.deps.workspaces.archived(ws.id) || ws.missing) return false;
@@ -771,6 +905,8 @@ export class CoachService {
       workspaces: this.deps.workspaces,
       runtimes: this.deps.runtimes,
       git: this.deps.git,
+      tasks: () => this.requireTasks(),
+      fullAccess: () => this.deps.settings.get().coach.fullAccess,
     };
   }
 }

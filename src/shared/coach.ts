@@ -5,8 +5,10 @@
 // the server, the CLI's MCP server and the web app share: the tools, their bounds, and which
 // runtimes can be Coach. Phase 2 (D-045): it proposes actions you confirm (a worktree, a new
 // agent, a message to an agent), or, with Full access, takes them itself (coach-actions.ts).
+// Phase 3 (D-050): a chat proposes scheduled tasks; a task's run may notify you (coach-tasks.ts).
 import { z } from "zod";
 import { MAX_PROMPT_CHARS } from "./coach-actions.ts";
+import { MAX_INTERVAL_MINUTES, MAX_TITLE_CHARS, MIN_INTERVAL_MINUTES } from "./coach-tasks.ts";
 
 /** The tools' server, as the runtime knows it: claude calls its tools `mcp__rowrow__<tool>`. */
 export const COACH_MCP_SERVER = "rowrow";
@@ -76,6 +78,37 @@ export function stamped<T extends object>(
 
 const agentId = z.string().describe("An agent id (ag_…) from agents_status.");
 
+/** A task's schedule (D-050), as the form, the CLI and Coach's tool give it; the server checks it further. */
+export const TaskScheduleArgs = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("once"),
+    at: z.string().describe("When it runs: a future UTC ISO 8601 timestamp ending in Z."),
+  }),
+  z.object({
+    type: z.literal("daily"),
+    time: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
+      .describe("The wall-clock time it runs each day, HH:mm."),
+    timeZone: z.string().min(1).max(100).describe("The IANA time zone of that time, like Europe/London."),
+  }),
+  z.object({
+    type: z.literal("interval"),
+    minutes: z
+      .number()
+      .int()
+      .min(MIN_INTERVAL_MINUTES)
+      .max(MAX_INTERVAL_MINUTES)
+      .describe("Minutes between runs; the first is that long after it's enabled."),
+  }),
+]);
+
+export const TaskNotifyArgs = z
+  .enum(["every", "coach"])
+  .describe(
+    "every: a notification when each run finishes (the default); coach: Coach notifies only when the outcome matters or needs the user (a failed run still notifies).",
+  );
+
 /** Each tool's arguments: the procedure's input, less `chatId` (the token says whose turn it is). */
 export const CoachToolArgs = {
   agents_status: z.object({
@@ -124,6 +157,35 @@ export const CoachToolArgs = {
     agentId,
     prompt: z.string().min(1).max(MAX_PROMPT_CHARS).describe("The exact message."),
   }),
+  list_coach_tasks: z.object({}),
+  propose_coach_task: z.object({
+    title: z.string().trim().min(1).max(MAX_TITLE_CHARS).describe("A short name for the task."),
+    prompt: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_PROMPT_CHARS)
+      .describe(
+        "The exact message each run sends Coach: what to check, and what counts as success, failure or needed input.",
+      ),
+    schedule: TaskScheduleArgs,
+    notify: TaskNotifyArgs.optional(),
+  }),
+  send_user_notification: z.object({
+    eventKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe(
+        "Names the agent and the observed outcome; the same key for the same unchanged event across runs.",
+      ),
+    kind: z
+      .enum(["completed", "attention"])
+      .describe("completed: verified success; attention: a failure or input the user must give."),
+    title: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(400),
+  }),
 } as const;
 
 export type CoachToolName = keyof typeof CoachToolArgs;
@@ -141,9 +203,14 @@ export const COACH_TOOLS: readonly {
     | "agentBackground"
     | "proposeWorktree"
     | "proposeAgent"
-    | "proposePrompt";
+    | "proposePrompt"
+    | "listTasks"
+    | "proposeTask"
+    | "notify";
   /** A proposal: with Full access its description says it executes (coachToolDescription). */
   readonly proposal?: true;
+  /** Only in a chat (the task tools), or only in a scheduled task's run (its notification tool). */
+  readonly only?: "chat" | "run";
 }[] = [
   {
     name: "agents_status",
@@ -197,6 +264,31 @@ export const COACH_TOOLS: readonly {
     description:
       "Propose sending a prompt to an agent in an authorized workspace. Returns a pending proposal for the user to confirm; does not send it.",
   },
+  {
+    name: "list_coach_tasks",
+    label: "Coach tasks",
+    procedure: "listTasks",
+    only: "chat",
+    description:
+      "List scheduled Coach tasks and the current time and timezone. Use the current time before interpreting relative dates.",
+  },
+  {
+    name: "propose_coach_task",
+    label: "propose_coach_task",
+    procedure: "proposeTask",
+    proposal: true,
+    only: "chat",
+    description:
+      "Propose a Coach task with an exact prompt and schedule. A once schedule uses a future UTC ISO 8601 timestamp ending in Z. A daily schedule uses HH:mm and an IANA timezone; skipped DST times do not run and repeated times run once. An interval starts the given number of minutes after confirmation. Each run is a new chat that reads the workspaces Coach may read when it runs. Choose notify coach for monitoring and follow-up requests: Coach can notify only on meaningful requested outcomes or needed input, with its own title and body. The default every mode sends a fixed notification when each run finishes. Returns a pending preview: the task is enabled only when the user clicks Confirm. Scheduled tasks may read and propose operations; they never automatically confirm management actions. Ask the user if their schedule or timezone is ambiguous.",
+  },
+  {
+    name: "send_user_notification",
+    label: "Notify the user",
+    procedure: "notify",
+    only: "run",
+    description:
+      "Request a notification for a meaningful outcome or needed user input covered by this confirmed task. Use completed for verified success and attention for failure or required user input. eventKey must identify the same agent and observed outcome across runs; reuse the exact key for an unchanged event and consult prior notification receipts. Use a concise title and body grounded in fresh agent evidence, without credentials or authorization URLs. The server chooses the recipient and task link. A receipt records acceptance or deduplication, never proof of device delivery. Stay quiet while the monitored state is unchanged or non-actionable.",
+  },
 ];
 
 /**
@@ -205,6 +297,9 @@ export const COACH_TOOLS: readonly {
  */
 export function coachToolDescription(tool: (typeof COACH_TOOLS)[number], fullAccess: boolean): string {
   if (tool.proposal !== true || !fullAccess) return tool.description;
+  // Ranger's high-permission task tool: enabled directly, with a receipt.
+  if (tool.name === "propose_coach_task")
+    return `${tool.description.split("Returns a pending preview:")[0] ?? ""}Enables the task directly when permission is still active and returns a confirmed receipt; a pending receipt requires manual confirmation. Ask the user if their schedule or timezone is ambiguous.`;
   const what = (tool.description.split("Returns a pending proposal")[0] ?? "").replace(
     /^Propose /,
     "Execute ",
@@ -315,7 +410,9 @@ export interface CoachChat {
   readonly runtime: string;
   readonly createdAt: number;
   readonly updatedAt: number;
-  /** Messages you sent. */
+  /** Messages you sent (a task's run: its prompt). */
   readonly messages: number;
   readonly current: boolean;
+  /** A scheduled task's run (D-050): that task's id; its title is the chat's. */
+  readonly taskId: string | null;
 }

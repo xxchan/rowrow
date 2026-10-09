@@ -64,6 +64,8 @@ export type EntryBody =
       readonly runtime: string;
       /** A Coach chat (D-044): rowrow's assistant, listed apart from the agents it reads. */
       readonly role?: "coach";
+      /** A Coach chat that is a scheduled task's run (D-050): which task, and which run of it. */
+      readonly task?: { readonly taskId: string; readonly runId: string };
       readonly model?: string;
       readonly effort?: string;
       readonly serviceTier?: string;

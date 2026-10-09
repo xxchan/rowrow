@@ -248,8 +248,18 @@ export class AgentService {
     return stateOf(agent);
   }
 
-  /** A Coach chat (D-044): an agent in no workspace, on a runtime that can be Coach. */
-  createCoach(input: { runtime: string; model?: string; effort?: string; by: Actor }): AgentState {
+  /**
+   * A Coach chat (D-044): an agent in no workspace, on a runtime that can be Coach. A scheduled
+   * task's run (D-050) starts archived: it waits in History rather than taking the place of the
+   * chat you're having, until you open it.
+   */
+  createCoach(input: {
+    runtime: string;
+    model?: string;
+    effort?: string;
+    by: Actor;
+    task?: { taskId: string; runId: string; title: string };
+  }): AgentState {
     if (this.deps.runtimes.info(input.runtime) === undefined)
       throw new UserError(`unknown runtime "${input.runtime}"`);
     const id = newId("ag");
@@ -261,6 +271,7 @@ export class AgentService {
     );
     // Known as Coach's from the start, so it is never published among the agents.
     const agent = this.register(id, { ...initialSummary(), role: "coach" }, -1);
+    const { task } = input;
     withContext({ agent: id }, () => {
       this.deps.log.append(id, {
         kind: "agent.created",
@@ -270,10 +281,47 @@ export class AgentService {
         by: input.by,
         ...(input.model === undefined ? {} : { model: input.model }),
         ...(input.effort === undefined ? {} : { effort: input.effort }),
+        ...(task === undefined
+          ? {}
+          : { task: { taskId: task.taskId, runId: task.runId }, title: task.title }),
       });
-      log.info("coach.chat.created", { runtime: input.runtime, model: input.model, effort: input.effort });
+      if (task !== undefined)
+        this.deps.log.append(id, { kind: "agent.updated", changes: { archived: true }, by: input.by });
+      log.info("coach.chat.created", {
+        runtime: input.runtime,
+        model: input.model,
+        effort: input.effort,
+        ...(task === undefined ? {} : { task: task.taskId }),
+      });
     });
     return stateOf(agent);
+  }
+
+  /** A scheduled task's prompt to its run's chat (D-050), which is archived until you open it. */
+  sendTaskRun(agentId: string, input: SendInput): Promise<SendResult> {
+    const agent = this.require(agentId);
+    if (agent.summary.role !== "coach" || agent.summary.task === null)
+      throw new UserError(`${agentId} isn't a Coach task's run`, "PRECONDITION_FAILED");
+    return agent.actor.send(input);
+  }
+
+  /**
+   * Forget a Coach task's run (D-050): its chat, log included, as Ranger forgets a task's older
+   * runs. Only for one that's over: its run is stopped first.
+   */
+  async forget(agentId: string): Promise<void> {
+    const agent = this.require(agentId);
+    if (agent.summary.role !== "coach" || agent.summary.task === null)
+      throw new UserError(`${agentId} isn't a Coach task's run`, "PRECONDITION_FAILED");
+    await agent.actor.close("archived");
+    if (agent.publishTimer !== null) clearTimeout(agent.publishTimer);
+    this.agents.delete(agentId);
+    this.deps.db.transaction(() => {
+      this.deps.db.run("delete from agents where id = ?", agentId);
+      this.deps.log.forget(agentId);
+    });
+    log.info("coach.chat.forgotten", { agent: agentId, task: agent.summary.task.taskId });
+    this.publish(agent);
   }
 
   async send(agentId: string, input: SendInput): Promise<SendResult> {

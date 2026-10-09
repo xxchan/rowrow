@@ -1,4 +1,5 @@
 // Coach's actions (D-045): what a proposal freezes, and how a confirmed one runs and is checked.
+// A scheduled task (D-050) is one too: confirming it enables the task, exactly as proposed.
 // A proposal holds everything Confirm will do (the target, every parameter, the exact text), so
 // what runs is what the card showed. Running one says what happened only from what rowrow itself
 // saw: the workspace it registered, the input its log recorded and how the runtime took it. A
@@ -9,6 +10,12 @@ import {
   type CoachActionStatus,
   type CoachProposal,
 } from "../../shared/coach-actions.ts";
+import {
+  scheduleLabel,
+  validateSchedule,
+  type TaskNotify,
+  type TaskSchedule,
+} from "../../shared/coach-tasks.ts";
 import type { Actor } from "../../shared/entries.ts";
 import { newInputId } from "../../shared/ids.ts";
 import type { AgentState, SendResult, Workspace } from "../../shared/schemas.ts";
@@ -18,6 +25,7 @@ import type { AgentService } from "../agents/service.ts";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
 import type { Workspaces } from "../workspaces/service.ts";
+import type { CoachTasks } from "./tasks.ts";
 
 export interface ActionDeps {
   readonly agents: AgentService;
@@ -25,6 +33,9 @@ export interface ActionDeps {
   readonly workspaces: Workspaces;
   readonly runtimes: Runtimes;
   readonly git: () => Pick<GitOps, "createWorktree" | "worktreeSetup">;
+  readonly tasks: () => Pick<CoachTasks, "create">;
+  /** Whether Coach has Full access now. */
+  readonly fullAccess: () => boolean;
 }
 
 /** What became of a confirmed action, in rowrow's words. */
@@ -98,6 +109,30 @@ export function proposePrompt(agent: AgentState, ws: Workspace, args: { prompt: 
   };
 }
 
+export function proposeTask(args: {
+  title: string;
+  prompt: string;
+  schedule: TaskSchedule;
+  notify?: TaskNotify | undefined;
+}): CoachProposal {
+  let schedule: TaskSchedule;
+  try {
+    schedule = validateSchedule(args.schedule);
+  } catch (error) {
+    throw new UserError(messageOf(error));
+  }
+  const title = args.title.trim();
+  if (title === "" || args.prompt.trim() === "") throw new UserError("A task needs a title and a prompt.");
+  return {
+    id: newInputId(),
+    kind: "create_task",
+    workspaceId: "",
+    workspaceLabel: "",
+    params: { title, prompt: args.prompt, schedule, notify: args.notify ?? "every" },
+    summary: ACTION_SUMMARIES.create_task,
+  };
+}
+
 // ─── Running one ──────────────────────────────────────────────────────────
 
 /** Run a confirmed proposal exactly as frozen, and say what rowrow saw happen. */
@@ -109,6 +144,35 @@ export async function execute(deps: ActionDeps, proposal: CoachProposal, by: Act
       return startAgent(deps, proposal, by);
     case "send_prompt":
       return sendPrompt(deps, proposal, by);
+    case "create_task":
+      return createTask(deps, proposal, by);
+  }
+}
+
+/**
+ * Enable a proposed task, once (the proposal's id is its request id). Confirmed by you, it never
+ * acts without asking: a confirmation doesn't authorize future automatic effects (Ranger's rule).
+ * Enabled by Coach itself under Full access, it keeps that mode while Full access lasts.
+ */
+function createTask(deps: ActionDeps, proposal: CoachProposal, by: Actor): Receipt {
+  const { title, prompt, schedule, notify } = proposal.params;
+  if (title === undefined || title === null || prompt === undefined || schedule === undefined)
+    return { status: "failed", detail: "No task was created: the proposal is incomplete." };
+  try {
+    const task = deps
+      .tasks()
+      .create(
+        { title, prompt, schedule, notify: notify ?? "every" },
+        { fullAccess: by.kind === "agent" && deps.fullAccess(), requestId: proposal.id },
+      );
+    const next =
+      task.nextRunAt === null ? "No run is coming." : `Next run ${new Date(task.nextRunAt).toISOString()}.`;
+    return {
+      status: "succeeded",
+      detail: `Enabled task ${task.title} (${task.id}): ${scheduleLabel(task.schedule, (ms) => new Date(ms).toISOString())}. ${next}`,
+    };
+  } catch (error) {
+    return { status: "failed", detail: `No task was created: ${messageOf(error)}` };
   }
 }
 

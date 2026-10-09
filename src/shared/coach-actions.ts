@@ -1,7 +1,8 @@
 // Coach's actions (docs/decisions.md, D-045): what it proposes (a worktree, a new agent, a
-// message to an agent), frozen when proposed, and what became of each. Both are entries of its
+// message to an agent, and a scheduled task, D-050), frozen when proposed, and what became of each. Both are entries of its
 // chat's log (`coach.proposal`, `coach.action`); this is their fold, with the words every
 // client shows. No zod here: the kit (src/kit) folds these too.
+import type { TaskNotify, TaskSchedule } from "./coach-tasks.ts";
 import type { Actor, Entry } from "./entries.ts";
 
 /** A message Coach proposes to send (a first message or a prompt) has at most this many characters. */
@@ -11,7 +12,7 @@ export const MAX_PROPOSALS_PER_TURN = 8;
 /** Receipts a message carries to the model: the latest in its scope. */
 export const RECEIPTS_PER_TURN = 8;
 
-export type CoachActionKind = "create_worktree" | "start_agent" | "send_prompt";
+export type CoachActionKind = "create_worktree" | "start_agent" | "send_prompt" | "create_task";
 export type CoachActionStatus = "pending" | "executing" | "succeeded" | "failed" | "uncertain" | "cancelled";
 
 /** Everything an action will do, frozen when Coach proposed it: what Confirm runs, exactly. */
@@ -19,6 +20,7 @@ export interface CoachProposal {
   /** A UUID: also the inputId of the message it sends, so a send never happens twice. */
   readonly id: string;
   readonly kind: CoachActionKind;
+  /** "" for a task, which reads whatever Coach may read when it runs. */
   readonly workspaceId: string;
   readonly workspaceLabel: string;
   /** Send prompt: the agent it goes to. */
@@ -34,9 +36,13 @@ export interface CoachProposal {
     /** Start agent. */
     readonly runtime?: string;
     readonly runtimeName?: string;
+    /** Start agent: its name; create task: the task's. */
     readonly title?: string | null;
-    /** Start agent (its first message) and send prompt: the exact text. */
+    /** Start agent (its first message), send prompt and create task (what each run sends): the exact text. */
     readonly prompt?: string;
+    /** Create task. */
+    readonly schedule?: TaskSchedule;
+    readonly notify?: TaskNotify;
   };
   readonly summary: string;
 }
@@ -45,6 +51,7 @@ export const ACTION_NAMES: Readonly<Record<CoachActionKind, string>> = {
   create_worktree: "Create worktree",
   start_agent: "Start agent",
   send_prompt: "Send prompt",
+  create_task: "Create task",
 };
 
 export const ACTION_SUMMARIES: Readonly<Record<CoachActionKind, string>> = {
@@ -54,6 +61,8 @@ export const ACTION_SUMMARIES: Readonly<Record<CoachActionKind, string>> = {
     "Start a new agent in this workspace and send it the exact displayed first message. It may change files.",
   send_prompt:
     "Send the exact displayed prompt to this agent. It may trigger work or change files. Delivery will not be automatically retried.",
+  create_task:
+    "Enable a task that sends Coach the exact displayed prompt on its schedule, each run in a new chat that reads the workspaces Coach may read then.",
 };
 
 /** What each state's card says until a receipt says more. */
@@ -80,7 +89,7 @@ export function statusWord(kind: CoachActionKind, status: CoachActionStatus): st
     case "executing":
       return "Executing";
     case "succeeded":
-      return "Succeeded";
+      return kind === "create_task" ? "Enabled" : "Succeeded";
     case "failed":
       return "Failed";
     case "uncertain":

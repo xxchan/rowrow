@@ -6,13 +6,16 @@ import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   CoachToolArgs,
+  TaskNotifyArgs,
+  TaskScheduleArgs,
   type AgentBackgroundResult,
   type AgentChangesResult,
   type AgentHistoryResult,
   type AgentsStatusResult,
   type CoachChat,
 } from "./coach.ts";
-import type { CoachActionView } from "./coach-actions.ts";
+import { MAX_PROMPT_CHARS, type CoachActionView } from "./coach-actions.ts";
+import { MAX_TITLE_CHARS, type CoachTask, type CoachTaskRun } from "./coach-tasks.ts";
 import type { Entry } from "./entries.ts";
 import {
   AgentState,
@@ -719,6 +722,20 @@ const chatId = z
   .optional()
   .describe("The Coach chat whose turn's workspaces to read (ag_…); Coach's own token implies it.");
 
+/** A scheduled task as you write it (D-050). */
+const TaskInput = z.object({
+  title: z.string().trim().min(1).max(MAX_TITLE_CHARS),
+  prompt: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_PROMPT_CHARS)
+    .describe("The exact message each run sends Coach, in your words."),
+  schedule: TaskScheduleArgs,
+  notify: TaskNotifyArgs.default("every"),
+});
+const taskId = z.string().describe("A Coach task's id (tk_…).");
+
 const coach = {
   send: oc
     .route({
@@ -785,6 +802,91 @@ const coach = {
     })
     .input(CoachToolArgs.propose_agent_prompt.extend({ chatId }))
     .output(z.custom<CoachActionView>()),
+  tasks: oc
+    .route({
+      summary:
+        "Coach's scheduled tasks (D-050), newest first: each a prompt you wrote and a schedule (once, daily at a time in an IANA time zone, or every N minutes), whether it's paused, its next run, an occurrence queued behind another run, and its current and last run. Also in the app state (coach.tasks).",
+    })
+    .output(z.array(z.custom<CoachTask>())),
+  taskRuns: oc
+    .route({
+      summary:
+        "A task's runs, newest first (it keeps its latest 20): each is a Coach chat (chatId: read it with agents.view), with its status (running, waiting: it holds proposals for you, succeeded, failed, stopped) and error.",
+    })
+    .input(z.object({ taskId }))
+    .output(z.array(z.custom<CoachTaskRun>())),
+  createTask: oc
+    .route({
+      summary:
+        "Create and enable a scheduled task (D-050): each run is a new Coach chat that sends Coach your prompt and reads the workspaces Coach may read then; runs never overlap, and occurrences missed while the server was down run once. Saved in Coach's permission mode now: with Full access on, its runs act without asking while Full access stays on. notify: every (a notification when each run finishes) or coach (Coach decides; failures still notify). At most 50 tasks.",
+    })
+    .input(
+      TaskInput.extend({
+        requestId: z.string().uuid().describe("A UUID you generate; the idempotency key."),
+      }),
+    )
+    .output(z.custom<CoachTask>()),
+  updateTask: oc
+    .route({
+      summary:
+        "Edit a task: its words, schedule and notifications, saved in Coach's permission mode now. Only a schedule that runs at other times moves its next run; a paused task stays paused.",
+    })
+    .input(TaskInput.extend({ taskId }))
+    .output(z.custom<CoachTask>()),
+  pauseTask: oc
+    .route({
+      summary:
+        "Pause a task (no more scheduled runs; one going finishes) or resume it (what passed while paused doesn't run, except a once that never did).",
+    })
+    .input(z.object({ taskId, paused: z.boolean() }))
+    .output(z.custom<CoachTask>()),
+  runTask: oc
+    .route({
+      summary:
+        "Run a task now, beside its schedule (a paused one too): queued behind another task's run if one is going. CONFLICT while this task's own run is still open.",
+    })
+    .input(z.object({ taskId }))
+    .output(z.custom<CoachTask>()),
+  stopTask: oc
+    .route({
+      summary: "Stop a task's run that's going (and the proposals it holds for you). It doesn't notify.",
+    })
+    .input(z.object({ taskId }))
+    .output(z.custom<CoachTask>()),
+  deleteTask: oc
+    .route({
+      summary:
+        "Delete a task: its run going is stopped, and its runs' chats go with it (one you carried on in Coach stays, as your chat).",
+    })
+    .input(z.object({ taskId }))
+    .output(ok),
+  listTasks: oc
+    .route({
+      summary:
+        "Coach's tool list_coach_tasks (in a chat, not a task's run): every task, and the server's time and time zone for reading dates.",
+    })
+    .input(z.object({ chatId }))
+    .output(z.custom<{ now: string; timeZone: string; tasks: Record<string, unknown>[] }>()),
+  proposeTask: oc
+    .route({
+      summary:
+        "Coach's tool propose_coach_task (in a chat, not a task's run): a pending proposal of a task, enabled when you confirm its card (with Full access, at once).",
+    })
+    .input(CoachToolArgs.propose_coach_task.extend({ chatId }))
+    .output(z.custom<CoachActionView>()),
+  notify: oc
+    .route({
+      summary:
+        "Coach's tool send_user_notification (only a task's run, while it runs): notify the user, once a run, and never twice for the same eventKey of a task. accepted false says why (already_notified, run_limit).",
+    })
+    .input(CoachToolArgs.send_user_notification.extend({ chatId }))
+    .output(
+      z.object({
+        accepted: z.boolean(),
+        delivery: z.literal("best_effort").optional(),
+        reason: z.enum(["already_notified", "run_limit"]).optional(),
+      }),
+    ),
   agentsStatus: oc
     .route({
       summary:

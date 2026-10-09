@@ -16,6 +16,7 @@ import { pruneUploads } from "./api/uploads.ts";
 import { Devices } from "./auth/devices.ts";
 import { claudeSettingsFile } from "./coach/claude-settings.ts";
 import { CoachService } from "./coach/service.ts";
+import { CoachTasks } from "./coach/tasks.ts";
 import { CoachTokens } from "./coach/tokens.ts";
 import { COACH_ENV } from "./coach/tools.ts";
 import { isLoopback, profilePaths, type ServerOptions } from "./config.ts";
@@ -136,7 +137,7 @@ export async function startServer(
     agents: {},
     runtimes: {},
     settings: DEFAULT_SETTINGS,
-    coach: { chat: null },
+    coach: { chat: null, tasks: [] },
   });
   const settings = new SettingsService(db, state);
   settings.load();
@@ -264,6 +265,23 @@ export async function startServer(
   const pruneTimer = setInterval(housekeeping, 6 * 3600_000);
   pruneTimer.unref();
   const notifier = new Notifier(agents, agentLog, workspaces, presence, push, apns, live);
+  // Coach's scheduled tasks (D-050): after Coach's recover, which cancelled every preview a
+  // run held, so a run the last server left open ends as it should.
+  const tasks = new CoachTasks({
+    db,
+    state,
+    agents,
+    log: agentLog,
+    settings,
+    runner: coach,
+    deliver: (notice) => {
+      void notifier
+        .taskNotice(notice)
+        .catch((error: unknown) => log.error("notify.task_notice_failed", { err: serializeError(error) }));
+    },
+  });
+  coach.attachTasks(tasks);
+  tasks.recover();
   apns.onChange = () =>
     state.update("host", (draft) => {
       draft.host = host();
@@ -278,6 +296,7 @@ export async function startServer(
     lifecycle,
     agents,
     coach,
+    tasks,
     agentLog,
     runtimes,
     usage,
@@ -333,10 +352,15 @@ export async function startServer(
 
   // Probing runtimes runs each CLI; don't hold up the server for it.
   void (async (): Promise<void> => {
-    if (options.probeRuntimes) await augmentPathFromLoginShell();
-    await runtimes.refresh(syncRuntimes);
-    // Usage needs to know who's installed and signed in.
-    usage.start(0);
+    try {
+      if (options.probeRuntimes) await augmentPathFromLoginShell();
+      await runtimes.refresh(syncRuntimes);
+      // Usage needs to know who's installed and signed in.
+      usage.start(0);
+    } finally {
+      // Coach's tasks run on a runtime: their timer starts once the runtimes are known.
+      tasks.start();
+    }
   })().catch((error: unknown) => log.error("runtime.refresh_failed", { err: serializeError(error) }));
 
   // Credentials oar recorded as they came before it redacted them (until oar 0.32.1, grok's MCP
@@ -379,6 +403,7 @@ export async function startServer(
       closing ??= (async () => {
         log.info("server.stopping", {});
         notifier.close();
+        tasks.close();
         updates?.stop();
         usage.stop();
         apns.close();

@@ -53,6 +53,8 @@ export interface AgentSummary {
   readonly workspaceId: string;
   /** "coach": a Coach chat (D-044), kept out of the agent lists, attention and notifications. */
   readonly role: "agent" | "coach";
+  /** Coach: the scheduled task whose run this chat is (D-050), or null. */
+  readonly task: { readonly taskId: string; readonly runId: string } | null;
   /** Coach: the workspaces its tools may read now, frozen with the latest input (null: none). */
   readonly scope: readonly string[] | null;
   /** Coach: the latest input was sent with Full access, so this turn's proposals execute (D-045). */
@@ -151,6 +153,7 @@ export function initialSummary(): AgentSummary {
   return {
     workspaceId: "",
     role: "agent",
+    task: null,
     scope: null,
     fullAccess: false,
     coachActions: [],
@@ -206,6 +209,7 @@ function foldEntry(s: AgentSummary, entry: Entry): AgentSummary {
         ...s,
         workspaceId: entry.workspaceId,
         role: entry.role ?? "agent",
+        task: entry.task ?? null,
         runtime: entry.runtime,
         model: entry.model ?? null,
         effort: entry.effort ?? null,

@@ -2,7 +2,9 @@
 // starts it (SessionOptions.mcpServers) with ROWROW_URL and its run's own ROWROW_TOKEN, and each
 // tool call is one call of the contract's coach.* reads and proposals (D-045), which check the
 // turn's workspaces on the server. ROWROW_COACH_FULL_ACCESS=1 says the run has Full access: its
-// proposals' descriptions say they execute, as roamgate rewrites them. MCP over stdio is JSON-RPC 2.0, one message per line: initialize, tools/list,
+// proposals' descriptions say they execute, as roamgate rewrites them. ROWROW_COACH_TASK_RUN=1
+// says the run is a scheduled task's (D-050): it has send_user_notification, and no task tools.
+// MCP over stdio is JSON-RPC 2.0, one message per line: initialize, tools/list,
 // tools/call and ping are all a server of tools needs, so this is that, without a dependency.
 // stdout carries only the protocol; anything else goes to stderr.
 import { ORPCError } from "@orpc/client";
@@ -66,7 +68,12 @@ export async function answer(
   version: string,
   request: Request,
   fullAccess = process.env["ROWROW_COACH_FULL_ACCESS"] === "1",
+  taskRun = process.env["ROWROW_COACH_TASK_RUN"] === "1",
 ): Promise<Reply> {
+  // A chat's tools, or a task run's: each has the tools only it may use.
+  const tools = COACH_TOOLS.filter(
+    (tool) => tool.only === undefined || tool.only === (taskRun ? "run" : "chat"),
+  );
   switch (request.method) {
     case "initialize": {
       const asked = request.params?.["protocolVersion"];
@@ -83,7 +90,7 @@ export async function answer(
     case "tools/list":
       return {
         result: {
-          tools: COACH_TOOLS.map((tool) => {
+          tools: tools.map((tool) => {
             const { $schema: _schema, ...inputSchema } = z.toJSONSchema(CoachToolArgs[tool.name]);
             return { name: tool.name, description: coachToolDescription(tool, fullAccess), inputSchema };
           }),
@@ -91,7 +98,7 @@ export async function answer(
       };
     case "tools/call": {
       const name = request.params?.["name"];
-      const tool = COACH_TOOLS.find((t) => t.name === name);
+      const tool = tools.find((t) => t.name === name);
       if (tool === undefined) return { error: { code: -32602, message: `Unknown tool: ${String(name)}` } };
       return { result: await callTool(client, tool.name, request.params?.["arguments"] ?? {}) };
     }
@@ -115,9 +122,13 @@ async function callTool(
     if (error instanceof ORPCError && error.code !== "INTERNAL_SERVER_ERROR") return toolError(error.message);
     process.stderr.write(`rowrow mcp coach: ${name} failed: ${String(error)}\n`);
     return toolError(
-      name.startsWith("propose_")
-        ? "Action proposal unavailable, stale, or outside the authorized scope."
-        : "Context unavailable, stale, or outside the authorized scope.",
+      name === "send_user_notification"
+        ? "Notification unavailable or outside the authorized task."
+        : name.endsWith("_coach_task") || name === "list_coach_tasks"
+          ? "Task unavailable, invalid, or outside the authorized scope."
+          : name.startsWith("propose_")
+            ? "Action proposal unavailable, stale, or outside the authorized scope."
+            : "Context unavailable, stale, or outside the authorized scope.",
     );
   }
 }
@@ -138,6 +149,12 @@ function call(client: Client, name: CoachToolName, args: unknown): Promise<unkno
       return client.coach.proposeAgent(CoachToolArgs.propose_agent_start.parse(args));
     case "propose_agent_prompt":
       return client.coach.proposePrompt(CoachToolArgs.propose_agent_prompt.parse(args));
+    case "list_coach_tasks":
+      return client.coach.listTasks({});
+    case "propose_coach_task":
+      return client.coach.proposeTask(CoachToolArgs.propose_coach_task.parse(args));
+    case "send_user_notification":
+      return client.coach.notify(CoachToolArgs.send_user_notification.parse(args));
   }
 }
 

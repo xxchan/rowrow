@@ -4,6 +4,7 @@
 // and costs nothing per message.
 import type { Patch } from "immer";
 import { z } from "zod";
+import type { CoachTask } from "./coach-tasks.ts";
 import type { Entry } from "./entries.ts";
 import type { AgentSummary, Attention } from "./summary.ts";
 
@@ -478,8 +479,11 @@ export interface AppState {
   readonly agents: Readonly<Record<string, AgentState>>;
   readonly runtimes: Readonly<Record<string, RuntimeInfo>>;
   readonly settings: Settings;
-  /** Coach (D-044): its current chat, kept apart from the agents (null before the first message). */
-  readonly coach: { readonly chat: AgentState | null };
+  /**
+   * Coach (D-044): its current chat, kept apart from the agents (null before the first message),
+   * and its scheduled tasks (D-050).
+   */
+  readonly coach: { readonly chat: AgentState | null; readonly tasks: readonly CoachTask[] };
 }
 
 export type StateMessage =

@@ -209,6 +209,14 @@ export class AgentLog {
     };
   }
 
+  /** Delete an agent's whole log (a Coach task's older run, D-050): rows, packs and its head. */
+  forget(agentId: string): void {
+    this.db.run("delete from entries where agent_id = ?", agentId);
+    this.db.run("delete from entry_packs where agent_id = ?", agentId);
+    this.heads.delete(agentId);
+    this.listeners.delete(agentId);
+  }
+
   /** Every append of every agent (the server's summary folds). */
   onAppend(listener: (agentId: string, entry: Entry) => void): () => void {
     this.anyListeners.add(listener);

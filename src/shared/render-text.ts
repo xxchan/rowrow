@@ -92,7 +92,12 @@ function actionLines(ids: readonly string[] | undefined, timeline: Timeline): st
     const action = timeline.coachActions.get(id);
     if (action === undefined) return [];
     const { kind, agentId, agentTitle, workspaceLabel } = action.proposal;
-    const target = agentId === undefined ? workspaceLabel : `${agentTitle ?? agentId} in ${workspaceLabel}`;
+    const target =
+      kind === "create_task"
+        ? (action.proposal.params.title ?? "")
+        : agentId === undefined
+          ? workspaceLabel
+          : `${agentTitle ?? agentId} in ${workspaceLabel}`;
     return [
       `· Coach proposed: ${ACTION_NAMES[kind]} (${target}) · ${statusWord(kind, action.status)}: ${action.detail}`,
     ];

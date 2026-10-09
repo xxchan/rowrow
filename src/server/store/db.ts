@@ -133,6 +133,50 @@ const MIGRATIONS: readonly string[] = [
   `
   alter table agents add column pinned_at integer;
   `,
+  // 9: Coach's scheduled tasks (D-050): the task, its timing (the next occurrence, and one that
+  // came due and waits: missed ones combine into it), its runs (each a Coach chat, chat_id null
+  // when it failed before one started), and the notifications Coach sent for it (a repeat of an
+  // event_key isn't sent). request_id: the creating call's idempotency key.
+  `
+  create table coach_tasks (
+    id text primary key,
+    title text not null,
+    prompt text not null,
+    schedule text not null,
+    notify text not null,
+    paused integer not null default 0,
+    full_access integer not null default 0,
+    created_at integer not null,
+    updated_at integer not null,
+    next_run_at integer,
+    due_at integer,
+    due_manual integer not null default 0,
+    request_id text unique
+  );
+  create table coach_task_runs (
+    id text primary key,
+    task_id text not null,
+    chat_id text,
+    input_id text,
+    status text not null,
+    scheduled_at integer not null,
+    started_at integer not null,
+    finished_at integer,
+    error text,
+    manual integer not null default 0
+  );
+  create index coach_task_runs_by_task on coach_task_runs (task_id, started_at);
+  create table coach_task_notices (
+    task_id text not null,
+    event_key text not null,
+    run_id text not null,
+    kind text not null,
+    title text not null,
+    body text not null,
+    at integer not null,
+    primary key (task_id, event_key)
+  ) without rowid;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

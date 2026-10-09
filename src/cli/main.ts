@@ -24,6 +24,7 @@ import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { agentListed, workspaceArchived, workspaceLabel } from "../shared/workspaces.ts";
 import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
 import { connect, resolveTarget, type Client } from "./client.ts";
+import { COACH_HELP, coachCommand } from "./coach.ts";
 import { formatLogin, formatLogout, login } from "./login.ts";
 import { formatUsage } from "./usage.ts";
 
@@ -78,6 +79,8 @@ Agents
                                    agent (from inside an agent: about that agent); --key K: once
                                    per K a day. At most 1 per 10 s and 30 an hour per agent
   (an <agent> is its id, a unique id prefix, or a unique part of its title)
+
+${COACH_HELP}
 
 Workspaces
   rowrow ws [--all]                list workspaces; --all: the archived ones too
@@ -180,6 +183,11 @@ async function main(argv: string[]): Promise<void> {
       key: { type: "string" },
       off: { type: "boolean" },
       reset: { type: "boolean" },
+      at: { type: "string" },
+      daily: { type: "string" },
+      tz: { type: "string" },
+      every: { type: "string" },
+      notify: { type: "string" },
     },
   });
   const str = (name: string): string | undefined => {
@@ -449,6 +457,9 @@ async function main(argv: string[]): Promise<void> {
       }
       case "agent":
         await agentCommand(client, rest, { str, bool, strings, json, out, trace });
+        return;
+      case "coach":
+        await coachCommand(client, rest, { str, out });
         return;
       case "notify": {
         const [title = "", ...more] = rest;

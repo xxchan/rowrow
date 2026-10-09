@@ -2,20 +2,37 @@
 // the operation and a status pill, its target and every parameter, the exact text it sends with
 // its length, and what rowrow says about it: "Waiting for your confirmation. Nothing has been
 // executed." until you Confirm or Cancel, then rowrow's receipt. Confirm waits until Coach has
-// finished its answer, and one action runs at a time.
+// finished its answer, and one action runs at a time. A scheduled task Coach proposes (D-050)
+// has Ranger's task card instead: its schedule, its prompt, how it notifies, and Confirm task,
+// which works even while Coach answers.
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { LoaderCircle } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   ACTION_NAMES,
   statusWord,
   type CoachActionState,
   type CoachActionStatus,
 } from "../../shared/coach-actions.ts";
+import { NOTIFY_LABELS, scheduleLabel } from "../../shared/coach-tasks.ts";
 import { useCoach } from "../lib/coach.ts";
 import { useApp, useClient } from "../lib/store.ts";
+
+/**
+ * The chat whose cards these are, when it isn't Coach's current one (a task's run, D-050):
+ * whether it's answering, and whether one of its actions is executing.
+ */
+export const CoachCardChat = createContext<{
+  readonly chatId: string;
+  readonly working: boolean;
+  readonly executing: boolean;
+} | null>(null);
+
+/** A date and time as Coach's cards and tasks show them. */
+export const at = (time: number): string =>
+  new Date(time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 const PILL: Record<CoachActionStatus, string> = {
   pending: "bg-primary/12 text-primary",
@@ -28,17 +45,18 @@ const PILL: Record<CoachActionStatus, string> = {
 
 const WAIT = "Wait for Coach to finish before confirming or cancelling an action.";
 
-const at = (time: number): string =>
-  new Date(time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-
-/** One action of Coach's current chat (the one its window shows). */
+/** One action of Coach's current chat (the one its window shows), or of the chat CoachCardChat names. */
 export function CoachActionCard({ action }: { action: CoachActionState }) {
   const client = useClient();
-  const chatId = useApp((s) => s.state?.coach.chat?.id ?? null);
-  const working = useApp((s) => s.state?.coach.chat?.summary.status.kind === "running");
-  const executing = useApp(
+  const other = useContext(CoachCardChat);
+  const currentId = useApp((s) => s.state?.coach.chat?.id ?? null);
+  const currentWorking = useApp((s) => s.state?.coach.chat?.summary.status.kind === "running");
+  const currentExecuting = useApp(
     (s) => s.state?.coach.chat?.summary.coachActions.some((a) => a.status === "executing") ?? false,
   );
+  const chatId = other?.chatId ?? currentId;
+  const working = other?.working ?? currentWorking;
+  const executing = other?.executing ?? currentExecuting;
   const [deciding, setDeciding] = useState<"confirm" | "cancel" | null>(null);
   const card = useRef<HTMLElement>(null);
   const { proposal, status } = action;
@@ -60,6 +78,11 @@ export function CoachActionCard({ action }: { action: CoachActionState }) {
       setDeciding(null);
     }
   };
+
+  if (proposal.kind === "create_task")
+    return (
+      <TaskCard action={action} card={card} deciding={deciding} decide={decide} disabled={client === null} />
+    );
 
   const rows: [string, ReactNode][] = [
     ["Workspace", <Ident key="ws" label={proposal.workspaceLabel} id={proposal.workspaceId} />],
@@ -188,10 +211,89 @@ export function CoachActionCard({ action }: { action: CoachActionState }) {
   );
 }
 
+/** A scheduled task Coach proposed (D-050), as Ranger's task card shows one. */
+function TaskCard({
+  action,
+  card,
+  deciding,
+  decide,
+  disabled,
+}: {
+  action: CoachActionState;
+  card: RefObject<HTMLElement | null>;
+  deciding: "confirm" | "cancel" | null;
+  decide: (how: "confirm" | "cancel") => Promise<void>;
+  disabled: boolean;
+}) {
+  const { proposal, status } = action;
+  const { params: p } = proposal;
+  const pending = status === "pending";
+  return (
+    <section
+      ref={card}
+      tabIndex={-1}
+      aria-label="Task proposal"
+      className="grid min-w-0 gap-2 rounded-lg border bg-card px-2.5 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <strong className="min-w-0 font-semibold [overflow-wrap:anywhere]">{p.title}</strong>
+        <span className={cn("shrink-0 rounded-full px-2 py-px text-[10px] font-medium", PILL[status])}>
+          {statusWord(proposal.kind, status)}
+        </span>
+      </div>
+      {p.schedule !== undefined && <p>{scheduleLabel(p.schedule, at)}</p>}
+      <span className="text-[11px] text-muted-foreground">
+        Each run reads the workspaces Coach may read then.
+      </span>
+      <ExactText label="Task prompt" text={p.prompt ?? ""} open={false} />
+      <span className="text-[11px] text-muted-foreground">{NOTIFY_LABELS[p.notify ?? "every"]}</span>
+      {pending ? (
+        <div className="grid gap-1">
+          <p className="text-muted-foreground">
+            Confirm to enable this task. Workspace actions still need your confirmation.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="xs"
+              className="min-h-11 text-[11px] md:min-h-7"
+              disabled={disabled || deciding !== null}
+              onClick={() => void decide("confirm")}
+            >
+              {deciding === "confirm" && <LoaderCircle className="animate-spin" />}
+              Confirm task
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="min-h-11 text-[11px] md:min-h-7"
+              disabled={disabled || deciding !== null}
+              onClick={() => void decide("cancel")}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p
+          role="status"
+          className={cn(
+            "[overflow-wrap:anywhere]",
+            status === "failed" ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {action.detail}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Each frozen parameter as its card lists it. */
 function params(action: CoachActionState): [string, ReactNode][] {
   const { kind, params: p } = action.proposal;
   switch (kind) {
+    case "create_task":
+      return [];
     case "create_worktree":
       return [
         ["Branch", <code key="branch">{p.branch}</code>],

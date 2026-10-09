@@ -200,6 +200,7 @@ const Message = memo(function Message({
           <CoachYou
             text={origin?.input.text ?? input.input}
             at={origin?.input.at}
+            task={origin?.input.by.kind === "system"}
             state={
               input.state === "rejected" || input.state === "dropped"
                 ? "error"
@@ -269,7 +270,7 @@ const when = (at: number): string => {
     : date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 };
 
-function CoachHead({ who, at }: { who: "You" | "Coach"; at?: number | undefined }) {
+function CoachHead({ who, at }: { who: "You" | "Task prompt" | "Coach"; at?: number | undefined }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <strong className="text-[11px] font-semibold">{who}</strong>
@@ -278,21 +279,24 @@ function CoachHead({ who, at }: { who: "You" | "Coach"; at?: number | undefined 
   );
 }
 
-/** What you asked Coach. */
+/** What you asked Coach: a scheduled task's run (D-050) asks with the task's prompt, rowrow sending it. */
 function CoachYou({
   text,
   at,
   state,
   reason,
+  task = false,
 }: {
   text: string;
   at: number | undefined;
   state: "sending" | "sent" | "error";
   reason?: string | null | undefined;
+  task?: boolean;
 }) {
+  const who = task ? "Task prompt" : "You";
   return (
-    <section data-author="you" aria-label="You message" className="grid min-w-0 gap-[7px]">
-      <CoachHead who="You" at={at} />
+    <section data-author="you" aria-label={`${who} message`} className="grid min-w-0 gap-[7px]">
+      <CoachHead who={who} at={at} />
       <p
         data-preview
         className="rounded-lg bg-primary/12 px-2.5 py-2 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] md:text-xs"
@@ -645,6 +649,7 @@ function PendingCoachInput({ block }: { block: InputBlock }) {
     <CoachYou
       text={block.input.text}
       at={block.input.at}
+      task={block.input.by.kind === "system"}
       state={failed ? "error" : "sending"}
       reason={failed ? (outcome?.reason ?? outcome?.landed) : null}
     />

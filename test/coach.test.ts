@@ -301,7 +301,10 @@ describe("rowrow mcp coach", () => {
     const list = (await answer(client, "1.0.0", request("tools/list"))) as {
       result: { tools: { name: string; inputSchema: { properties: Record<string, unknown> } }[] };
     };
-    expect(list.result.tools.map((tool) => tool.name)).toEqual(COACH_TOOLS.map((tool) => tool.name));
+    // A chat's: all but a task run's notification tool (D-050).
+    expect(list.result.tools.map((tool) => tool.name)).toEqual(
+      COACH_TOOLS.filter((tool) => tool.only !== "run").map((tool) => tool.name),
+    );
     for (const tool of list.result.tools) expect(tool.inputSchema.properties).not.toHaveProperty("chatId");
   });
 
