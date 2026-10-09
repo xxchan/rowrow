@@ -1,17 +1,20 @@
 import Foundation
 import Observation
 
-/// One row of a conversation on screen: something you sent, a note between turns, or a turn.
+/// One row of a conversation on screen: something you sent, a note between turns, a turn, or
+/// (in a Coach chat) the card of an action Coach proposed.
 public enum TranscriptRow: Sendable, Equatable, Identifiable {
   case input(TranscriptItem.Input)
   case note(TranscriptItem.Notice)
   case turn(TurnGroup)
+  case action(TranscriptItem.Action)
 
   public var id: String {
     switch self {
     case .input(let input): input.id
     case .note(let note): note.id
     case .turn(let turn): turn.id
+    case .action(let action): action.id
     }
   }
 }
@@ -188,6 +191,9 @@ public final class TranscriptStore {
       case .notice(let notice) where notice.turn == nil:
         close()
         rows.append(.note(notice))
+      case .action(let action):
+        close()
+        rows.append(.action(action))
       case .outcome(let outcome) where outcome.turn == turn?.id:
         turn?.outcome = outcome
       case .unknown:

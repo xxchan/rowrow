@@ -50,6 +50,8 @@ file when something lands.
   phone's loop (be told, triage, read one answer, reply, next), notifications with Reply and
   Mark as Seen through APNs, sealed so Apple reads nothing, and the server's own folds in
   JavaScriptCore.
+  **Coach on iOS**: a Coach tab with its chat, its action cards to confirm, and its scheduled
+  tasks (run now, pause, resume, each run's chat); a task's notification opens its run.
 
 - **rowrow for Mac** (D-030 to D-033, [desktop.md](desktop.md)): an Electron window onto each
   server's own web app, and the manager of the servers it runs, on this Mac (launchd) or over

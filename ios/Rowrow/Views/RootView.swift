@@ -49,6 +49,16 @@ struct MainTabs: View {
         }
       }
 
+      // Coach (D-044): rowrow's assistant, its chat and its scheduled tasks; the badge counts
+      // what waits for you there (proposals to confirm, task runs holding some).
+      SwiftUI.Tab("Coach", systemImage: "megaphone", value: Tab.coach) {
+        NavigationStack(path: $router.coach) {
+          CoachScreen(session: session)
+            .navigationDestination(for: Route.self) { RouteView(route: $0, session: session) }
+        }
+      }
+      .badge(session.state?.coachWaiting ?? 0)
+
       SwiftUI.Tab("Settings", systemImage: "gearshape", value: Tab.settings) {
         NavigationStack(path: $router.settings) {
           SettingsView(session: session)
@@ -90,6 +100,9 @@ struct RouteView: View {
     case .devices: DevicesView(session: session)
     case .quickReplies: QuickRepliesView(session: session)
     case .servers: ServersView()
+    case .coachTasks: CoachTasksList(session: session)
+    case .coachTask(let id): CoachTaskView(taskId: id, session: session)
+    case .coachRun(let taskId, let runId): CoachRunView(taskId: taskId, runId: runId, session: session)
     }
   }
 }

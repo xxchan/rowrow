@@ -212,6 +212,73 @@ extension APIClient {
     try await call("files.read", ["workspaceId": workspaceId, "path": path])
   }
 
+  // ─── Coach (D-044, D-045, D-050) ────────────────────────────────────────────
+
+  /// Send Coach a message, in the chat you saw (nil: there was none, start one). Refused while
+  /// Coach works or one of its actions runs; `inputId` makes a retry safe.
+  public func coachSend(text: String, chatId: String?, inputId: String = UUID().uuidString.lowercased())
+    async throws -> CoachSent
+  {
+    try await call(
+      "coach.send",
+      JSONValue.object([
+        "inputId": .string(inputId), "text": .string(text), "chatId": chatId.map(JSONValue.string) ?? .null,
+      ]))
+  }
+
+  /// Leave Coach's current chat (it stays in History); the next message starts a new one.
+  public func coachNewChat() async throws {
+    let _: OK = try await call("coach.newChat")
+  }
+
+  /// Coach's chats, newest first: its History.
+  public func coachChats() async throws -> [CoachChat] { try await call("coach.chats") }
+
+  /// Make an earlier chat (a task's run too) Coach's current one again.
+  public func coachOpen(chatId: String) async throws {
+    let _: OK = try await call("coach.open", ["chatId": chatId])
+  }
+
+  /// Stop Coach's answer; its proposals still waiting are cancelled with it.
+  public func coachStop(chatId: String) async throws -> AbortResult {
+    try await call("coach.stop", ["chatId": chatId])
+  }
+
+  /// Run an action Coach proposed, exactly as its card shows it; never twice.
+  public func coachConfirm(chatId: String, actionId: String) async throws {
+    _ = try await raw("coach.confirm", ["chatId": chatId, "actionId": actionId])
+  }
+
+  /// Cancel an action Coach proposed: nothing runs.
+  public func coachCancel(chatId: String, actionId: String) async throws {
+    _ = try await raw("coach.cancel", ["chatId": chatId, "actionId": actionId])
+  }
+
+  /// A task's runs, newest first (its latest 20), each with its chat.
+  public func coachTaskRuns(taskId: String) async throws -> [CoachTaskRun] {
+    try await call("coach.taskRuns", ["taskId": taskId])
+  }
+
+  /// Run a task now, beside its schedule (a paused one too).
+  public func coachRunTask(_ taskId: String) async throws {
+    _ = try await raw("coach.runTask", ["taskId": taskId])
+  }
+
+  /// Pause a task (a run going finishes), or resume it (what passed meanwhile doesn't run).
+  public func coachPauseTask(_ taskId: String, paused: Bool) async throws {
+    _ = try await raw("coach.pauseTask", JSONValue.object(["taskId": .string(taskId), "paused": .bool(paused)]))
+  }
+
+  /// Stop a task's run that's going (and the proposals it holds for you).
+  public func coachStopTask(_ taskId: String) async throws {
+    _ = try await raw("coach.stopTask", ["taskId": taskId])
+  }
+
+  /// Delete a task with its runs' chats (one carried on in Coach stays).
+  public func coachDeleteTask(_ taskId: String) async throws {
+    let _: OK = try await call("coach.deleteTask", ["taskId": taskId])
+  }
+
   // ─── Devices, notifications, settings ──────────────────────────────────────
 
   public func whoami() async throws -> Device { try await call("devices.whoami") }

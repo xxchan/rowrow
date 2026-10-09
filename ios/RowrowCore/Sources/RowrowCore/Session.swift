@@ -232,6 +232,14 @@ public final class Session {
   /// The app state as JSON text, for the kit (new-agent defaults).
   public func stateJSON() -> Data? { try? tree?.data() }
 
+  /// Turn Coach's Full access off (D-045: off is one tap, on is the web app's dialog), keeping
+  /// the rest of its settings exactly as the server has them.
+  public func turnOffCoachFullAccess() async throws {
+    guard case .object(var coach)? = tree?["settings"]?["coach"] else { return }
+    coach["fullAccess"] = .bool(false)
+    _ = try await api.raw("settings.update", JSONValue.object(["coach": .object(coach)]))
+  }
+
   // ─── The kit ───────────────────────────────────────────────────────────────
 
   private var kitFile: URL { cache.appending(path: "kit-\(account.id.uuidString).js") }

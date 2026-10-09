@@ -246,4 +246,104 @@ struct AgainstARealServer {
     try await api.revoke(deviceId: me.id)
     await #expect(throws: RowrowError.self) { try await api.whoami() }
   }
+
+  @Test func talksToCoachAndRunsItsTasks() async throws {
+    let server = try await LocalServer.start()
+    defer { server.stop() }
+    let pairing = try await APIClient.pair(link: server.link(), deviceName: "Swift test iPhone")
+    let api = APIClient(baseURL: pairing.baseURL, token: pairing.token)
+    struct Snapshot: Decodable { let state: AppState }
+    func state() async throws -> AppState { try await api.call("state.get", as: Snapshot.self).state }
+    func eventually<T>(_ what: String, _ check: () async throws -> T?) async throws -> T {
+      for _ in 0..<200 {
+        if let value = try await check() { return value }
+        try await Task.sleep(for: .milliseconds(100))
+      }
+      throw JSONError(description: "timed out waiting for \(what)")
+    }
+
+    // Coach may read one workspace, and runs on the scripted runtime (its settings are the web app's).
+    let workspace = try await api.addWorkspace(path: server.repository())
+    _ = try await api.raw(
+      "settings.update",
+      JSONValue.object([
+        "coach": .object([
+          "workspaces": .array([.string(workspace.id)]), "runtime": .string("scripted"), "model": .null,
+          "effort": .null, "fullAccess": .bool(false),
+        ])
+      ]))
+    _ = try await eventually("the scripted runtime") { try await state().runtimes["scripted"]?.installed == true ? true : nil }
+    #expect(try await state().coachNotice == nil)
+
+    // A message starts a chat, kept apart from the agents; Coach answers in it.
+    let sent = try await api.coachSend(text: "/echo hello from the phone", chatId: nil)
+    #expect(sent.landed == .prompted)
+    _ = try await api.raw(
+      "agents.wait",
+      JSONValue.object([
+        "agentId": .string(sent.chatId), "afterSeq": .number(Double(sent.seq)), "timeoutMs": .number(15000),
+      ]))
+    let current = try await state()
+    #expect(current.coach?.chat?.id == sent.chatId)
+    #expect(current.agents[sent.chatId] == nil)
+    #expect(current.settings.coach?.runtime == "scripted")
+
+    // Its transcript, folded by the kit like any agent's.
+    guard case .changed(let source, _) = try await api.kit(etag: nil) else {
+      Issue.record("no kit")
+      return
+    }
+    let kit = try Kit(source: source)
+    func rows(_ chatId: String) async throws -> [TranscriptRow] {
+      let handle = try await kit.open(runtime: "scripted")
+      let delta = try await kit.load(handle, page: try await api.raw("agents.entries", ["agentId": chatId]))
+      return TranscriptStore.rows(
+        order: delta.order ?? [], items: Dictionary(uniqueKeysWithValues: delta.items.map { ($0.id, $0) }))
+    }
+    let chat = try await rows(sent.chatId)
+    guard case .input(let asked) = chat.first, case .turn(let answer) = chat.last else {
+      Issue.record("expected a message then Coach's answer, got \(chat)")
+      return
+    }
+    #expect(asked.text == "/echo hello from the phone")
+    let echoed = answer.parts.contains { part in
+      if case .text(let text) = part { text.text == "hello from the phone" } else { false }
+    }
+    #expect(echoed)
+
+    // History: a new chat leaves this one there, and opening it makes it current again.
+    #expect(try await api.coachChats().map(\.id) == [sent.chatId])
+    try await api.coachNewChat()
+    #expect(try await state().coach?.chat == nil)
+    try await api.coachOpen(chatId: sent.chatId)
+    #expect(try await state().coach?.chat?.id == sent.chatId)
+
+    // A task (written in the web app; here through the contract): paused, run now all the same.
+    let task: CoachTask = try await api.call(
+      "coach.createTask",
+      JSONValue.object([
+        "requestId": .string(UUID().uuidString.lowercased()), "title": .string("Check the build"),
+        "prompt": .string("/echo all green"),
+        "schedule": .object(["type": .string("interval"), "minutes": .number(60)]), "notify": .string("every"),
+      ]))
+    #expect(task.schedule == .interval(minutes: 60))
+    try await api.coachPauseTask(task.id, paused: true)
+    #expect(try await state().coach?.tasks.first?.status == .paused)
+    try await api.coachRunTask(task.id)
+    let run = try await eventually("the task's run") {
+      try await api.coachTaskRuns(taskId: task.id).first(where: { $0.status == .succeeded })
+    }
+    #expect(run.manual)
+    let runChat = try await rows(try #require(run.chatId))
+    guard case .input(let prompt) = runChat.first else {
+      Issue.record("expected the task's prompt first, got \(runChat)")
+      return
+    }
+    // Sent by rowrow itself: the app shows it as the "Task prompt".
+    #expect(prompt.text == "/echo all green")
+    #expect(prompt.by == "rowrow")
+
+    try await api.coachDeleteTask(task.id)
+    #expect(try await state().coach?.tasks.isEmpty == true)
+  }
 }

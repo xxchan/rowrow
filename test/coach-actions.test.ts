@@ -21,6 +21,7 @@ import {
 import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { placeProposals, timelineOf } from "../src/shared/timeline.ts";
+import { TranscriptProjector, type TranscriptItem } from "../src/shared/transcript-model.ts";
 import { scriptedDemoRuntime } from "../src/server/agents/scripted.ts";
 import { coachSystemPrompt, turnText } from "../src/server/coach/prompt.ts";
 import { CoachService, type CoachDeps } from "../src/server/coach/service.ts";
@@ -313,6 +314,31 @@ describe("Coach's actions", () => {
     expect((await server.client.agents.view({ agentId: chatId })).text).toMatch(
       /· Coach proposed: Send prompt \(in a in \S+\) · Needs confirmation: Waiting for your confirmation\./,
     );
+    // The iOS app's card (the kit's items): after that answer's outcome, in the web card's words.
+    const projector = new TranscriptProjector("scripted");
+    const folded = projector.update(timelineOf(entries));
+    const items = folded.items.map((json) => JSON.parse(json) as TranscriptItem);
+    const order = folded.order ?? [];
+    const outcome = items.find((item) => item.kind === "outcome");
+    expect(order.at(-1)).toBe(`action:${proposed.id}`);
+    expect(order.indexOf(outcome?.id ?? "")).toBeGreaterThan(-1);
+    expect(items.at(-1)).toEqual({
+      kind: "action",
+      id: `action:${proposed.id}`,
+      actionId: proposed.id,
+      action: "send_prompt",
+      name: "Send prompt",
+      status: "pending",
+      statusLabel: "Needs confirmation",
+      detail: "Waiting for your confirmation. Nothing has been executed.",
+      summary: proposed.summary,
+      workspaceId: inA.summary.workspaceId,
+      workspaceLabel: proposed.workspaceLabel,
+      agentId: inA.id,
+      agentTitle: "in a",
+      params: { prompt: "/echo from Coach" },
+      proposedAt: Date.parse(proposed.proposedAt),
+    });
 
     // Coach can't confirm, nor reach past its turn's workspaces or rowrow's runtimes.
     await expect(as.coach.confirm({ chatId, actionId: proposed.id })).rejects.toThrow(
@@ -344,6 +370,19 @@ describe("Coach's actions", () => {
       (e) => (e.kind === "coach.action" ? [e.status] : []),
     );
     expect(statuses).toEqual(["executing", "succeeded"]);
+    // The app redraws that card alone, with rowrow's receipt.
+    const after = projector.update(
+      timelineOf((await server.client.agents.entries({ agentId: chatId, full: true })).entries),
+    );
+    expect(after.order).toBeNull();
+    expect(after.items.map((json) => JSON.parse(json) as TranscriptItem)).toEqual([
+      expect.objectContaining({
+        id: `action:${proposed.id}`,
+        status: "succeeded",
+        statusLabel: "Succeeded",
+        detail: done.detail,
+      }),
+    ]);
 
     // Coach learns it from rowrow's receipt with its next message.
     await ask(server, spy, "/echo did it work?");

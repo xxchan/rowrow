@@ -240,6 +240,8 @@ public struct AgentSummary: Decodable, Sendable, Equatable {
   /// Steered, but the turn ended before the agent read them.
   public let unread: [QueuedInput]?
   public let headSeq: Int
+  /// A Coach chat's actions not decided yet (D-045): waiting for you, or running.
+  public let coachActions: [CoachOpenAction]?
 }
 
 /// A message rowrow holds until the running turn ends, or one steered in and not read yet.
@@ -290,9 +292,29 @@ public struct ServerSettings: Codable, Sendable, Equatable {
   public var quickReplies: [String]
   /// The server asks npm for a newer rowrow (D-025).
   public var checkForUpdates: Bool?
+  /// What Coach may read and runs on (D-044); nil from a server without Coach. Never sent back
+  /// from here (an update with it leaves it out).
+  public var coach: CoachSettings?
+
+  enum CodingKeys: String, CodingKey { case quickReplies, checkForUpdates, coach }
+
   public init(quickReplies: [String], checkForUpdates: Bool? = nil) {
     self.quickReplies = quickReplies
     self.checkForUpdates = checkForUpdates
+    coach = nil
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    quickReplies = try c.decode([String].self, forKey: .quickReplies)
+    checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)
+    coach = try? c.decodeIfPresent(CoachSettings.self, forKey: .coach)
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(quickReplies, forKey: .quickReplies)
+    try c.encodeIfPresent(checkForUpdates, forKey: .checkForUpdates)
   }
 }
 
@@ -317,8 +339,10 @@ public struct AppState: Decodable, Sendable, Equatable {
   public let agents: [String: AgentState]
   public let runtimes: [String: RuntimeInfo]
   public let settings: ServerSettings
+  /// Coach's current chat and its tasks (D-044, D-050); nil from a server without Coach.
+  public let coach: CoachState?
 
-  private enum CodingKeys: String, CodingKey { case host, workspaces, agents, runtimes, settings }
+  private enum CodingKeys: String, CodingKey { case host, workspaces, agents, runtimes, settings, coach }
 
   /// A workspace, agent or runtime this app can't read is left out, rather than the whole state
   /// failing (and with it every later change, since the patches keep coming).
@@ -329,6 +353,7 @@ public struct AppState: Decodable, Sendable, Equatable {
     agents = try c.decode([String: Lenient<AgentState>].self, forKey: .agents).compactMapValues(\.value)
     runtimes = try c.decode([String: Lenient<RuntimeInfo>].self, forKey: .runtimes).compactMapValues(\.value)
     settings = try c.decode(ServerSettings.self, forKey: .settings)
+    coach = try? c.decodeIfPresent(CoachState.self, forKey: .coach)
   }
 
   /// Archived, or a linked worktree of an archived repository: hidden with its agents (D-047).

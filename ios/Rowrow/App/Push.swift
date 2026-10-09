@@ -7,7 +7,7 @@ import UserNotifications
 /// Notifications (docs/ios.md, "Notifications"): the server pushes through APNs with your own
 /// key (D-028) when an agent finishes or needs you and you aren't looking; in the app, a banner
 /// of our own does the same. Each notification can be answered where it shows (Reply, Mark as
-/// Seen), without opening the app.
+/// Seen), without opening the app. Coach's tasks notify through the same pushes (D-050).
 @MainActor
 @Observable
 final class PushManager: NSObject {
@@ -195,11 +195,24 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     return looking ? [] : [.banner, .list, .sound]
   }
 
-  /// A tap opens the agent; Reply sends what you typed; Mark as Seen clears it everywhere.
+  /// A tap opens the agent; Reply sends what you typed; Mark as Seen clears it everywhere. A Coach
+  /// task's notification (D-050) opens Coach on that task, with the run it's about.
   func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
     let info = response.notification.request.content.userInfo
-    guard let agentId = info["agentId"] as? String else { return }
     let deviceId = info["deviceId"] as? String
+    if let taskId = info["coachTask"] as? String {
+      guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+      let runId = info["coachRun"] as? String
+      await MainActor.run {
+        let model = AppModel.shared
+        if let deviceId, let account = model.accounts.account(deviceId: deviceId), model.session?.account.id != account.id {
+          model.activate(account)
+        }
+        model.router.open(coachTask: taskId, run: runId)
+      }
+      return
+    }
+    guard let agentId = info["agentId"] as? String else { return }
     let seq = (info["seq"] as? NSNumber)?.intValue
     let reply = (response as? UNTextInputNotificationResponse)?.userText
     let action = response.actionIdentifier

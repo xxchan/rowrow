@@ -83,6 +83,9 @@ private struct Conversation: View {
             {
               ChangesChip(workspaceId: agent.summary.workspaceId, agentId: agent.id)
             }
+          case .action:
+            // Only Coach's chats propose actions (CoachScreen shows their cards).
+            EmptyView()
           }
         }
         if let error = store.error {
@@ -257,7 +260,7 @@ private struct InputBubble: View {
 }
 
 /// rowrow's own note between turns: a resumed run, a model switch, a run that ended.
-private struct NoteLine: View {
+struct NoteLine: View {
   let note: TranscriptItem.Notice
 
   var body: some View {

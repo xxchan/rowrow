@@ -6,8 +6,9 @@ import UserNotifications
 
 /// Where the app is: which tab, and what's pushed on each tab's stack.
 enum Tab: Hashable {
-  case agents, workspaces, settings
+  case agents, workspaces, coach, settings
 }
+
 
 enum Route: Hashable {
   case agent(String)
@@ -21,6 +22,10 @@ enum Route: Hashable {
   case devices
   case quickReplies
   case servers
+  /// Coach's scheduled tasks (D-050), a task, and one of its runs: its chat.
+  case coachTasks
+  case coachTask(String)
+  case coachRun(taskId: String, runId: String)
 }
 
 /// One file's diff: in a scope of a workspace, or in a commit.
@@ -38,12 +43,28 @@ final class Router {
   var tab: Tab = .agents
   var agents: [Route] = []
   var workspaces: [Route] = []
+  /// Over Coach's chat.
+  var coach: [Route] = []
   var settings: [Route] = []
 
   /// Show an agent from anywhere (a notification, a link): the Agents tab, with it on top.
   func open(agent id: String) {
     tab = .agents
     agents = [.agent(id)]
+  }
+
+  /// Coach on a task, with one of its runs open (a notification about it, D-050).
+  func open(coachTask taskId: String, run runId: String?) {
+    tab = .coach
+    var stack: [Route] = [.coachTasks, .coachTask(taskId)]
+    if let runId { stack.append(.coachRun(taskId: taskId, runId: runId)) }
+    coach = stack
+  }
+
+  /// Coach's chat (a task's run carried on in it).
+  func openCoachChat() {
+    tab = .coach
+    coach = []
   }
 
   /// From one agent straight to the next that needs you: back still leads to the list.
@@ -61,6 +82,7 @@ final class Router {
     switch tab {
     case .agents: agents.append(route)
     case .workspaces: workspaces.append(route)
+    case .coach: coach.append(route)
     case .settings: settings.append(route)
     }
   }
@@ -70,6 +92,7 @@ final class Router {
     switch tab {
     case .agents: _ = agents.popLast()
     case .workspaces: _ = workspaces.popLast()
+    case .coach: _ = coach.popLast()
     case .settings: _ = settings.popLast()
     }
   }
@@ -127,6 +150,7 @@ final class AppModel {
     transcriptUse = []
     router.agents = []
     router.workspaces = []
+    router.coach = []
     router.settings = []
     accounts.activeId = account.id
     let session = Session(account: account, token: token, cache: Self.cacheDirectory)
@@ -220,12 +244,17 @@ final class AppModel {
 
   /// An agent's transcript store, kept for the few agents you looked at last.
   func transcript(for agent: AgentState) -> TranscriptStore? {
+    transcript(id: agent.id, runtime: agent.summary.runtime)
+  }
+
+  /// The transcript store of an agent or Coach chat by id (a task's run is in no list).
+  func transcript(id: String, runtime: String) -> TranscriptStore? {
     guard let session else { return nil }
-    transcriptUse.removeAll { $0 == agent.id }
-    transcriptUse.append(agent.id)
-    if let store = transcripts[agent.id] { return store }
-    let store = TranscriptStore(agentId: agent.id, runtime: agent.summary.runtime, session: session)
-    transcripts[agent.id] = store
+    transcriptUse.removeAll { $0 == id }
+    transcriptUse.append(id)
+    if let store = transcripts[id] { return store }
+    let store = TranscriptStore(agentId: id, runtime: runtime, session: session)
+    transcripts[id] = store
     while transcriptUse.count > 6, let oldest = transcriptUse.first {
       transcriptUse.removeFirst()
       if let old = transcripts.removeValue(forKey: oldest) { Task { await old.close() } }

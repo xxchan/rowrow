@@ -50,6 +50,8 @@ away if you want others.
 | Workspaces | List | repositories with their worktrees, changed files, agents' states; a swipe or long press renames, archives or removes one (D-047), archived ones last |
 | | Workspace | agents, changes, history, file search, pull request, new agent or worktree here |
 | | History, Commit, Search, File | read-only views of the checkout |
+| Coach | Chat | Coach (D-044): ask about your agents; its answers with their work folded, the cards of the actions it proposes (confirm or cancel, then rowrow's receipt, D-045), History, New chat, Stop; "Full access" in the header while it's on, turned off with a tap |
+| | Tasks, Task, Run | Coach's scheduled tasks (D-050): schedule, last and next run; Run now, Pause, Resume, Stop run, Delete; each run's chat, its cards confirmed there, or opened in the chat |
 | Settings | | the server, notifications, quick replies, devices (pair one with a QR code), runtimes, servers, sign out |
 
 On iPad the tab bar becomes a sidebar (`.sidebarAdaptable`); the screens are the same.
@@ -67,6 +69,7 @@ On iPad the tab bar becomes a sidebar (`.sidebarAdaptable`); the screens are the
     Session.swift         one server, live: app state, the kit, presence, reconnects
     Kit.swift             src/shared's folds in JavaScriptCore (D-027)
     TranscriptStore.swift an agent's conversation: agents.entries, then agents.watch
+    Coach.swift           Coach's settings, tasks and runs, and its words (D-044, D-050)
     Accounts.swift        paired servers; tokens in the Keychain
     PushSeal.swift        the key pushes are sealed with (D-028)
 ```
@@ -142,6 +145,10 @@ An agent can also notify you itself (`rowrow notify`, D-043). Those come through
 while you use the app (shown unless that agent is on screen), each as its own notification in
 the agent's group, and stay when the app tidies away notifications for agents that no longer
 need you (`notice` in the push's data).
+
+A Coach task notifies the same way (D-050: a run finished, failed, or waits for your
+confirmation, or Coach decided you should know); tapping it opens the Coach tab on that task's
+run (`coachTask` and `coachRun` in the push's data).
 
 ## Build and run
 
@@ -224,3 +231,6 @@ with `ITSAppUsesNonExemptEncryption` in `ios/Config/Info.plist`.
 - App Intents (Siri, Shortcuts: "start a rowrow agent in …"), a merged inbox across
   servers, and a split view with the conversation beside the inbox on iPad.
 - Permission prompts stay parked with the web app's (D-022).
+- Coach's settings (the workspaces it reads, its runtime, model and effort), turning Full
+  access on, and writing or editing a task are the web app's for now; the app says so where
+  they'd be. Coach's answers don't list the agents and workspaces they read as links yet.

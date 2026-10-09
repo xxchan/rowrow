@@ -2,7 +2,8 @@
 // (the iOS app, through the kit: src/kit/kit.ts, docs/decisions.md D-027). It is the same
 // timeline fold the web app renders (timeline.ts), cut into the pieces a native list redraws
 // one at a time: an input, a turn's header, each text, thought (hidden ones back to back as
-// one), tool call and notice in it, the turn's outcome, and rowrow's own notes between runs.
+// one), tool call and notice in it, the turn's outcome, rowrow's own notes between runs, and
+// in a Coach chat its actions' cards (D-045), after the turn that proposed them.
 //
 // `TranscriptProjector` remembers what it produced last and returns only the items that
 // changed (and the order, when it changed). The fold shares structure, so an item whose
@@ -16,6 +17,14 @@ import {
   type ViewPart,
   type ViewTurn,
 } from "@botiverse/oar/observe";
+import {
+  ACTION_NAMES,
+  statusWord,
+  type CoachActionKind,
+  type CoachActionState,
+  type CoachActionStatus,
+  type CoachProposal,
+} from "./coach-actions.ts";
 import { droppedWords } from "./describe.ts";
 import type { Attachment, EntryOf } from "./entries.ts";
 import { actorLabel } from "./render-text.ts";
@@ -27,6 +36,7 @@ import {
   laneOf,
   outcomeOf,
   placeNotes,
+  placeProposals,
   steerUnread,
   switches,
   type InputBlock,
@@ -138,6 +148,33 @@ export interface OutcomeItem {
   readonly failure: string | null;
 }
 
+/**
+ * An action Coach proposed (D-045, D-050) and what became of it: everything Confirm runs,
+ * frozen, with the words its card shows. Between turns, after the one that proposed it.
+ */
+export interface ActionItem {
+  readonly kind: "action";
+  readonly id: string;
+  /** What coach.confirm and coach.cancel take. */
+  readonly actionId: string;
+  readonly action: CoachActionKind;
+  /** "Send prompt", "Create task"… */
+  readonly name: string;
+  readonly status: CoachActionStatus;
+  /** The status as its pill says it: "Needs confirmation", "Unverified"… */
+  readonly statusLabel: string;
+  /** What rowrow says about it: "Waiting for your confirmation. Nothing has been executed.", then its receipt. */
+  readonly detail: string;
+  readonly summary: string;
+  readonly workspaceId: string;
+  readonly workspaceLabel: string;
+  readonly agentId: string | null;
+  readonly agentTitle: string | null;
+  /** Every parameter, frozen when it was proposed (the exact text in `prompt`). */
+  readonly params: CoachProposal["params"];
+  readonly proposedAt: number;
+}
+
 export type TranscriptItem =
   | InputItem
   | TurnItem
@@ -146,7 +183,8 @@ export type TranscriptItem =
   | ToolItem
   | RequestItem
   | NoticeItem
-  | OutcomeItem;
+  | OutcomeItem
+  | ActionItem;
 
 /** What changed since the last update: the order when it changed, and the items that did (as JSON). */
 export interface TranscriptDelta {
@@ -269,6 +307,16 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
       out.push({ id, deps: [entry], make: () => note(id, notifiedText(entry)) });
     }
   };
+  // Coach's actions, each after the answer that proposed it, as the web app places their cards.
+  const proposals = placeProposals(run);
+  const actionItems = (ids: readonly string[] | undefined): void => {
+    for (const actionId of ids ?? []) {
+      const action = timeline.coachActions.get(actionId);
+      if (action === undefined) continue;
+      const id = `action:${actionId}`;
+      out.push({ id, deps: [action], make: () => actionItem(id, action) });
+    }
+  };
   const messageItems = (message: ViewMessage, index: number): void => {
     // The run's own end says why the process went away; oar's exit notice would repeat it.
     if (
@@ -302,9 +350,11 @@ function runItems(run: RunBlock, timeline: Timeline, runtime: string, out: Pendi
     }
   };
   noteItems(notes.before);
+  actionItems(proposals.get(null));
   view.messages.forEach((message, index) => {
     messageItems(message, index);
     noteItems(notes.after.get(message.id));
+    actionItems(proposals.get(message.id));
   });
   if (ended !== undefined && endReason !== undefined && endReason !== "idle" && endReason !== "restart") {
     out.push({
@@ -477,6 +527,27 @@ function hostNotice(
     case "agent.updated":
       return note(id, `Switched ${switches(entry.changes) ?? ""}`, { divider: true });
   }
+}
+
+function actionItem(id: string, action: CoachActionState): ActionItem {
+  const { proposal } = action;
+  return {
+    kind: "action",
+    id,
+    actionId: proposal.id,
+    action: proposal.kind,
+    name: ACTION_NAMES[proposal.kind],
+    status: action.status,
+    statusLabel: statusWord(proposal.kind, action.status),
+    detail: action.detail,
+    summary: proposal.summary,
+    workspaceId: proposal.workspaceId,
+    workspaceLabel: proposal.workspaceLabel,
+    agentId: proposal.agentId ?? null,
+    agentTitle: proposal.agentTitle ?? null,
+    params: proposal.params,
+    proposedAt: action.proposedAt,
+  };
 }
 
 function note(

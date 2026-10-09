@@ -265,6 +265,12 @@ rowrow's own parts.
   (`ROWROW_COACH_TASK_RUN`). Each task keeps its newest 20 runs; older runs' chats are forgotten
   (`AgentService.forget`), unless you carried one on. The Tasks view (`CoachTasks.tsx`) lists
   them, shows one with its run history and each run's chat, and edits them; `rowrow coach tasks`.
+- **On the iOS app** Coach is a tab (`ios/Rowrow/Views/CoachScreen.swift`): the chat with
+  History, New chat and Stop, the action cards (the kit's `action` transcript items, placed
+  after the answer that proposed them as the web app places its cards), and Tasks (run now,
+  pause, resume, stop, delete, each run's chat). A task's notification carries `coachTask` and
+  `coachRun`, and opens that run. Coach's settings, turning Full access on and the task form
+  stay in the web app.
 
 ## Replicating state to clients
 
@@ -393,7 +399,7 @@ message says what to do next.
 | Integration | the whole server in-process on a temp profile with a scripted runtime, driven through the real oRPC client over HTTP and WebSocket | `pnpm test` |
 | End to end | the built web app in Chromium against a real server with the scripted runtime; screenshots in `test-results/` | `pnpm test:e2e` |
 | Package | the npm tarball's contents, then the tarball installed with npm in a throwaway prefix and run: serve, status, the web app, a scripted agent | `pnpm test:package` |
-| iOS core | the Swift package: JSON patches, sealed pushes, and a real server from the checkout driven through the Swift client (pairing, state, the kit, transcripts, diffs, uploads) | `pnpm ios:test` |
+| iOS core | the Swift package: JSON patches, sealed pushes, Coach's models and words, and a real server from the checkout driven through the Swift client (pairing, state, the kit, transcripts, diffs, uploads, Coach and its tasks) | `pnpm ios:test` |
 | Mac app | its pure logic (planning a host, SSH scripts run by a real `sh`, the server list) and its connection against a real server, in `pnpm test`; the app itself in Electron, driven by Playwright (set up this Mac, sign in by link, notifications) | `pnpm test` and `pnpm test:desktop` |
 | Server bundle | a bundle in a throwaway `ROWROW_HOME/versions`, run by its own `bin/rowrow` with no Node on the PATH | `pnpm test:package --bundle <dir>` |
 

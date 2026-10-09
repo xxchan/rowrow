@@ -12,6 +12,8 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
   case request(Request)
   case notice(Notice)
   case outcome(Outcome)
+  /// An action Coach proposed (D-045), between turns: its card.
+  case action(Action)
   /// A kind this app doesn't know (a newer kit): shown as nothing.
   case unknown(id: String)
 
@@ -131,6 +133,70 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
     public let failure: String?
   }
 
+  /// An action Coach proposed, frozen (everything Confirm runs), with what became of it and the
+  /// words its card shows (the kit's ActionItem).
+  public struct Action: Decodable, Sendable, Equatable, Identifiable {
+    public struct Params: Decodable, Sendable, Equatable {
+      /// Create worktree.
+      public let branch: String?
+      public let base: String?
+      /// The repository's setup hook, run in the new worktree; nil when it has none.
+      public let setupHook: String?
+      public let sourcePath: String?
+      /// Start agent.
+      public let runtime: String?
+      public let runtimeName: String?
+      /// Start agent: its name; create task: the task's.
+      public let title: String?
+      /// The exact text it sends: a first message, a prompt, what each run of a task sends.
+      public let prompt: String?
+      /// Create task.
+      public let schedule: TaskSchedule?
+      public let notify: TaskNotify?
+
+      enum CodingKeys: String, CodingKey {
+        case branch, base, setupHook, sourcePath, runtime, runtimeName, title, prompt, schedule, notify
+      }
+
+      public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        branch = try? c.decodeIfPresent(String.self, forKey: .branch)
+        base = try? c.decodeIfPresent(String.self, forKey: .base)
+        setupHook = try? c.decodeIfPresent(String.self, forKey: .setupHook)
+        sourcePath = try? c.decodeIfPresent(String.self, forKey: .sourcePath)
+        runtime = try? c.decodeIfPresent(String.self, forKey: .runtime)
+        runtimeName = try? c.decodeIfPresent(String.self, forKey: .runtimeName)
+        title = try? c.decodeIfPresent(String.self, forKey: .title)
+        prompt = try? c.decodeIfPresent(String.self, forKey: .prompt)
+        schedule = try? c.decodeIfPresent(TaskSchedule.self, forKey: .schedule)
+        notify = try? c.decodeIfPresent(TaskNotify.self, forKey: .notify)
+      }
+    }
+
+    public let id: String
+    /// What coach.confirm and coach.cancel take.
+    public let actionId: String
+    /// create_worktree, start_agent, send_prompt, create_task.
+    public let action: String
+    /// "Send prompt", "Create task"…
+    public let name: String
+    public let status: CoachActionStatus
+    /// The status as its pill says it ("Needs confirmation", "Unverified"…).
+    public let statusLabel: String
+    /// What rowrow says about it: waiting for you, then its receipt.
+    public let detail: String
+    public let summary: String
+    public let workspaceId: String
+    public let workspaceLabel: String
+    public let agentId: String?
+    public let agentTitle: String?
+    public let params: Params
+    public let proposedAt: Millis
+
+    /// A scheduled task (D-050): its own card, which may be confirmed while Coach answers.
+    public var isTask: Bool { action == "create_task" }
+  }
+
   private enum CodingKeys: String, CodingKey { case kind, id }
 
   public init(from decoder: any Decoder) throws {
@@ -150,6 +216,7 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
       case "request": self = .request(try one.decode(Request.self))
       case "notice": self = .notice(try one.decode(Notice.self))
       case "outcome": self = .outcome(try one.decode(Outcome.self))
+      case "action": self = .action(try one.decode(Action.self))
       default: self = .unknown(id: id)
       }
     } catch {
@@ -168,6 +235,7 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
     case .request(let item): item.id
     case .notice(let item): item.id
     case .outcome(let item): item.id
+    case .action(let item): item.id
     case .unknown(let id): id
     }
   }
@@ -181,7 +249,7 @@ public enum TranscriptItem: Sendable, Equatable, Identifiable, Decodable {
     case .request(let item): item.turn
     case .notice(let item): item.turn
     case .outcome(let item): item.turn
-    case .input, .turn, .unknown: nil
+    case .input, .turn, .action, .unknown: nil
     }
   }
 }
