@@ -87,6 +87,11 @@ file when something lands.
   it reads rowrow's receipt (succeeded, failed, uncertain) with your next message. Full access,
   only through a dialog and marked in Coach's header, lets it act on every workspace without
   asking.
+- **Coach, phase 3** (D-050): scheduled tasks, Ranger's: a prompt and a schedule (once, daily in
+  a time zone, every N minutes), each run a fresh Coach chat started by the server, never two at
+  once, missed ones run once. "Let Coach decide" notifies only when the outcome matters (once
+  per event); Coach proposes tasks on a card. Chat | Tasks in Coach's header; `rowrow coach
+  tasks`.
 
 ## Parked
 
@@ -108,10 +113,8 @@ file when something lands.
 
 ## Coach, next (D-044)
 
-1. Scheduled checks: a prompt Coach runs on a schedule, and a notification only when what you
-   asked about happens.
-2. Coach in the iOS app.
-3. Only rowrow's MCP server on claude (docs/upstream.md).
+1. Coach in the iOS app, with its tasks (their notifications already carry the task and run).
+2. Only rowrow's MCP server on claude (docs/upstream.md).
 
 ## The Mac app, next
 

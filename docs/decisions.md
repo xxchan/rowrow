@@ -1365,3 +1365,63 @@ user who set Fast in their codex or claude config expects rowrow's agents to hon
 
 **Revisit when** another runtime gets service tiers (its Fast tier may need its own name), a
 runtime lets a live session switch tiers without a restart, or people want flex in the UI.
+
+## D-050 Coach's scheduled tasks: your words sent on a schedule; acting alone only by Full access (2026-10-09)
+
+**Context.** Phase 3 of Coach (D-044): roamgate's Ranger runs saved prompts on a schedule, each
+in a fresh conversation, and notifies you when the outcome matters ("Let Ranger decide", #356,
+#358). Two of rowrow's rules seem to stand in the way. PRINCIPLES.md product 4 says rowrow
+never sends input on your behalf, and a run starts when nobody is looking. And D-045 lets
+Coach act only through a card you confirm, or with Full access, which you turned on while
+watching. The owner asked for Ranger's tasks, copied closely.
+
+**Decision.** A task (`coach.createTask`, the Tasks view, `rowrow coach task new`, or Coach's
+`propose_coach_task` card) is a title, a prompt, a schedule (once at an instant; daily at a
+wall-clock time in an IANA zone, a DST gap skipped and a fold run once; every N minutes, 1 to
+525,600, keeping its cadence) and a notification mode. The server's timer
+(`src/server/coach/tasks.ts`, its math in `src/shared/coach-tasks.ts`) runs it with no window
+open:
+
+- **Your words, sent as rowrow's.** Each run is a new Coach chat (in History, titled and marked
+  with the task, archived until you open it) whose first message is the task's prompt exactly,
+  recorded `by: system` and shown as "Task prompt". This is not speaking for you: the prompt is
+  what you wrote (or confirmed on Coach's card) to be sent on that schedule, and nothing else is
+  sent. A run reads what Coach may read when it starts (settings.coach, or Full access) on
+  Coach's runtime, model and effort then.
+- **Acting alone, Ranger's rule.** A run's proposals wait for your Confirm (the run is
+  "waiting", which notifies "needs confirmation", and holds the task's next runs until you
+  decide) unless the task was *saved* with Full access on (created or edited in the form while
+  it was on, or enabled by Coach itself under Full access) *and* Full access is still on when
+  the proposal comes. A task you confirmed from a card is always saved without it: a
+  confirmation doesn't authorize future automatic effects.
+- **Timing.** Runs never overlap: one works at a time, and a task whose last run is still open
+  waits for it. Occurrences that come due meanwhile, or while the server was down, combine into
+  one run for the oldest. Pause drops an occurrence due; Resume doesn't run what passed while
+  paused (a once that never ran still does); Run now runs beside the schedule, paused or not. A
+  run the server was in the middle of when it stopped ends as failed; one holding proposals
+  fails too (its previews expired with the restart). Never replayed.
+- **Notifications.** "Notify when each run finishes" sends Ranger's fixed alerts (completed,
+  failed, needs confirmation); "Let Coach decide" stays quiet on success and gives the run
+  `send_user_notification`: its own title and body, once a run, never the same `eventKey`
+  twice for a task (the last 100 kept, across restarts), recorded before it goes out and in the
+  run's transcript. Failures and confirmations notify in both modes; Stop never does. They go
+  through the notifier (Web Push to devices with no focused window, APNs, the Mac app) and open
+  Coach on that task and run (`/?coachTask=…&coachRun=…`); open windows toast them from
+  AppState.
+- **Tools.** A chat has `list_coach_tasks` and `propose_coach_task` (a `create_task` proposal
+  on D-045's machinery: frozen, confirmed once, enabled even while Coach answers); a run has
+  `send_user_notification` instead, so a run can't schedule more runs.
+- **Bounds.** 50 tasks; each keeps its newest 20 runs. Older runs' chats are forgotten, logs
+  included, as Ranger deletes its old run directories (and Delete removes a task's), except a
+  run you carried on in Coach's chat, which is yours.
+
+**Why.** The task's prompt is the user's own instruction, written in advance and visible on the
+task and on each run, so a scheduled run is the user's act deferred, not rowrow inventing input.
+Holding a run's proposals for a person keeps PRINCIPLES.md product 4 for everything that changes
+a workspace; letting Full access through only when the task was saved under it, and only while
+it lasts, keeps that choice explicit and revocable, as Ranger does. Forgetting old runs keeps an
+every-minute monitor from growing the database and the boot fold without bound.
+
+**Revisit when** a run needs to outlive the server (resume a run from a checkpoint, as Ranger's
+durable runs do), tasks want their own scope instead of Coach's, or the iOS app shows tasks
+(its APNs payload carries `coachTask` and `coachRun` already).

@@ -79,7 +79,7 @@ to the agent; everything the UI shows about an agent is computed from it.
 
 ```ts
 type Entry = { seq: number; at: number } & (
-  | { kind: "agent.created"; workspaceId; runtime; model?; effort?; serviceTier?; title?; role?; by } // role "coach": D-044
+  | { kind: "agent.created"; workspaceId; runtime; model?; effort?; serviceTier?; title?; role?; task?; by } // role "coach": D-044; task: D-050
   | { kind: "agent.updated"; changes; by; reason? }     // title, model, effort, serviceTier (D-049), archived; reason: D-047
   | { kind: "input"; inputId; text; mode; by; scope?; fullAccess? } // what you sent, before delivery
   | { kind: "input.result"; inputId; landed; code?; reason? } // where it landed
@@ -240,13 +240,29 @@ rowrow's own parts.
   performed (N)", its actions as cards under the answer that proposed them
   (`CoachActionCard.tsx`), and a wave bar to jump between messages (`ConversationWave.tsx`, the
   one an agent's transcript has on a desktop).
+- **Its tasks** (D-050, `src/server/coach/tasks.ts`; the schedule math and the planner are pure,
+  in `src/shared/coach-tasks.ts`): a prompt and a schedule in `coach_tasks`, with the next
+  occurrence and one that came due and waits (missed ones combine into it). A timer starts each
+  run as a new Coach chat (`agent.created {task}`, archived until you open it, so it never
+  replaces your chat) sent the prompt `by: system`, with what Coach may read then; one run works
+  at a time, and a task whose run holds proposals waits for you. `coach_task_runs` is the
+  scheduler's record of each run (its chat, the occurrence, how its turn ended, read from the
+  chat's log), which decides the notification: fixed alerts, or with "Let Coach decide" only
+  failures, confirmations and Coach's own `send_user_notification` (once a run, an `eventKey`
+  once per task, kept in `coach_task_notices`). Those go out through `Notifier.taskNotice` and,
+  for open windows, as the task's `lastNotice` in AppState (`coach.tasks`), and open Coach on
+  the task and run. A run's MCP server has `send_user_notification` instead of the task tools
+  (`ROWROW_COACH_TASK_RUN`). Each task keeps its newest 20 runs; older runs' chats are forgotten
+  (`AgentService.forget`), unless you carried one on. The Tasks view (`CoachTasks.tsx`) lists
+  them, shows one with its run history and each run's chat, and edits them; `rowrow coach tasks`.
 
 ## Replicating state to clients
 
 There are two kinds of replicated data, with one mechanism each:
 
 - **AppState** is small and shared: host info, workspaces (with git summaries), agent
-  summaries with attention, runtimes, settings. The server owns it in an immer store.
+  summaries with attention, runtimes, settings, Coach's current chat and its tasks. The server
+  owns it in an immer store.
   `state.watch` sends a snapshot, then patches coalesced per tick. On reconnect a client
   takes a fresh snapshot; it is small.
 - **Agent logs** are large and append-only. `agents.entries` reads a window (for
