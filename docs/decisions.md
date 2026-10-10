@@ -1648,9 +1648,11 @@ network blip or a crashed process quietly cost the agent everything it knew. Sin
 runtime that reports the session missing rejects with `SessionNotFoundError`.
 
 **Decision.** The actor starts a new conversation (and notes `resume_failed`) only for
-`SessionNotFoundError`, or `UnsupportedOptionError` (the runtime can't resume it here at all,
-e.g. kimi or opencode with another folder: retrying would fail the same way forever). Any other
-error fails the run (`run.failed`, its message shown), so sending again tries the resume again.
+`SessionNotFoundError`, or `UnsupportedOptionError` on `cwd` (kimi and opencode: the
+conversation lives in another folder and won't resume from this one, so retrying would fail the
+same way forever). Any other error fails the run (`run.failed`, its message shown), so sending
+again tries the resume again; that includes `UnsupportedOptionError` on any other option, which
+the runtime refuses for a new conversation too.
 
 **Why.** A lost conversation is only recoverable by starting over; a passing failure hasn't lost
 anything yet, and starting over for it is a silent loss you can't undo.

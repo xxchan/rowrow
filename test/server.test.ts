@@ -15,7 +15,7 @@ import { renderText } from "../src/shared/render-text.ts";
 import { TranscriptProjector } from "../src/shared/transcript-model.ts";
 import { byPin, type StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
-import { SessionNotFoundError } from "@botiverse/oar";
+import { SessionNotFoundError, UnsupportedOptionError } from "@botiverse/oar";
 import type {
   ControlOutcome,
   RawEventObserver,
@@ -179,7 +179,7 @@ describe("agents", () => {
   it("starts a new conversation only when the runtime says the old one is gone (D-056)", async () => {
     t = await startTestServer({
       idleTimeoutMs: 200,
-      extraRuntimes: [resumeFails("gone"), resumeFails("down")],
+      extraRuntimes: (["gone", "moved", "refused", "down"] as const).map((how) => resumeFails(how)),
     });
     const ws = await t.client.workspaces.add({ path: t.repo() });
     const secondTurn = async (runtime: string) => {
@@ -205,18 +205,29 @@ describe("agents", () => {
       return (await t!.client.agents.entries({ agentId: agent.id, after: -1 })).entries;
     };
 
-    // The conversation is gone: a new one starts, and the log says so.
-    const gone = await secondTurn("gone");
-    const runs = gone.filter((e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started");
-    expect(runs).toHaveLength(2);
-    expect(runs[1]?.resume).toBeUndefined();
-    expect(gone.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(true);
+    // The conversation is gone, or lives in a folder it won't resume from here: a new one
+    // starts, and the log says so.
+    for (const runtime of ["gone", "moved"]) {
+      const entries = await secondTurn(runtime);
+      const runs = entries.filter(
+        (e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started",
+      );
+      expect(runs).toHaveLength(2);
+      expect(runs[1]?.resume).toBeUndefined();
+      expect(entries.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(true);
+    }
 
-    // Anything else fails the run: no new conversation that would drop what the agent knew.
-    const down = await secondTurn("down");
-    expect(down.filter((e) => e.kind === "run.started")).toHaveLength(1);
-    expect(down.find((e) => e.kind === "run.failed")).toMatchObject({ error: "the network is down" });
-    expect(down.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(false);
+    // Anything else fails the run: no new conversation that would drop what the agent knew, or
+    // that the runtime would refuse the same way.
+    for (const [runtime, error] of [
+      ["refused", "no effort here"],
+      ["down", "the network is down"],
+    ] as const) {
+      const entries = await secondTurn(runtime);
+      expect(entries.filter((e) => e.kind === "run.started")).toHaveLength(1);
+      expect(entries.find((e) => e.kind === "run.failed")).toMatchObject({ error });
+      expect(entries.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(false);
+    }
   });
 
   it("counts a stop done when the process died before it answered, and resumes after", async () => {
@@ -1412,7 +1423,7 @@ function neverAnswers(): Runtime {
 }
 
 /** The scripted runtime, but resuming fails: the conversation is gone, or the network is down. */
-function resumeFails(how: "gone" | "down"): Runtime {
+function resumeFails(how: "gone" | "moved" | "refused" | "down"): Runtime {
   const base = scriptedDemoRuntime();
   return {
     ...base,
@@ -1424,6 +1435,8 @@ function resumeFails(how: "gone" | "down"): Runtime {
             method: "resume",
             native: {},
           });
+        if (how === "moved") throw new UnsupportedOptionError("cwd", "it lives in another folder");
+        if (how === "refused") throw new UnsupportedOptionError("effort", "no effort here");
         throw new Error("the network is down");
       }
       return base.session(installation, options);
