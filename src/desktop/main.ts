@@ -132,6 +132,7 @@ async function main(): Promise<void> {
     log,
     version: config.version,
     appPages,
+    several: () => shell?.several === true,
   });
   let shell: Shell | null = null;
   const current = (): Shell => {

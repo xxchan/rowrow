@@ -128,8 +128,13 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
     }
   }
 
+  /** Whether this app has more than one server: then titles and notifications name the server. */
+  get several(): boolean {
+    return this.controllers.size > 1;
+  }
+
   private onNotice(serverId: string, notice: Notice): void {
-    const several = this.controllers.size > 1;
+    const several = this.several;
     const name = several ? (this.d.store.get(serverId)?.name ?? null) : null;
     this.d.notifications.notice(serverId, name, notice);
     this.changed();

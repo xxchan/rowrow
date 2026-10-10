@@ -5,6 +5,7 @@
 // setting up, offline) are local, at rowrow-app://ui/, and only they get the app's API.
 import { BrowserWindow, nativeTheme, session, shell, type Session, type WebContents } from "electron";
 import type { Logger } from "./log.ts";
+import { windowTitle } from "./window-title.ts";
 
 export const APP_SCHEME = "rowrow-app";
 export const UI_ORIGIN = `${APP_SCHEME}://ui`;
@@ -53,6 +54,7 @@ export class Windows {
   quitting = false;
 
   private readonly appPages: (request: Request) => Response | Promise<Response>;
+  private readonly several: () => boolean;
 
   constructor(options: {
     preload: string;
@@ -60,11 +62,14 @@ export class Windows {
     version: string;
     /** Serves rowrow-app://ui: registered in each server's session too, for its offline page. */
     appPages: (request: Request) => Response | Promise<Response>;
+    /** Whether this app has more than one server: then a window's title names its server. */
+    several: () => boolean;
   }) {
     this.preload = options.preload;
     this.log = options.log;
     this.userAgent = ` rowrow-desktop/${options.version}`;
     this.appPages = options.appPages;
+    this.several = options.several;
   }
 
   private base(): Electron.BrowserWindowConstructorOptions {
@@ -160,7 +165,7 @@ export class Windows {
     const base = this.base();
     const window = new BrowserWindow({
       ...base,
-      title: target.name,
+      title: windowTitle("rowrow", target.name, this.several()),
       webPreferences: { ...base.webPreferences, partition },
     });
     const windows = this.byServer.get(target.id) ?? new Set<BrowserWindow>();
@@ -168,12 +173,10 @@ export class Windows {
     this.byServer.set(target.id, windows);
     window.on("closed", () => windows.delete(window));
     window.once("ready-to-show", () => window.show());
-    // The server's page sets its own title; keep the server's name in it when there are several.
+    // The server's page sets its own title; the server's name joins it when there are several.
     window.on("page-title-updated", (event, title) => {
       event.preventDefault();
-      window.setTitle(
-        title === target.name || title === "rowrow" ? target.name : `${title} — ${target.name}`,
-      );
+      window.setTitle(windowTitle(title, target.name, this.several()));
     });
     this.guard(
       window.webContents,
