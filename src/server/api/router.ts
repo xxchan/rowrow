@@ -435,10 +435,10 @@ export function createRouter(s: Services) {
         requireAgent(s, input.agentId);
         const page = s.agentLog.read(input.agentId, { turns: input.turns ?? 1_000_000 });
         return {
-          text: renderText(
-            timelineOf(page.entries),
-            input.toolChars === undefined ? {} : { toolChars: input.toolChars },
-          ),
+          text: renderText(timelineOf(page.entries), {
+            now: Date.now(),
+            ...(input.toolChars === undefined ? {} : { toolChars: input.toolChars }),
+          }),
           headSeq: page.headSeq,
         };
       }),

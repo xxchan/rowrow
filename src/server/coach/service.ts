@@ -671,6 +671,7 @@ export class CoachService implements TaskRunner {
     const text = renderText(timelineOf(window.entries), {
       toolChars: 300,
       textChars: MAX_MESSAGE_CHARS,
+      now: Date.now(),
     });
     // The end of a conversation matters most: past the limit, its start goes.
     const clipped = clipText(text, MAX_PAYLOAD_CHARS, "end");

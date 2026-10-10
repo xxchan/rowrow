@@ -1,11 +1,12 @@
 // Words and colors for an agent's state, the same on every screen of every client (the web
 // app imports them, the iOS app gets them through the kit), so an agent reads the same
 // everywhere (docs/architecture.md, "Attention and notifications").
-import type { CredentialProblem, FailureClass } from "@botiverse/oar";
+import type { FailedTurn, FailureClass } from "@botiverse/oar";
 import type { ConversationInput } from "@botiverse/oar/observe";
 import { classifyTool, failureAdvice, toolActionLabel } from "@botiverse/oar/observe";
 import type { AgentState } from "./schemas.ts";
 import { stalledFor, type AgentSummary } from "./summary.ts";
+import { untilWords } from "./usage.ts";
 
 /** A working agent silent for this long reads as stalled. */
 export const STALL_MS = 3 * 60_000;
@@ -99,11 +100,20 @@ const FAILURE_STEPS: Partial<Record<FailureClass, string>> = {
  * which has its own steps (sign-in.ts): a credential the provider rejected (an API key that
  * no longer works) isn't fixed by signing in.
  */
-export function failureHint(failure: FailureClass, credential?: CredentialProblem): string | null {
-  if (failure === "auth") {
-    return credential === "rejected"
+export function failureHint(outcome: FailedTurn, now?: number): string | null {
+  const { failure } = outcome;
+  if (outcome.failure === "auth") {
+    return outcome.credential === "rejected"
       ? "The provider rejected its credentials: if it uses an API key, check or replace it."
       : null;
+  }
+  // The runtime named when the limit resets (claude does): say so, as Settings would.
+  if (outcome.failure === "quota" && outcome.resetsAt !== undefined) {
+    const at = Date.parse(outcome.resetsAt);
+    if (now === undefined)
+      return `A usage limit ran out: it resets at ${outcome.resetsAt.slice(11, 16)} UTC.`;
+    if (at <= now) return "A usage limit ran out, and it has reset since: send it again.";
+    return `A usage limit ran out: it resets in ${untilWords(at, now)}.`;
   }
   const advice = failureAdvice(failure);
   if (advice.userAction) return FAILURE_STEPS[failure] ?? null;

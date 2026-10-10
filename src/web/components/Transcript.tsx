@@ -24,7 +24,7 @@ import {
   type ViewSection,
   type ViewTurn,
 } from "@botiverse/oar/observe";
-import type { CredentialProblem, FailureClass } from "@botiverse/oar";
+import type { FailedTurn } from "@botiverse/oar";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { Bell, Check, ChevronRight, CircleAlert, CircleX, ExternalLink, LoaderCircle } from "lucide-react";
@@ -66,6 +66,7 @@ import { MentionLink } from "./CoachMentions.tsx";
 import { FileLink, InlineCode, LinkedText, useFileLinks } from "./FileLinks.tsx";
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
+import { useNow } from "../lib/use-now.ts";
 
 /** The item a transcript search jumped to (D-055), a new object each jump: what holds it opens. */
 export const RevealContext = createContext<{ readonly id: string } | null>(null);
@@ -278,7 +279,7 @@ const Message = memo(function Message({
             (message.outcome.failure === "auth" && message.outcome.credential !== "rejected" ? (
               <SignInAgain runtime={runtime} />
             ) : (
-              <FailureHint failure={message.outcome.failure} credential={message.outcome.credential} />
+              <FailureHint outcome={message.outcome} />
             ))}
           {message.outcome?.kind === "aborted" && (
             <p className="text-sm text-muted-foreground">
@@ -396,7 +397,7 @@ function CoachAnswer({ turn, runtime, open }: { turn: ViewTurn; runtime: string;
           {turn.outcome.failure === "auth" && turn.outcome.credential !== "rejected" ? (
             <SignInAgain runtime={runtime} />
           ) : (
-            <FailureHint failure={turn.outcome.failure} credential={turn.outcome.credential} />
+            <FailureHint outcome={turn.outcome} />
           )}
         </>
       )}
@@ -566,14 +567,10 @@ function CoachToolCard({ part }: { part: ToolPart }) {
 }
 
 /** What to do about a failed turn, when something helps (a limit, a model, the input's size…). */
-function FailureHint({
-  failure,
-  credential,
-}: {
-  failure: FailureClass;
-  credential: CredentialProblem | undefined;
-}) {
-  const hint = failureHint(failure, credential);
+function FailureHint({ outcome }: { outcome: FailedTurn }) {
+  // A minute is fine: it says "resets in 2h 5m", and stays live while the turn is on screen.
+  const now = useNow(60_000);
+  const hint = failureHint(outcome, now);
   return hint === null ? null : <p className="text-sm text-muted-foreground">{hint}</p>;
 }
 

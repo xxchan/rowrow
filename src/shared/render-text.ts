@@ -22,6 +22,8 @@ export interface RenderTextOptions {
   readonly toolChars?: number;
   /** Cut each message the agent wrote to this many characters (default: whole). */
   readonly textChars?: number;
+  /** The time now, so a usage limit's reset reads "in 2h 5m" (default: its time in UTC). */
+  readonly now?: number;
 }
 
 export function renderText(timeline: Timeline, options: RenderTextOptions = {}): string {
@@ -64,7 +66,13 @@ export function renderText(timeline: Timeline, options: RenderTextOptions = {}):
         for (const message of block.view.messages) {
           const byAgent = stoppedByAgent(block, message.id);
           out.push(
-            ...renderMessage(message, timeline, block.view.rootSessionId, { toolChars, textChars }, byAgent),
+            ...renderMessage(
+              message,
+              timeline,
+              block.view.rootSessionId,
+              { toolChars, textChars, now: options.now },
+              byAgent,
+            ),
           );
           out.push(...(notes.after.get(message.id) ?? []).map((note) => notifiedLine(note.entry)));
           out.push(...actionLines(proposals.get(message.id), timeline));
@@ -119,7 +127,7 @@ function renderMessage(
   message: ViewMessage,
   timeline: Timeline,
   rootSessionId: string | undefined,
-  cut: { toolChars: number; textChars: number },
+  cut: { toolChars: number; textChars: number; now: number | undefined },
   agentStopped = false,
 ): string[] {
   switch (message.kind) {
@@ -157,7 +165,7 @@ function renderMessage(
                 : "  ■ turn aborted"
               : `  ✗ turn failed (${outcome.failure}): ${outcome.reason}`,
         );
-        const hint = outcome.kind === "failed" ? failureHint(outcome.failure, outcome.credential) : null;
+        const hint = outcome.kind === "failed" ? failureHint(outcome, cut.now) : null;
         if (hint !== null) lines.push(`    ${hint}`);
       }
       return lines;

@@ -1639,3 +1639,21 @@ do.
 when it ends, or an FTS5 trigram table), people want to search every agent at once (a search
 in ⌘K), or to search Coach's chats; or when a jump further back than 50,000 entries matters (a
 window around the hit, detached from the live end).
+
+## D-056 A failed resume starts a new conversation only when the runtime says the old one is gone (2026-10-10)
+
+**Context.** A run resumes the runtime's own conversation (D-010). Until now any failure to
+resume started a new one, with a `resume_failed` note in the log: a login that had run out, a
+network blip or a crashed process quietly cost the agent everything it knew. Since oar 0.51 a
+runtime that reports the session missing rejects with `SessionNotFoundError`.
+
+**Decision.** The actor starts a new conversation (and notes `resume_failed`) only for
+`SessionNotFoundError`, or `UnsupportedOptionError` (the runtime can't resume it here at all,
+e.g. kimi or opencode with another folder: retrying would fail the same way forever). Any other
+error fails the run (`run.failed`, its message shown), so sending again tries the resume again.
+
+**Why.** A lost conversation is only recoverable by starting over; a passing failure hasn't lost
+anything yet, and starting over for it is a silent loss you can't undo.
+
+**Revisit when** a runtime fails resumes in a lasting way oar doesn't classify (then oar should
+report it as one of the two), or people want "start a new conversation" as an explicit action.

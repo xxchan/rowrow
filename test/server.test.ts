@@ -15,6 +15,7 @@ import { renderText } from "../src/shared/render-text.ts";
 import { TranscriptProjector } from "../src/shared/transcript-model.ts";
 import { byPin, type StateMessage } from "../src/shared/schemas.ts";
 import { timelineOf } from "../src/shared/timeline.ts";
+import { SessionNotFoundError } from "@botiverse/oar";
 import type {
   ControlOutcome,
   RawEventObserver,
@@ -173,6 +174,49 @@ describe("agents", () => {
     expect(runs).toHaveLength(2);
     expect(runs[1]?.resume).toBe(runs[0]?.sessionId);
     expect(entries.some((e) => e.kind === "run.ended" && e.reason === "idle")).toBe(true);
+  });
+
+  it("starts a new conversation only when the runtime says the old one is gone (D-056)", async () => {
+    t = await startTestServer({
+      idleTimeoutMs: 200,
+      extraRuntimes: [resumeFails("gone"), resumeFails("down")],
+    });
+    const ws = await t.client.workspaces.add({ path: t.repo() });
+    const secondTurn = async (runtime: string) => {
+      const { agent, sent } = await t!.client.agents.create({
+        workspaceId: ws.id,
+        runtime,
+        input: input("/echo first"),
+      });
+      await t!.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 5000 });
+      await eventually(async () =>
+        (await t!.client.state.get()).state.agents[agent.id]?.summary.run === null ? true : undefined,
+      );
+      await t!.client.agents
+        .send({ agentId: agent.id, inputId: newInputId(), text: "/echo second", mode: "auto" })
+        .catch(() => undefined);
+      await eventually(async () => {
+        const { entries } = await t!.client.agents.entries({ agentId: agent.id, after: -1 });
+        return entries.some((e) => e.kind === "run.failed") ||
+          entries.filter((e) => e.kind === "run.started").length === 2
+          ? entries
+          : undefined;
+      });
+      return (await t!.client.agents.entries({ agentId: agent.id, after: -1 })).entries;
+    };
+
+    // The conversation is gone: a new one starts, and the log says so.
+    const gone = await secondTurn("gone");
+    const runs = gone.filter((e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started");
+    expect(runs).toHaveLength(2);
+    expect(runs[1]?.resume).toBeUndefined();
+    expect(gone.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(true);
+
+    // Anything else fails the run: no new conversation that would drop what the agent knew.
+    const down = await secondTurn("down");
+    expect(down.filter((e) => e.kind === "run.started")).toHaveLength(1);
+    expect(down.find((e) => e.kind === "run.failed")).toMatchObject({ error: "the network is down" });
+    expect(down.some((e) => e.kind === "host.error" && e.code === "resume_failed")).toBe(false);
   });
 
   it("counts a stop done when the process died before it answered, and resumes after", async () => {
@@ -1363,6 +1407,26 @@ function neverAnswers(): Runtime {
             : value;
         },
       });
+    },
+  };
+}
+
+/** The scripted runtime, but resuming fails: the conversation is gone, or the network is down. */
+function resumeFails(how: "gone" | "down"): Runtime {
+  const base = scriptedDemoRuntime();
+  return {
+    ...base,
+    id: how,
+    session: async (installation, options) => {
+      if (options.resume !== undefined) {
+        if (how === "gone")
+          throw new SessionNotFoundError(options.resume, "no conversation found", {
+            method: "resume",
+            native: {},
+          });
+        throw new Error("the network is down");
+      }
+      return base.session(installation, options);
     },
   };
 }

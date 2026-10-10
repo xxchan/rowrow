@@ -721,7 +721,7 @@ async function agentCommand(client: Client, args: string[], h: Helpers): Promise
         let timeline = page.entries.reduce(reduceTimeline, initialTimeline());
         for await (const batch of await client.agents.watch({ agentId, after: page.headSeq })) {
           timeline = batch.entries.reduce(reduceTimeline, timeline);
-          process.stdout.write(`\x1b[2J\x1b[H${renderText(timeline)}`);
+          process.stdout.write(`\x1b[2J\x1b[H${renderText(timeline, { now: Date.now() })}`);
         }
       }
       return;

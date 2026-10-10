@@ -5,6 +5,8 @@
 // holds input sent while a turn runs and sends it, one per turn, when the turn ends (D-035).
 import {
   awaitIdle,
+  SessionNotFoundError,
+  UnsupportedOptionError,
   type ControlOutcome,
   type InputOrigin,
   type Session,
@@ -413,8 +415,12 @@ export class AgentActor {
           session = await this.deps.runtimes.start(summary.runtime, { ...base, resume: summary.sessionId });
           resumed = summary.sessionId;
         } catch (error) {
-          // The runtime lost the conversation (or never persisted it). Start a new one; the
-          // log keeps the history, and says what happened.
+          // Only when the runtime says the conversation is gone, or can't be resumed here at all,
+          // does a new one start (D-056); the log keeps the history, and says what happened. Any
+          // other failure (a login, the network, the process) fails the run, so sending again
+          // retries the resume instead of quietly dropping what the agent knew.
+          if (!(error instanceof SessionNotFoundError || error instanceof UnsupportedOptionError))
+            throw error;
           const message = error instanceof Error ? error.message : String(error);
           log.warn("agent.resume_failed", {
             runtime: summary.runtime,
