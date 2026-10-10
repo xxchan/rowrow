@@ -506,11 +506,14 @@ function foldRecord(
           case "tool_call_input":
           case "tool_call_ended":
           case "tool_call_progress":
+          case "tool_call_input_delta":
           case "compaction_started":
           case "compaction_ended":
           case "retry":
-          // A turn no prompt of ours started (Pi Durable): oar's status fold reads it.
+          // A turn no prompt of ours started (Pi Durable, claude on its own): oar's status fold reads it.
           case "turn_active":
+          // The runtime holds our prompt until its own turn ends (claude): read once it echoes it.
+          case "input_queued":
           // Folded by foldTasks, every agent's, not just the root's.
           case "task_started":
           case "task_updated":

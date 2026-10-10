@@ -4,13 +4,22 @@
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { TaskView } from "@botiverse/oar/observe";
-import { Bot, CircleDashed, LoaderCircle, SquareTerminal, Wrench, type LucideIcon } from "lucide-react";
+import {
+  Bot,
+  CircleDashed,
+  LoaderCircle,
+  SquareTerminal,
+  Workflow,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { ago } from "../lib/format.ts";
 
 const KIND: Record<TaskView["taskType"], { label: string; icon: LucideIcon }> = {
   shell: { label: "Command", icon: SquareTerminal },
   agent: { label: "Subagent", icon: Bot },
   tool: { label: "Tool call", icon: Wrench },
+  workflow: { label: "Workflow", icon: Workflow },
   other: { label: "Task", icon: CircleDashed },
 };
 
