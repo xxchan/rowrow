@@ -173,6 +173,7 @@
 | roamgate feature (source) | User need | rowrow status | rowrow evidence / design sketch | Priority |
 |---|---|---|---|---|
 | Binds to loopback by default; token or password off loopback; loopback bypasses login (SECURITY.md) | Safe remote control | deliberately different | Stronger: every request needs a device credential, even from loopback (D-009). One-time links and QR pairing; tokens stored hashed and revocable. The WebSocket Origin is checked, which roamgate doesn't do (`auth/devices.ts`, `api/server.ts`) | — |
+| Optional PIN login for private networks: 6-12 digits beside the strong credential, throttled, sessions signed by a key of their own (#382, 2026-10-09) | Sign a phone in without typing a long token | deliberately different | rowrow has no shared secret to type or guess: a device signs in with a one-time link or QR code from a device already signed in, or `rowrow pair` on the machine (D-009), and each device's credential is its own and revocable. A PIN would be a weaker credential with full access | — |
 | `?token=` sets an HttpOnly cookie and strips the URL (DEPLOYMENT) | Sign a phone in easily | have | `/auth/redeem?code=`: single use, valid 10 minutes | — |
 | Log out this browser (#223, #232) | End a session | have | Settings → Devices: Sign out this device, or Revoke any other. roamgate can't revoke copied cookies | — |
 | Native HTTPS (#197, #199) | Push and the PWA need a secure origin | have | `--tls-cert/--tls-key` | — |
