@@ -54,6 +54,12 @@ Both can be true at once: the app holds any number of servers, one window each.
   (`persist:server-<id>`), with the credential this app holds there set as the web app's
   session cookie. Links elsewhere open in your browser; the page can't open windows, ask for
   permissions (only the clipboard and full screen), or reach the app's API.
+- **No title bar** (D-057): every window is `hiddenInset`, the page drawn to the top edge with the
+  window buttons over its top-left corner. The web app knows it's in the app by its user agent
+  (` rowrow-desktop/<version>`), sets `data-chrome="mac"`, and leaves room for the buttons in the
+  sidebar's first row (or the page header when there's no sidebar); that 48px band drags the
+  window. A server's page from before that gets a 28px strip on top instead. The title (Window
+  menu, Mission Control) is the page's, with the server's name only when there are several.
 - **The app's own pages** (src/desktop/ui: React and src/web's components) are served from
   `rowrow-app://ui`, and only they get `window.rowrow` (the preload checks the page's origin,
   and the main process checks every call's sender again).

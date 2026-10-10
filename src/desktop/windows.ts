@@ -12,6 +12,15 @@ export const UI_ORIGIN = `${APP_SCHEME}://ui`;
 /** The web app's session cookie (src/server/api/server.ts). */
 const COOKIE = "rowrow_session";
 
+/**
+ * A server's page from before D-057 leaves no room for the window buttons: give it a strip
+ * above everything, one that drags the window, as the title bar did.
+ */
+const OLD_PAGE_CHROME = `
+  html { box-sizing: border-box; padding-top: 28px; }
+  html::before { content: ""; position: fixed; inset: 0 0 auto 0; height: 28px; -webkit-app-region: drag; }
+`;
+
 /** Permissions a server's page may have: copy to the clipboard, and full screen. Nothing else. */
 const ALLOWED = new Set(["clipboard-sanitized-write", "fullscreen"]);
 
@@ -80,6 +89,10 @@ export class Windows {
       minHeight: 480,
       show: false,
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1115" : "#ffffff",
+      // No title bar (D-057): the page draws to the top edge, with the window buttons over its
+      // top-left corner, centered on its 48px top band.
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 18, y: 17 },
       webPreferences: {
         preload: this.preload,
         contextIsolation: true,
@@ -88,6 +101,31 @@ export class Windows {
         spellcheck: true,
       },
     };
+  }
+
+  /**
+   * What a page needs to know about a window with no title bar (D-057): whether it's full screen
+   * (macOS hides the window buttons there), and, for a server's page that predates it, room above.
+   */
+  private chrome(window: BrowserWindow, serverWindow: boolean): void {
+    const contents = window.webContents;
+    const fullScreen = (): void => {
+      void contents
+        .executeJavaScript(
+          `document.documentElement.toggleAttribute("data-fullscreen", ${window.isFullScreen()})`,
+        )
+        .catch(() => undefined);
+    };
+    window.on("enter-full-screen", fullScreen);
+    window.on("leave-full-screen", fullScreen);
+    contents.on("did-finish-load", () => {
+      fullScreen();
+      if (!serverWindow || isAppPage(contents.getURL())) return;
+      void contents
+        .executeJavaScript(`document.documentElement.dataset.chrome === "mac"`)
+        .then((ready: unknown) => (ready === true ? undefined : contents.insertCSS(OLD_PAGE_CHROME)))
+        .catch((error: unknown) => this.log.warn("desktop.window.chrome_failed", { err: String(error) }));
+    });
   }
 
   /** Links to elsewhere open in your browser; a page never opens a window of its own. */
@@ -173,6 +211,7 @@ export class Windows {
     this.byServer.set(target.id, windows);
     window.on("closed", () => windows.delete(window));
     window.once("ready-to-show", () => window.show());
+    this.chrome(window, true);
     // The server's page sets its own title; the server's name joins it when there are several.
     window.on("page-title-updated", (event, title) => {
       event.preventDefault();
@@ -268,6 +307,7 @@ export class Windows {
       if (this.hosts === window) this.hosts = null;
     });
     window.once("ready-to-show", () => window.show());
+    this.chrome(window, false);
     this.guard(
       window.webContents,
       () => false,

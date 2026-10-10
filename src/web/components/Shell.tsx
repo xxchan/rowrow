@@ -125,11 +125,15 @@ export function PageHeader({
   onRename?: () => void;
 }) {
   const state = useApp((s) => s.state);
+  const narrow = useNarrow();
   const current = route.name === "agent" ? route.agentId : null;
   const waiting = state === null ? 0 : needsYou(state).filter((a) => a.id !== current).length;
   return (
     <header
       data-folds-while-typing
+      data-titlebar
+      // With no sidebar, the header is what sits under the Mac app's window buttons.
+      {...(narrow ? { "data-traffic-lights": "" } : {})}
       className="flex min-h-14 shrink-0 items-center gap-2 border-b px-2 py-2 md:min-h-12 md:px-4"
     >
       <Button
@@ -286,7 +290,7 @@ function Nav({ route }: { route: Route }) {
       aria-label="Agents and workspaces"
       className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground"
     >
-      <div className="flex items-center gap-2.5 px-3 pt-3 pb-2">
+      <div data-titlebar data-traffic-lights className="flex items-center gap-2.5 px-3 pt-3 pb-2">
         <RouterLink href="/" className="flex min-w-0 items-center gap-2.5 rounded-md">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
             <RowrowMark />

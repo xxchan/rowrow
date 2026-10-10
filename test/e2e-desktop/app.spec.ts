@@ -1,7 +1,7 @@
 // The Mac app, driven like a person would (docs/desktop.md): the development build (dist/desktop)
 // in Electron, on a throwaway home, with this checkout's server as the app's own child process
 // (no launchd) and the scripted runtime. `pnpm test:desktop` builds it and runs this.
-import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -27,6 +27,23 @@ async function launch(tmp: string): Promise<ElectronApplication> {
   });
 }
 
+/**
+ * Pictures for a person to look at (CI keeps them as the desktop-shots artifact): the page, and
+ * the whole screen, which has what the page can't show, the window buttons over it (D-057).
+ */
+async function shoot(page: Page, name: string): Promise<void> {
+  const dir = path.join(root, "test-results", "desktop", "shots");
+  fs.mkdirSync(dir, { recursive: true });
+  await page.bringToFront();
+  await page.screenshot({ path: path.join(dir, `${name}-page.png`) });
+  if (process.platform !== "darwin") return;
+  try {
+    execFileSync("screencapture", ["-x", path.join(dir, `${name}-screen.png`)]);
+  } catch {
+    // No screen to capture (or no permission to): the page's picture will do.
+  }
+}
+
 /** The checkout's CLI, against the app's server. */
 function rowrow(tmp: string, ...args: string[]): string {
   return execFileSync(
@@ -48,6 +65,7 @@ test("sets this Mac up, opens its server signed in, and counts what needs you", 
   try {
     const home = await app.firstWindow();
     await expect(home.getByRole("heading", { name: "Where do your agents run?" })).toBeVisible();
+    await shoot(home, "welcome");
     await home.getByRole("button", { name: "Set up this Mac" }).click();
 
     // The server's own web app, signed in with the app's credential (no sign-in page).
@@ -77,6 +95,10 @@ test("sets this Mac up, opens its server signed in, and counts what needs you", 
     await card.getByRole("button", { name: "Open" }).click();
     const again = await app.waitForEvent("window");
     await expect(again.getByRole("button", { name: /New agent/ }).first()).toBeVisible({ timeout: 30_000 });
+
+    // No title bar (D-057): the server's page knows it's in the app and leaves the buttons room.
+    await expect(again.locator("html")).toHaveAttribute("data-chrome", "mac");
+    await shoot(again, "server");
   } finally {
     await app.close();
     fs.rmSync(tmp, { recursive: true, force: true });
