@@ -2270,3 +2270,40 @@ test("a .mmd file previews as a diagram, its source a tab away", async ({ page, 
   ).toBeVisible();
   await expect(figure).toBeHidden();
 });
+
+test.describe("in the Mac app", () => {
+  // The app gives its sessions this user agent (src/desktop/windows.ts).
+  test.use({
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 rowrow-desktop/0.0.0",
+  });
+
+  test("the page draws to the top edge and leaves room for the window buttons (D-057)", async ({
+    page,
+    rowrow,
+  }, info) => {
+    await rowrow.client.workspaces.add({ path: rowrow.repo() });
+    await rowrow.open(page);
+    await expect(page.locator("html")).toHaveAttribute("data-chrome", "mac");
+    const style = (locator: Locator, property: "paddingLeft" | "height") =>
+      locator.evaluate((element, name) => getComputedStyle(element)[name], property);
+    const header = page.locator("header[data-titlebar]").first();
+    await expect(header).toBeVisible();
+    expect(await style(header, "height")).toBe("48px");
+    if (info.project.name === "phone") {
+      // No sidebar: the header makes room.
+      expect(await style(header, "paddingLeft")).toBe("80px");
+    } else {
+      // The sidebar's first row does, and the header beside it doesn't need to.
+      const row = page
+        .getByRole("navigation", { name: "Agents and workspaces" })
+        .locator("[data-traffic-lights]");
+      expect(await style(row, "paddingLeft")).toBe("80px");
+      expect(await style(row, "height")).toBe("48px");
+      expect(await style(header, "paddingLeft")).not.toBe("80px");
+      // In full screen macOS hides the buttons, and the room goes.
+      await page.evaluate(() => document.documentElement.toggleAttribute("data-fullscreen", true));
+      expect(await style(row, "paddingLeft")).toBe("12px");
+    }
+  });
+});

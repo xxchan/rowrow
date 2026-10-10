@@ -71,6 +71,13 @@ jobs:
       - name: The app, driven by Playwright
         run: pnpm test:desktop
       - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-shots
+          path: test-results/desktop/shots
+          retention-days: 7
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: desktop-playwright

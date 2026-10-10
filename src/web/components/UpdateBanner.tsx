@@ -16,6 +16,8 @@ export function UpdateBanner() {
   const dismiss = (): void => writePref(KEY, update.version);
   return (
     <section
+      data-titlebar
+      data-traffic-lights
       aria-label="Update"
       data-hides-while-typing
       className="flex shrink-0 items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-sm"

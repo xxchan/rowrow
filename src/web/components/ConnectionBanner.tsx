@@ -13,6 +13,8 @@ export function ConnectionBanner() {
   const retryIn = Math.max(0, Math.round((status.retryAt - now) / 1000));
   return (
     <section
+      data-titlebar
+      data-traffic-lights
       aria-label="Connection"
       className="flex shrink-0 items-center gap-3 border-b border-warning/30 bg-warning/10 px-4 py-2 text-sm"
     >

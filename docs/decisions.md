@@ -1659,3 +1659,27 @@ anything yet, and starting over for it is a silent loss you can't undo.
 
 **Revisit when** a runtime fails resumes in a lasting way oar doesn't classify (then oar should
 report it as one of the two), or people want "start a new conversation" as an explicit action.
+
+## D-057 The Mac app has no title bar: the page draws to the top, the window buttons sit in it (2026-10-10)
+
+**Context.** The Mac app showed macOS's own title bar above each server's web app: a gray strip
+in the system's appearance over a page that's dark by default, with the server's name ("This
+Mac") as its only content. xxchan: design it properly.
+
+**Decision.** Windows are `titleBarStyle: "hiddenInset"`, the window buttons at (18, 17), so
+they're centered on a 48px band: the sidebar's first row (the app's mark and name, moved right
+past the buttons) and each page's header beside it, which already show what a title bar would.
+That band drags the window (`-webkit-app-region`), except the links, buttons and fields in it;
+double-clicking it zooms as a title bar does. With no sidebar (a narrow window), the page header
+makes room for the buttons instead, and so does a banner while one shows. In full screen, where
+macOS hides the buttons, the room goes (the app sets `data-fullscreen`). The web app knows it's in
+the app by the user agent the app gives its sessions and says so with `data-chrome="mac"` on
+`<html>`; the app checks that after each load and gives a server's page that doesn't (an older
+server) a 28px strip that drags, so the buttons never cover its sidebar. The app's own pages have
+the strip as well.
+
+**Why.** The page is the window's content and its chrome: one surface in the app's own colors,
+like the Mac apps it sits beside, with nothing that says the same thing twice.
+
+**Revisit when** the app gets its own controls in that band (a server switcher), or Windows or
+Linux builds come (their title bars need `titleBarOverlay` instead).

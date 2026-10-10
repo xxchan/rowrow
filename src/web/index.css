@@ -257,3 +257,23 @@
     box-shadow: 0 0 0 3px transparent;
   }
 }
+
+/* The Mac app draws no title bar (D-057): its window buttons sit over the page's top-left
+   corner, which leaves room for them ([data-traffic-lights]), and the top band (the sidebar's
+   first row, a page's header, a banner: [data-titlebar], 48px) drags the window, except what
+   you click in it. In full screen macOS hides the buttons, and the app says so
+   (data-fullscreen). Outside the layers, so it wins over the elements' own padding utilities. */
+html[data-chrome="mac"] [data-titlebar] {
+  -webkit-app-region: drag;
+  min-height: 3rem;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+html[data-chrome="mac"]
+  [data-titlebar]
+  :is(a, button, input, textarea, select, [role="button"], [role="tab"], [tabindex]) {
+  -webkit-app-region: no-drag;
+}
+html[data-chrome="mac"]:not([data-fullscreen]) [data-traffic-lights] {
+  padding-left: 80px;
+}

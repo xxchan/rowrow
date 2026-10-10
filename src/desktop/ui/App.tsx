@@ -16,6 +16,8 @@ export function App() {
   const route = useRoute();
   return (
     <div className="flex min-h-full flex-col bg-background text-foreground">
+      {/* The window has no title bar (D-057): this strip, under its buttons, drags it. */}
+      <div aria-hidden className="fixed inset-x-0 top-0 h-8 [-webkit-app-region:drag]" />
       <Toaster theme="system" position="bottom-center" />
       {state === null ? (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
