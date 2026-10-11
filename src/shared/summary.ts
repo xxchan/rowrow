@@ -514,6 +514,8 @@ function foldRecord(
           case "turn_active":
           // The runtime holds our prompt until its own turn ends (claude): read once it echoes it.
           case "input_queued":
+          // A child session (a subagent's) joined the tree: oar's graph and usage fold read it.
+          case "session_linked":
           // Folded by foldTasks, every agent's, not just the root's.
           case "task_started":
           case "task_updated":
