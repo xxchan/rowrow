@@ -62,7 +62,6 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
   const caret = useRef<number | null>(null);
   const [status, setStatus] = useState<{ type: "error" | "warning" | "busy"; message: string } | null>(null);
   const [dragging, setDragging] = useState(false);
-  const quickReplies = useApp((s) => s.state?.settings.quickReplies ?? []);
   // The / menu: what the runtime accepts as /name here (roamgate #226). Fills the draft, never sends.
   const [skills, setSkills] = useState<{ list: SkillInfo[]; error: string | null } | null>(null);
   const [highlight, setHighlight] = useState(0);
@@ -336,28 +335,6 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
       >
         <ReviewDrawer workspaceId={workspaceId} agentId={agent.id} />
         <ComposerAttachments items={attached} onRemove={(id) => detachFile(agent.id, id)} />
-        {draft === "" && !disabled && quickReplies.length > 0 && (
-          <div
-            role="group"
-            aria-label="Quick replies"
-            className="flex gap-1.5 overflow-x-auto px-3 pt-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {quickReplies.map((reply) => (
-              <button
-                key={reply}
-                type="button"
-                onClick={() => {
-                  caret.current = reply.length;
-                  setDraft(agent.id, reply);
-                  inputRef.current?.focus();
-                }}
-                className="shrink-0 rounded-full border bg-background/60 px-2.5 py-1 text-xs text-muted-foreground hover:border-ring/60 hover:text-foreground"
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
-        )}
         <textarea
           ref={inputRef}
           data-composer

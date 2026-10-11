@@ -1227,27 +1227,34 @@ describe("attachments", () => {
 });
 
 describe("settings", () => {
-  it("keeps quick replies across restarts and shows every client the change", async () => {
+  it("keeps settings across restarts and shows every client the change", async () => {
     t = await startTestServer();
-    const before = await t.client.state.get();
-    expect(before.state.settings.quickReplies.length).toBeGreaterThan(0);
-
     const ws = await t.websocket();
     const seen: StateMessage[] = [];
     const watching = (async () => {
       for await (const message of await ws.client.state.watch()) seen.push(message);
     })();
-    const saved = await t.client.settings.update({ quickReplies: ["  Ship it.  ", "Try again."] });
-    expect(saved.quickReplies).toEqual(["Ship it.", "Try again."]);
+    const saved = await t.client.settings.update({ instanceName: "  Work  " });
+    expect(saved.instanceName).toBe("Work");
     await eventually(() =>
       seen.some((m) => m.kind === "patches" && m.patches.some((p) => p.path[0] === "settings")),
     );
     ws.close();
     await watching.catch(() => undefined);
 
-    await expect(t.client.settings.update({ quickReplies: ["x".repeat(501)] })).rejects.toThrow();
+    await expect(t.client.settings.update({ instanceName: "x".repeat(33) })).rejects.toThrow();
     t = await t.restart();
-    expect((await t.client.state.get()).state.settings.quickReplies).toEqual(["Ship it.", "Try again."]);
+    expect((await t.client.state.get()).state.settings.instanceName).toBe("Work");
+  });
+
+  it("has no quick replies any more, whatever an older app saves", async () => {
+    t = await startTestServer();
+    expect((await t.client.state.get()).state.settings.quickReplies).toEqual([]);
+    const saved = await t.client.settings.update({ quickReplies: ["Ship it."], checkForUpdates: false });
+    expect(saved.quickReplies).toEqual([]);
+    expect(saved.checkForUpdates).toBe(false);
+    t = await t.restart();
+    expect((await t.client.state.get()).state.settings.quickReplies).toEqual([]);
   });
 
   it("names the page and the installed app after the server, for signed-in browsers only", async () => {

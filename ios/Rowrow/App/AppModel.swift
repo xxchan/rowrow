@@ -20,7 +20,6 @@ enum Route: Hashable {
   case search(workspaceId: String)
   case file(workspaceId: String, path: String)
   case devices
-  case quickReplies
   case servers
   /// Coach's scheduled tasks (D-050), a task, and one of its runs: its chat.
   case coachTasks

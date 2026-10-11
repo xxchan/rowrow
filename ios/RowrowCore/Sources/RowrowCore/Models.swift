@@ -296,31 +296,27 @@ public struct RuntimeInfo: Codable, Sendable, Equatable, Identifiable {
 
 /// Preferences that follow you to every device.
 public struct ServerSettings: Codable, Sendable, Equatable {
-  public var quickReplies: [String]
   /// The server asks npm for a newer rowrow (D-025).
   public var checkForUpdates: Bool?
   /// What Coach may read and runs on (D-044); nil from a server without Coach. Never sent back
   /// from here (an update with it leaves it out).
   public var coach: CoachSettings?
 
-  enum CodingKeys: String, CodingKey { case quickReplies, checkForUpdates, coach }
+  enum CodingKeys: String, CodingKey { case checkForUpdates, coach }
 
-  public init(quickReplies: [String], checkForUpdates: Bool? = nil) {
-    self.quickReplies = quickReplies
+  public init(checkForUpdates: Bool? = nil) {
     self.checkForUpdates = checkForUpdates
     coach = nil
   }
 
   public init(from decoder: any Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
-    quickReplies = try c.decode([String].self, forKey: .quickReplies)
     checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates)
     coach = try? c.decodeIfPresent(CoachSettings.self, forKey: .coach)
   }
 
   public func encode(to encoder: any Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
-    try c.encode(quickReplies, forKey: .quickReplies)
     try c.encodeIfPresent(checkForUpdates, forKey: .checkForUpdates)
   }
 }

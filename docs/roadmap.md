@@ -45,8 +45,8 @@ file when something lands.
   preview; straight to disk on a desktop, the share sheet on an iPhone; `rowrow ws download`.
   **A file as of a commit** (#304): Preview on each file of a commit in History.
 - **Comments on what the agent wrote** (#182), and **`rowrow service`** (D-016).
-- **Model and effort switcher**, **one tap to the next agent that needs you** (and the Home
-  Screen badge), and **quick replies** kept on the server for every device.
+- **Model and effort switcher**, and **one tap to the next agent that needs you** (and the Home
+  Screen badge). (Quick replies were here too; removed on 2026-10-11 at powerfool's request.)
 - **Fast mode** (D-049): codex's `/fast` and claude's fast mode as a switch beside the model and
   effort (web, the new-agent dialog, iOS), per agent and from the next message; the composer
   says when it's on; `rowrow agent fast <agent> [on|off]` and `agent new --fast`.

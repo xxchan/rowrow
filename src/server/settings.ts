@@ -26,6 +26,8 @@ export class SettingsService {
 
   /** Reads what's stored over the defaults; a stored value that no longer validates is dropped. */
   load(): void {
+    // Quick replies were removed (2026-10-11): what was kept of them goes too.
+    this.#db.run("delete from settings where key = ?", "quickReplies");
     const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
     for (const row of this.#db.all<{ key: string; value: string }>("select key, value from settings")) {
       if (!(row.key in DEFAULT_SETTINGS)) continue;
@@ -40,7 +42,10 @@ export class SettingsService {
   }
 
   update(changes: { readonly [K in keyof Settings]?: Settings[K] | undefined }): Settings {
-    const given = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
+    // Quick replies are gone: an older app saving them changes nothing.
+    const given = Object.fromEntries(
+      Object.entries(changes).filter(([key, value]) => value !== undefined && key !== "quickReplies"),
+    );
     const next = Settings.parse({ ...this.#state.get().state.settings, ...given });
     const now = Date.now();
     this.#db.transaction(() => {
