@@ -310,6 +310,11 @@ export function Composer({ agent, onSwitchModel }: { agent: AgentState; onSwitch
                 className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left aria-selected:bg-accent"
               >
                 <span className="font-mono text-[13px]">{`/${skill.name}`}</span>
+                {skill.argumentHint !== null && (
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground/70">
+                    {skill.argumentHint}
+                  </span>
+                )}
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                   {skill.description ?? skill.source ?? ""}
                 </span>

@@ -7,6 +7,7 @@ import {
   createCursorRuntime,
   defaultRuntimes as builtins,
   type AvailableInstallation,
+  type InventoryResult,
   type ProviderLoginPrompt,
   type RefusableSessionOption,
   type Runtime,
@@ -554,31 +555,41 @@ export class Runtimes {
     let result: { skills: SkillInfo[]; error: string | null };
     if (known.installation === null) result = { skills: [], error: known.info.reason };
     else {
-      try {
-        const listed = await known.runtime.skills(known.installation, { cwd, timeoutMs: 15_000 });
-        result =
-          listed.kind === "ok"
-            ? {
-                skills: listed.items
-                  .filter((skill) => skill.enabled !== false)
-                  .map((skill) => ({
-                    name: skill.name,
-                    description: skill.description ?? null,
-                    source: skill.source ?? null,
-                  }))
-                  .sort((a, b) => a.name.localeCompare(b.name)),
-                error: null,
-              }
-            : {
-                skills: [],
-                error:
-                  listed.kind === "unsupported"
-                    ? `${known.info.name} doesn't list its commands`
-                    : listed.reason,
-              };
-      } catch (error) {
-        result = { skills: [], error: error instanceof Error ? error.message : String(error) };
+      const installation = known.installation;
+      // Skills and commands are two native lists (oar 0.56): pi's extension commands and prompt
+      // templates, claude's commands. A name in both (claude's project skills) shows once.
+      const [skills, commands] = await Promise.allSettled([
+        known.runtime.skills(installation, { cwd, timeoutMs: 15_000 }),
+        known.runtime.commands(installation, { cwd, timeoutMs: 15_000 }),
+      ]);
+      const byName = new Map<string, SkillInfo>();
+      const fromSkills = inventoryItems(skills);
+      const fromCommands = inventoryItems(commands);
+      for (const skill of fromSkills.items) {
+        if (skill.enabled === false) continue;
+        byName.set(skill.name, {
+          name: skill.name,
+          description: skill.description ?? null,
+          source: skill.source ?? null,
+          argumentHint: null,
+        });
       }
+      for (const command of fromCommands.items) {
+        const same = byName.get(command.name);
+        byName.set(command.name, {
+          name: command.name,
+          description: same?.description ?? command.description ?? null,
+          source: same?.source ?? command.source ?? null,
+          argumentHint:
+            command.argumentHint === undefined || command.argumentHint === "" ? null : command.argumentHint,
+        });
+      }
+      const errors = [fromSkills.error, fromCommands.error].filter((error) => error !== null);
+      const listed = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+      result = {
+        skills: listed,
+        error: listed.length > 0 ? null : (errors[0] ?? `${known.info.name} doesn't list its commands`),
+      };
     }
     this.skillsCache.set(key, { at: Date.now(), ...result });
     return result;
@@ -649,4 +660,19 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 function clipOutput(result: UpgradeResult): UpgradeResult {
   if (!("output" in result) || result.output.length <= OUTPUT_CHARS) return result;
   return { ...result, output: `…${result.output.slice(-OUTPUT_CHARS)}` };
+}
+
+/** A native list's items, or why there are none (no error when the runtime has no such list). */
+function inventoryItems<T>(settled: PromiseSettledResult<InventoryResult<T>>): {
+  items: readonly T[];
+  error: string | null;
+} {
+  if (settled.status === "rejected")
+    return {
+      items: [],
+      error: settled.reason instanceof Error ? settled.reason.message : String(settled.reason),
+    };
+  const result = settled.value;
+  if (result.kind === "ok") return { items: result.items, error: null };
+  return { items: [], error: result.kind === "unsupported" ? null : result.reason };
 }

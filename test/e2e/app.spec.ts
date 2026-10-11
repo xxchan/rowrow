@@ -2585,3 +2585,26 @@ test("a file's preview is highlighted like its diff", async ({ page, rowrow }) =
     .evaluateAll((spans) => new Set(spans.map((span) => getComputedStyle(span).color)).size);
   expect(colors).toBeGreaterThan(1);
 });
+
+test("the / menu lists the runtime's commands, with what goes after them, and its skills", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "menu",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const composer = page.getByRole("textbox", { name: "Message input" });
+  await composer.fill("/");
+  // A command (oar's commands list) with its arguments, and a skill (its skills list).
+  await expect(
+    page.getByRole("option", { name: /\/echo <text> Say exactly the rest of the line/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("option", { name: /\/tidy A demo skill/ })).toBeVisible();
+  await composer.fill("/wri");
+  await page.getByRole("option", { name: /\/write <path>/ }).click();
+  await expect(composer).toHaveValue("/write ");
+});

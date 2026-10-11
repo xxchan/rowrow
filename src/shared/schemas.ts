@@ -442,14 +442,19 @@ export const ModelInfo = z.object({
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 
-/** A skill or custom command a runtime accepts as `/name` in a message (roamgate #226). */
+/** A skill or command a runtime accepts as `/name` in a message (roamgate #226). */
 export const SkillInfo = z.object({
   name: z.string().describe("Typed as /name."),
   description: z.string().nullable(),
   source: z
     .string()
     .nullable()
-    .describe("Where the runtime found it (project, user, plugin…), in its own words."),
+    .describe("Where the runtime found it (project, user, plugin, a pi extension…), in its own words."),
+  argumentHint: z
+    .string()
+    .nullable()
+    .default(null)
+    .describe("What goes after /name, as the runtime describes it (a command's arguments), or null."),
 });
 export type SkillInfo = z.infer<typeof SkillInfo>;
 

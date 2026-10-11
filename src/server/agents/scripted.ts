@@ -29,6 +29,7 @@ import {
   type AccountUsageSnapshot,
   type McpServer,
   type Runtime,
+  type CommandEntry,
   type SkillEntry,
 } from "@botiverse/oar";
 import { scriptedRuntime, type ScriptedTurn } from "@botiverse/oar/testing";
@@ -38,21 +39,45 @@ import readline from "node:readline";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-/** Its commands, listed the way a real runtime lists its skills, so the / menu has something to show. */
-const COMMANDS: readonly SkillEntry[] = [
-  { name: "echo", description: "Say exactly the rest of the line" },
-  { name: "write", description: "Write the lines that follow to a file, as a Write tool call" },
-  { name: "sleep", description: "Work for that many milliseconds (stoppable), then say so" },
-  { name: "stream", description: "Say that many chunks, 40 ms apart" },
-  { name: "fail", description: "End the turn failed, with the rest of the line as the reason" },
-  { name: "background", description: "Run a command in the background for that many milliseconds" },
+/** Its commands, listed the way a real runtime lists its commands, so the / menu has something to show. */
+const COMMANDS: readonly CommandEntry[] = [
+  { name: "echo", description: "Say exactly the rest of the line", argumentHint: "<text>" },
+  {
+    name: "write",
+    description: "Write the lines that follow to a file, as a Write tool call",
+    argumentHint: "<path>",
+  },
+  {
+    name: "sleep",
+    description: "Work for that many milliseconds (stoppable), then say so",
+    argumentHint: "<ms>",
+  },
+  { name: "stream", description: "Say that many chunks, 40 ms apart", argumentHint: "<n>" },
+  {
+    name: "fail",
+    description: "End the turn failed, with the rest of the line as the reason",
+    argumentHint: "<reason>",
+  },
+  {
+    name: "background",
+    description: "Run a command in the background for that many milliseconds",
+    argumentHint: "<ms> <text>",
+  },
   {
     name: "run",
     description: "Run a command (and one per following line) as tool calls that take that many milliseconds",
+    argumentHint: "<ms> <command>",
   },
-  { name: "mcp", description: "Call a tool of the session's MCP server with JSON arguments" },
+  {
+    name: "mcp",
+    description: "Call a tool of the session's MCP server with JSON arguments",
+    argumentHint: "<tool> [json]",
+  },
   { name: "options", description: "Say what the session was opened with: model, effort, service tier" },
 ];
+
+/** And a skill, as a runtime lists skills beside its commands; it answers like any other text. */
+const SKILLS: readonly SkillEntry[] = [{ name: "tidy", description: "A demo skill: tidy the workspace up" }];
 
 const MODEL = "script-1";
 const TIERS = ["fast"];
@@ -174,6 +199,14 @@ export function scriptedDemoRuntime(): Runtime {
       models: [{ id: MODEL, displayName: "Script 1", serviceTiers: TIERS }],
     }),
     skills: async (_installation, options) => ({
+      kind: "ok",
+      scope: { kind: "workspace", cwd: options?.cwd ?? process.cwd() },
+      observedAt: new Date().toISOString(),
+      view: "discovered",
+      items: SKILLS.map((skill) => ({ ...skill, source: "scripted" })),
+      partial: false,
+    }),
+    commands: async (_installation, options) => ({
       kind: "ok",
       scope: { kind: "workspace", cwd: options?.cwd ?? process.cwd() },
       observedAt: new Date().toISOString(),
