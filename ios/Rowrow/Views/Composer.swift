@@ -74,12 +74,6 @@ struct Composer: View {
           .foregroundStyle(note.error ? Color.red : .secondary)
           .padding(.horizontal, 6)
       }
-      if empty && (focused || compact), let replies = session.state?.settings.quickReplies, !replies.isEmpty {
-        QuickReplyChips(replies: replies) { reply in
-          draft.wrappedValue = reply
-          focused = true
-        }
-      }
       PendingTiles(key: agent.id)
       HStack(alignment: .bottom, spacing: 8) {
         if !compact {
@@ -440,28 +434,6 @@ private struct QueueTray: View {
         fail("\(what): \((error as? RowrowError)?.errorDescription ?? error.localizedDescription)")
       }
     }
-  }
-}
-
-/// Replies you send often (Settings → Quick replies): a tap puts one in the composer, never sends it.
-struct QuickReplyChips: View {
-  let replies: [String]
-  let pick: (String) -> Void
-
-  var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
-        ForEach(replies, id: \.self) { reply in
-          Button(reply) { pick(reply) }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .font(.subheadline)
-            .lineLimit(1)
-        }
-      }
-      .padding(.horizontal, 2)
-    }
-    .scrollClipDisabled()
   }
 }
 

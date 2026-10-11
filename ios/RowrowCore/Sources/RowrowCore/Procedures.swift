@@ -318,10 +318,6 @@ extension APIClient {
     return result.sent
   }
 
-  public func updateSettings(quickReplies: [String]) async throws -> ServerSettings {
-    try await call("settings.update", ServerSettings(quickReplies: quickReplies))
-  }
-
   public func info() async throws -> HostInfo { try await call("app.info") }
 
   /// Client-side problems for the server's log (they appear as client.* events).

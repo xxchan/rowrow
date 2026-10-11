@@ -47,12 +47,6 @@ struct SettingsView: View {
         Text("You're told when an agent finishes or needs you, unless you're looking at it. Reply or mark it seen right from the notification.")
       }
 
-      Section("On every device") {
-        NavigationLink(value: Route.quickReplies) {
-          LabeledContent("Quick replies", value: "\(state?.settings.quickReplies.count ?? 0)")
-        }
-      }
-
       Section {
         NavigationLink(value: Route.devices) {
           Label("Devices", systemImage: "laptopcomputer.and.iphone")
@@ -141,54 +135,6 @@ struct SettingsView: View {
         if let testResult { Text(testResult).font(.footnote).foregroundStyle(.secondary) }
       }
     }
-  }
-}
-
-/// Replies you send often: one tap puts one in the composer, ready to edit or send. Kept on the
-/// server, so every device has the same ones.
-struct QuickRepliesView: View {
-  let session: Session
-  @State private var replies: [String] = []
-  @State private var adding = ""
-  @State private var failure = Failure()
-  @State private var loaded = false
-
-  var body: some View {
-    List {
-      Section {
-        ForEach(replies, id: \.self) { reply in Text(reply) }
-          .onDelete { replies.remove(atOffsets: $0); save() }
-          .onMove { replies.move(fromOffsets: $0, toOffset: $1); save() }
-      } footer: {
-        Text("A tap on one fills the composer; it's never sent by itself.")
-      }
-      Section {
-        HStack {
-          TextField("A new quick reply", text: $adding, axis: .vertical)
-          Button("Add") {
-            let reply = adding.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !reply.isEmpty, !replies.contains(reply) else { return }
-            replies.append(reply)
-            adding = ""
-            save()
-          }
-          .disabled(adding.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replies.count >= 24)
-        }
-      }
-    }
-    .navigationTitle("Quick Replies")
-    .toolbar { EditButton() }
-    .onAppear {
-      guard !loaded else { return }
-      loaded = true
-      replies = session.state?.settings.quickReplies ?? []
-    }
-    .failureAlert(failure)
-  }
-
-  private func save() {
-    let replies = replies
-    Task { await failure.run("Save") { _ = try await session.api.updateSettings(quickReplies: replies) } }
   }
 }
 

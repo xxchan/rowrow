@@ -14,7 +14,7 @@ have a minute, one thumb, and a notification. So the phone's loop is:
 1. **Told**: an agent finished or needs you. The notification says which and what it said
    last; reply to it or mark it seen without opening the app.
 2. **Triage**: the Agents tab is an inbox, sorted by who needs you. Each row shows what the
-   agent said last; swipe to reply (a small sheet with a composer and your quick replies),
+   agent said last; swipe to reply (a small sheet with a composer),
    to mark it seen, to archive it or to stop it. Open the conversation only when you need
    all of it.
 3. **Read**: a conversation opens at the start of the latest turn, not at the bottom: on a
@@ -24,7 +24,7 @@ have a minute, one thumb, and a notification. So the phone's loop is:
    works, what it's doing now ("Running pnpm test"). The work opens in place; a step opens
    its input and output.
 4. **Answer**: the composer is dictation-first (Return is a newline; the button sends).
-   Quick replies fill it, never send. `/` lists the runtime's commands. Photos,
+   `/` lists the runtime's commands. Photos,
    screenshots and files go as attachments (D-024). While the agent works, a message steers
    the turn; hold the button to queue it or to stop the turn and send.
 5. **Next**: the conversation's toolbar offers the next agent that needs you, replacing the
@@ -52,7 +52,7 @@ away if you want others.
 | | History, Commit, Search, File | read-only views of the checkout |
 | Coach | Chat | Coach (D-044): ask about your agents; its answers with their work folded, the cards of the actions it proposes (confirm or cancel, then rowrow's receipt, D-045), History, New chat, Stop; "Full access" in the header while it's on, turned off with a tap |
 | | Tasks, Task, Run | Coach's scheduled tasks (D-050): schedule, last and next run; Run now, Pause, Resume, Stop run, Delete; each run's chat, its cards confirmed there, or opened in the chat |
-| Settings | | the server, notifications, quick replies, devices (pair one with a QR code), runtimes, servers, sign out |
+| Settings | | the server, notifications, devices (pair one with a QR code), runtimes, servers, sign out |
 
 On iPad the tab bar becomes a sidebar (`.sidebarAdaptable`); the screens are the same.
 

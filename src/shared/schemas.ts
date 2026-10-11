@@ -464,7 +464,9 @@ export const Settings = z.object({
   quickReplies: z
     .array(z.string().trim().min(1).max(500))
     .max(24)
-    .describe("Replies you send often: one tap puts one in the composer (it is never sent by itself)."),
+    .describe(
+      "Always empty: quick replies were removed (2026-10-11). Kept so iOS apps from before still read the settings; an update to it is ignored.",
+    ),
   checkForUpdates: z
     .boolean()
     .describe("Ask the npm registry twice a day whether a newer rowrow is out, and say so in the app."),
@@ -498,12 +500,7 @@ export type Settings = z.infer<typeof Settings>;
 export type CoachSettings = Settings["coach"];
 
 export const DEFAULT_SETTINGS: Settings = {
-  quickReplies: [
-    "Continue.",
-    "Run the tests and fix what fails.",
-    "Commit this with a clear message.",
-    "Summarize what you changed, briefly.",
-  ],
+  quickReplies: [],
   checkForUpdates: true,
   instanceName: "",
   coach: { workspaces: [], runtime: "claude", model: null, effort: null, fullAccess: false },

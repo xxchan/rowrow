@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Info, LoaderCircle, Plus, TriangleAlert, X } from "lucide-react";
+import { Info, LoaderCircle, TriangleAlert } from "lucide-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -80,18 +80,6 @@ export function SettingsPage({ route }: { route: Route }) {
                 <TabsTrigger value="dark">Dark</TabsTrigger>
               </TabsList>
             </Tabs>
-          </Section>
-
-          <Section
-            title="Quick replies"
-            description="One tap puts one in the composer, ready to edit or send. On every device."
-          >
-            <QuickReplies
-              replies={state.settings.quickReplies}
-              onChange={(quickReplies) =>
-                void run("Save", async () => client?.settings.update({ quickReplies }))
-              }
-            />
           </Section>
 
           <Section
@@ -407,61 +395,6 @@ function InstanceName({ saved }: { saved: string }) {
         old name until you install it again.
       </p>
     </form>
-  );
-}
-
-function QuickReplies({
-  replies,
-  onChange,
-}: {
-  replies: readonly string[];
-  onChange: (replies: string[]) => void;
-}) {
-  const [adding, setAdding] = useState("");
-  const add = (): void => {
-    const text = adding.trim();
-    if (text === "" || replies.includes(text)) return;
-    onChange([...replies, text]);
-    setAdding("");
-  };
-  return (
-    <div className="flex flex-col gap-2">
-      <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-        {replies.map((reply) => (
-          <li key={reply} className="flex items-center gap-2 py-1 pr-1 pl-3">
-            <span className="min-w-0 flex-1 truncate text-sm">{reply}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label={`Remove “${reply}”`}
-              onClick={() => onChange(replies.filter((r) => r !== reply))}
-            >
-              <X />
-            </Button>
-          </li>
-        ))}
-        {replies.length === 0 && <li className="px-3 py-2.5 text-sm text-muted-foreground">None yet.</li>}
-      </ul>
-      <form
-        className="flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          add();
-        }}
-      >
-        <Input
-          aria-label="New quick reply"
-          placeholder="Add a reply you send often"
-          value={adding}
-          maxLength={500}
-          onChange={(event) => setAdding(event.currentTarget.value)}
-        />
-        <Button type="submit" variant="outline" disabled={adding.trim() === "" || replies.length >= 24}>
-          <Plus /> Add
-        </Button>
-      </form>
-    </div>
   );
 }
 

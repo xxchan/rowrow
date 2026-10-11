@@ -98,7 +98,6 @@ struct RouteView: View {
     case .search(let workspaceId): SearchView(workspaceId: workspaceId, session: session)
     case .file(let workspaceId, let path): FileView(workspaceId: workspaceId, path: path, session: session)
     case .devices: DevicesView(session: session)
-    case .quickReplies: QuickRepliesView(session: session)
     case .servers: ServersView()
     case .coachTasks: CoachTasksList(session: session)
     case .coachTask(let id): CoachTaskView(taskId: id, session: session)

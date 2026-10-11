@@ -1058,24 +1058,23 @@ test("view a file as it was in a commit from the history, then go back to its di
   ).toBeVisible();
 });
 
-test("a quick reply added in Settings is one tap away in the composer", async ({ page, rowrow }) => {
+test("there are no quick replies, in the composer or in Settings", async ({ page, rowrow }) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({
     workspaceId: ws.id,
     runtime: "scripted",
     title: "quick",
   });
-  await rowrow.open(page, "/settings");
-  await page.getByRole("textbox", { name: "New quick reply" }).fill("Looks good, merge it.");
-  await page.getByRole("button", { name: "Add" }).click();
-  await expect(page.getByText("Looks good, merge it.")).toBeVisible();
-
-  await page.goto(`${rowrow.url}/a/${agent.id}`);
-  await page
-    .getByRole("group", { name: "Quick replies" })
-    .getByRole("button", { name: "Looks good, merge it." })
-    .click();
-  await expect(page.getByRole("textbox", { name: "Message input" })).toHaveValue("Looks good, merge it.");
+  await rowrow.open(page, `/a/${agent.id}`);
+  await expect(page.getByRole("textbox", { name: "Message input" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Quick replies" })).toHaveCount(0);
+  await page.goto(`${rowrow.url}/settings`);
+  await expect(
+    page
+      .getByRole("heading", { name: "Signed-in devices" })
+      .or(page.getByRole("heading", { name: "Devices" })),
+  ).toBeVisible();
+  await expect(page.getByText("Quick replies")).toHaveCount(0);
 });
 
 test("a title suffix set in Settings names this server's pages and installed app", async ({
