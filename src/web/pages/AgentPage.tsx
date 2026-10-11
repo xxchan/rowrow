@@ -10,12 +10,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Splitter, usePaneWidth } from "@/components/ui/splitter";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ArrowDown, ChevronsRight, Ellipsis, FileDiff, LoaderCircle, Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { GroupImperativeHandle } from "react-resizable-panels";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useStickToBottom } from "use-stick-to-bottom";
 import type { AgentState, AppState, TranscriptHit } from "../../shared/schemas.ts";
@@ -43,6 +42,7 @@ import { onPrefChange, readPref, writePref } from "../lib/device-prefs.ts";
 import { onFileOpen } from "../lib/file-links.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { useLooking } from "../lib/presence.ts";
+import type { PaneSizing } from "../lib/pane-size.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { loadBackTo, loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
@@ -63,7 +63,8 @@ export function AgentPage({ agentId, route }: { agentId: string; route: Route })
 }
 
 const CHANGES_KEY = "rowrow.changesOpen";
-const LAYOUT_KEY = "rowrow.agentLayout";
+/** The inspector beside the conversation, which keeps room to read. */
+const INSPECTOR: PaneSizing = { key: "rowrow.inspectorWidth", defaultSize: 520, min: 320, keep: 360 };
 
 function AgentView({ agent, state, route }: { agent: AgentState; state: AppState; route: Route }) {
   const client = useClient();
@@ -99,15 +100,9 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
     if (!wide) return;
     return onPrefChange(CHANGES_KEY, () => setShowChanges(readPref(CHANGES_KEY) === "1"));
   }, [wide]);
-  const panels = useRef<GroupImperativeHandle | null>(null);
-  useEffect(
-    () =>
-      onPrefChange(LAYOUT_KEY, () => {
-        const layout = savedLayout();
-        if (layout !== undefined) panels.current?.setLayout(layout);
-      }),
-    [],
-  );
+  const inspector = usePaneWidth(INSPECTOR);
+  const inspectorRef = useRef<HTMLElement>(null);
+  const inspectorId = useId();
   const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
   const chooseTab = (next: InspectorTab): void => {
     setTab(next);
@@ -256,29 +251,29 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
           </>
         }
       />
-      <div className="min-h-0 flex-1">
-        {showChanges && wide && ws !== undefined ? (
-          <ResizablePanelGroup
-            orientation="horizontal"
-            groupRef={panels}
-            defaultLayout={savedLayout()}
-            // Only what you dragged: a layout applied from another tab isn't written back.
-            onLayoutChanged={(layout, { isUserInteraction }) => {
-              if (isUserInteraction) writePref(LAYOUT_KEY, JSON.stringify(layout));
-            }}
-          >
-            <ResizablePanel id="chat" minSize={360}>
-              {chat}
-            </ResizablePanel>
-            <ResizableHandle aria-label="Resize the changes panel" />
-            <ResizablePanel id="changes" defaultSize={520} minSize={320} maxSize={1100}>
-              <section aria-label="Inspector" className="h-full min-h-0 overflow-hidden bg-sidebar/40">
-                <Inspector workspaceId={ws.id} agentId={agent.id} tab={tab} onTabChange={chooseTab} />
-              </section>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        ) : (
-          chat
+      {/* The conversation stays put (mounted, scrolled) when the inspector opens beside it. */}
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">{chat}</div>
+        {showChanges && wide && ws !== undefined && (
+          <>
+            <Splitter
+              label="Resize the inspector"
+              side="right"
+              controls={inspectorId}
+              pane={inspectorRef}
+              sizing={INSPECTOR}
+              width={inspector.width}
+            />
+            <section
+              ref={inspectorRef}
+              id={inspectorId}
+              aria-label="Inspector"
+              style={inspector.style}
+              className="h-full min-h-0 shrink-0 overflow-hidden bg-sidebar/40"
+            >
+              <Inspector workspaceId={ws.id} agentId={agent.id} tab={tab} onTabChange={chooseTab} />
+            </section>
+          </>
         )}
       </div>
       {!wide && ws !== undefined && (
@@ -309,15 +304,6 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
       )}
     </>
   );
-}
-
-function savedLayout(): Record<string, number> | undefined {
-  try {
-    const value: unknown = JSON.parse(readPref(LAYOUT_KEY) ?? "null");
-    return value !== null && typeof value === "object" ? (value as Record<string, number>) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**

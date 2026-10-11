@@ -585,6 +585,83 @@ test("the inspector: stage a change, find a line, read the history", async ({ pa
   await expect(inspector.getByRole("button", { name: /^\S README\.md/ })).toBeVisible();
 });
 
+test("drag the divider beside the inspector, and the one inside Files: the widths stay after a reload", async ({
+  page,
+  rowrow,
+}, info) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "resizes",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await page.getByRole("button", { name: /Changes/ }).click();
+  if (info.project.name === "phone") {
+    // A sheet over the conversation: nothing beside it to resize.
+    await expect(page.getByRole("dialog").getByRole("tab", { name: "Changes" })).toBeVisible();
+    await expect(page.getByRole("separator", { name: /^Resize/ })).toHaveCount(0);
+    return;
+  }
+  const inspector = page.getByRole("region", { name: "Inspector" });
+  const divider = page.getByRole("separator", { name: "Resize the inspector" });
+  const width = (locator: Locator) => async () => Math.round((await locator.boundingBox())?.width ?? 0);
+  await expect.poll(width(inspector)).toBe(520);
+
+  // Dragged 140 px to the left, the inspector is 140 px wider, and stays so after a reload.
+  await dragBy(page, divider, -140);
+  await expect.poll(width(inspector)).toBe(660);
+  await expect(divider).toHaveAttribute("aria-valuenow", "660");
+  await page.reload();
+  await expect.poll(width(inspector)).toBe(660);
+
+  // That wide, Files shows the tree beside the preview, with a divider of its own.
+  await inspector.getByRole("tab", { name: "Files" }).click();
+  const tree = inspector.getByRole("separator", { name: "Resize the file tree" });
+  await expect(tree).toHaveAttribute("aria-valuenow", "260");
+  await dragBy(page, tree, 60);
+  await expect(tree).toHaveAttribute("aria-valuenow", "320");
+  await page.reload();
+  await expect(tree).toHaveAttribute("aria-valuenow", "320");
+
+  // A double-click puts the default width back; the arrow keys move the divider.
+  await divider.dblclick();
+  await expect.poll(width(inspector)).toBe(520);
+  await expect(tree).toBeHidden();
+  await divider.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(width(inspector)).toBe(544);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(width(inspector)).toBe(496);
+  await page.keyboard.press("Home");
+  await expect.poll(width(inspector)).toBe(320);
+
+  // At its widest, the conversation keeps 360 px; a narrower window takes from the inspector,
+  // and a wider one gives its width back.
+  const conversation = async () => (await width(page.getByRole("main"))()) - (await width(inspector)());
+  await page.keyboard.press("End");
+  await expect.poll(conversation).toBe(360);
+  const widest = await width(inspector)();
+  await page.setViewportSize({ width: 1180, height: 800 });
+  await expect.poll(width(inspector)).toBe(widest - 100);
+  await expect.poll(conversation).toBe(360);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect.poll(width(inspector)).toBe(widest);
+});
+
+/** Drags a divider `dx` pixels sideways. */
+async function dragBy(page: Page, divider: Locator, dx: number): Promise<void> {
+  const box = await divider.boundingBox();
+  if (box === null) throw new Error("the divider isn't on screen");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 5 });
+  await page.mouse.up();
+}
+
 test("revert a file to before the last turn, only once confirmed and if nothing changed it since", async ({
   page,
   rowrow,
@@ -1917,6 +1994,11 @@ test("Coach: allow a workspace, ask, and read its answer and the work it did", a
   if (!phone) {
     await coach.getByRole("button", { name: "Pin Coach" }).click();
     await expect(coach.getByRole("button", { name: "Float Coach" })).toBeVisible();
+    // Pinned, it's as wide as you drag it, after a reload too.
+    const width = async () => Math.round((await coach.boundingBox())?.width ?? 0);
+    await expect.poll(width).toBe(380);
+    await dragBy(page, page.getByRole("separator", { name: "Resize Coach" }), -60);
+    await expect.poll(width).toBe(440);
     await coach.getByRole("button", { name: "Maximize Coach" }).click();
     await expect(coach.getByRole("button", { name: "Float Coach" })).toBeHidden();
     // Escape restores the window, then closes it.
@@ -1932,6 +2014,7 @@ test("Coach: allow a workspace, ask, and read its answer and the work it did", a
     await page.keyboard.press("ControlOrMeta+Alt+Shift+KeyA");
     await expect(coach.getByRole("button", { name: "Float Coach" })).toBeVisible();
     await expect(coach.getByText("hi from Coach", { exact: true })).toBeVisible();
+    await expect.poll(width).toBe(440);
   } else {
     await coach.getByRole("button", { name: "Close Coach" }).click();
     await expect(coach).toBeHidden();

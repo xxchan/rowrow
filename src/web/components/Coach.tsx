@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Splitter, usePaneWidth } from "@/components/ui/splitter";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -52,15 +53,7 @@ import {
   Square,
   X,
 } from "lucide-react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { canCoach, CANT_COACH, COACH_TOOLS_LEAKED, type CoachChat } from "../../shared/coach.ts";
 import { trimMentions } from "../../shared/coach-mentions.ts";
@@ -71,9 +64,7 @@ import { workspaceArchived } from "../../shared/workspaces.ts";
 import {
   allowedWorkspaces,
   closeCoach,
-  COACH_MIN_WIDTH,
-  COACH_WIDTH,
-  PAGE_MIN_WIDTH,
+  COACH_PANE,
   runtimeProblem,
   setCoachLayout,
   setDraftMentions,
@@ -129,9 +120,10 @@ export function CoachButton() {
 
 /** Where Coach's window lives, beside the page (Shell): its layout, size and shortcut. */
 export function CoachDock() {
-  const { mounted, open, maximized, layout, width } = useCoach();
+  const { mounted, open, maximized, layout } = useCoach();
   const narrow = useNarrow();
   const ref = useRef<HTMLElement>(null);
+  const pane = usePaneWidth(COACH_PANE);
   const [host, setHost] = useState(Number.POSITIVE_INFINITY);
 
   // ⌘⌥⇧A (Ctrl+Alt+Shift+A elsewhere), anywhere but while typing.
@@ -163,70 +155,41 @@ export function CoachDock() {
 
   if (!mounted) return null;
   return (
-    <aside
-      ref={ref}
-      aria-label="Coach"
-      className={cn(
-        "flex min-h-0 min-w-0 flex-col overflow-hidden bg-background",
-        !open && "hidden",
-        narrow && "fixed inset-0 z-50",
-        !narrow && maximized && "absolute inset-0 z-30",
-        pinned && "relative shrink-0 rounded-[10px] border",
-        pinned && (stacked ? "mx-2 mb-2 basis-[45%]" : "my-2 mr-2 ml-2"),
-        open && !big && !pinned && "absolute top-2 right-2 bottom-2 z-20 rounded-[10px] border shadow-lg",
+    <>
+      {pinned && !stacked && (
+        <Splitter
+          label="Resize Coach"
+          side="right"
+          // In the gap beside its window, which has its own border.
+          className="mx-1 my-2 bg-transparent"
+          pane={ref}
+          sizing={COACH_PANE}
+          width={pane.width}
+        />
       )}
-      style={
-        big || stacked ? undefined : pinned ? { width } : { width: `min(${width}px, calc(100% - 1rem))` }
-      }
-    >
-      {pinned && !stacked && <Resizer dock={ref} />}
-      <CoachPanel narrow={narrow} />
-    </aside>
-  );
-}
-
-/** The pinned window's left edge: drag, arrows, Home/End; a double click puts it back to 380 px. */
-function Resizer({ dock }: { dock: RefObject<HTMLElement | null> }) {
-  const width = useCoach((s) => s.width);
-  const max = (): number =>
-    Math.max(COACH_WIDTH, (dock.current?.parentElement?.clientWidth ?? 0) - PAGE_MIN_WIDTH);
-  const set = (next: number): void =>
-    useCoach.setState({ width: Math.round(Math.min(max(), Math.max(COACH_MIN_WIDTH, next))) });
-  const start = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    event.preventDefault();
-    const from = event.clientX;
-    const was = width;
-    const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const move = (e: PointerEvent): void => set(was + (from - e.clientX));
-    const up = (): void => {
-      target.removeEventListener("pointermove", move);
-      target.removeEventListener("pointerup", up);
-    };
-    target.addEventListener("pointermove", move);
-    target.addEventListener("pointerup", up);
-  };
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize Coach"
-      aria-valuenow={width}
-      aria-valuemin={COACH_MIN_WIDTH}
-      tabIndex={0}
-      title="Drag to resize Coach; double-click to reset"
-      onPointerDown={start}
-      onDoubleClick={() => set(COACH_WIDTH)}
-      onKeyDown={(event) => {
-        const by = { ArrowLeft: 24, ArrowRight: -24 }[event.key];
-        if (by !== undefined) set(width + by);
-        else if (event.key === "Home") set(COACH_MIN_WIDTH);
-        else if (event.key === "End") set(max());
-        else return;
-        event.preventDefault();
-      }}
-      className="absolute inset-y-0 left-0 z-10 w-[7px] cursor-col-resize touch-none outline-none hover:bg-primary/40 focus-visible:bg-primary/40"
-    />
+      <aside
+        ref={ref}
+        aria-label="Coach"
+        className={cn(
+          "flex min-h-0 min-w-0 flex-col overflow-hidden bg-background",
+          !open && "hidden",
+          narrow && "fixed inset-0 z-50",
+          !narrow && maximized && "absolute inset-0 z-30",
+          pinned && "relative shrink-0 rounded-[10px] border",
+          pinned && (stacked ? "mx-2 mb-2 basis-[45%]" : "my-2 mr-2"),
+          open && !big && !pinned && "absolute top-2 right-2 bottom-2 z-20 rounded-[10px] border shadow-lg",
+        )}
+        style={
+          big || stacked
+            ? undefined
+            : pinned
+              ? pane.style
+              : { width: `min(${pane.width}px, calc(100% - 1rem))` }
+        }
+      >
+        <CoachPanel narrow={narrow} />
+      </aside>
+    </>
   );
 }
 

@@ -1683,3 +1683,32 @@ like the Mac apps it sits beside, with nothing that says the same thing twice.
 
 **Revisit when** the app gets its own controls in that band (a server switcher), or Windows or
 Linux builds come (their title bars need `titleBarOverlay` instead).
+
+## D-058 Side panes resize with one divider, in pixels kept per device; the conversation keeps 360 px (2026-10-11)
+
+**Context.** The inspector beside an agent's conversation sat in a react-resizable-panels group
+(D-017) behind a 1px line that looked like any border, with nothing to say it moved; its layout
+was kept in percentages, so the inspector's width changed with the window. Files' tree had a
+fixed width, and pinned Coach had its own drag handle whose width was gone after a reload.
+powerfool: the conversation's width and the widths inside the side panel can't be adjusted.
+
+**Decision.** One divider (`components/ui/splitter.tsx`, the math in `lib/pane-size.ts`) for
+every pane beside another: the inspector beside the conversation, Files' tree beside its preview,
+pinned Coach beside the page. It's a line with a grip, a wider strip to grab (wider for a
+finger), highlighted on hover, focus and while it drags; arrow keys move it, Home and End make
+the pane its narrowest and widest, a double-click puts the default back. A pane's width is a
+device preference in pixels (`rowrow.inspectorWidth`, `rowrow.fileTreeWidth`,
+`rowrow.coachWidth`), so it follows the app's other tabs and survives reloads; a narrower
+window holds it between the pane's minimum and what the other side keeps, and that side wins
+when there's no room for both: the conversation keeps 360 px, Files' preview 280, the page
+beside Coach 240. The window resizing never rewrites the stored width. react-resizable-panels
+leaves D-017's list.
+
+**Why.** A side panel's width is about what's in it (a diff, a tree of names), not a share of
+the window, so pixels are what to keep. One small component covers all three, Coach included,
+which doesn't sit in a panel group; the library's group-and-percentages model fit only one of
+them. While a divider drags it sets the pane's width itself and stores it at the end, so the
+transcript and the diffs don't re-render on every move.
+
+**Revisit when** panes stack vertically (a divider that resizes heights), or a layout needs more
+than two panes in one row.

@@ -258,6 +258,14 @@
   }
 }
 
+/* While a divider drags (components/ui/splitter.tsx), its cursor shows wherever the pointer
+   goes, and nothing on the way gets selected. */
+html[data-resizing],
+html[data-resizing] * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 /* The Mac app draws no title bar (D-057): its window buttons sit over the page's top-left
    corner, which leaves room for them ([data-traffic-lights]), and the top band (the sidebar's
    first row, a page's header, a banner: [data-titlebar], 48px) drags the window, except what

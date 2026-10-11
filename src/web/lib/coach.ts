@@ -1,8 +1,8 @@
 // Coach's window (D-044), as roamgate's Ranger has it: closed, floating at the right of the
 // page, pinned beside it (and resizable), or maximized over it; full screen on a phone. It
-// mounts the first time it opens and then only hides, so a draft, the width and what it shows
-// survive closing it. Floating or pinned is remembered in this browser (and follows other tabs);
-// the width and maximizing last until the page reloads. Pinned in a narrow page (900 px or
+// mounts the first time it opens and then only hides, so a draft and what it shows survive
+// closing it. Floating or pinned, and the width, are remembered in this browser (and follow
+// other tabs); maximizing lasts until the page reloads. Pinned in a narrow page (900 px or
 // less), it sits under the page instead of beside it. It shows its chat, its scheduled tasks
 // (D-050) or its settings; a notification about a task opens it on that task and run. Each chat
 // keeps its own draft, with the workspaces and agents it references (picked with @).
@@ -12,14 +12,18 @@ import type { CoachMention } from "../../shared/coach-mentions.ts";
 import { canCoach, CANT_COACH } from "../../shared/coach.ts";
 import type { AppState } from "../../shared/schemas.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
+import type { PaneSizing } from "./pane-size.ts";
 
 export type CoachLayout = "floating" | "pinned";
 export type CoachView = "chat" | "tasks" | "settings";
 
-export const COACH_WIDTH = 380;
-export const COACH_MIN_WIDTH = 300;
-/** What a pinned Coach always leaves the page beside it. */
-export const PAGE_MIN_WIDTH = 240;
+/** Its width, floating or pinned. Pinned, it leaves the page 240 px beside its divider and margin. */
+export const COACH_PANE: PaneSizing = {
+  key: "rowrow.coachWidth",
+  defaultSize: 380,
+  min: 300,
+  keep: 240 + 17,
+};
 /** At this page width or less, a pinned Coach sits under the page. */
 export const STACK_WIDTH = 900;
 const LAYOUT_KEY = "rowrow.coachLayout";
@@ -30,7 +34,6 @@ interface CoachWindow {
   readonly open: boolean;
   readonly maximized: boolean;
   readonly layout: CoachLayout;
-  readonly width: number;
   readonly view: CoachView;
   /** Chat or Tasks: where Settings goes back to. */
   readonly main: "chat" | "tasks";
@@ -58,7 +61,6 @@ export const useCoach = create<CoachWindow>(() => ({
   open: false,
   maximized: false,
   layout: savedLayout(),
-  width: COACH_WIDTH,
   view: "chat",
   main: "chat",
   task: null,

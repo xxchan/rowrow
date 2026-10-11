@@ -3,8 +3,9 @@
 // (files.search, D-021). A file opens a read-only preview, at the matching line for a search
 // hit, in a tab (roamgate #309, lib/file-tabs.ts): a single click uses the temporary tab, a
 // double-click keeps it. As wide as roamgate's split (640 px) the tree and the preview sit
-// side by side; narrower, the preview covers the tree and Back returns to it. "Mention" puts
-// the path in the agent's message, since agents read files by path. A tree row's menu
+// side by side, a divider between them (the tree's width is kept on this device, D-058);
+// narrower, the preview covers the tree and Back returns to it. "Mention" puts the path in the
+// agent's message, since agents read files by path. A tree row's menu
 // (right-click, long press, or its ⋯) and the preview download a file, or a folder as .tar.gz
 // (roamgate #312). The History tab opens the same preview on a commit's file as it was then
 // (`at`). A path clicked in an agent's transcript, or Open in Files on a diff, opens here as a
@@ -19,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Splitter, usePaneWidth } from "@/components/ui/splitter";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { FileTree, useFileTree } from "@pierre/trees/react";
@@ -43,6 +45,7 @@ import { readPref, writePref } from "../lib/device-prefs.ts";
 import { downloadFromWorkspace } from "../lib/download.ts";
 import { listFiles, onFileOpen, pendingFileOpen, tookFileOpen, type FileOpen } from "../lib/file-links.ts";
 import { closeTab, keepTab, openTab, parseTabs, pruneTabs, type FileTabs } from "../lib/file-tabs.ts";
+import type { PaneSizing } from "../lib/pane-size.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
 import { useHighlightedLines } from "../lib/highlight-file.ts";
 import { report } from "../lib/telemetry.ts";
@@ -54,6 +57,8 @@ import { MermaidDiagram, mermaidRenderer } from "./MermaidDiagram.tsx";
 
 /** Where the tree and the preview sit side by side (roamgate's inspector split). */
 const SPLIT_PX = 640;
+/** The tree's width beside the preview. */
+const TREE: PaneSizing = { key: "rowrow.fileTreeWidth", defaultSize: 260, min: 180, keep: 280 };
 
 const tabsKey = (workspaceId: string): string => `rowrow.fileTabs.${workspaceId}`;
 
@@ -107,6 +112,7 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
       : opened.tabs;
   const box = useRef<HTMLDivElement>(null);
   const nav = useRef<HTMLDivElement>(null);
+  const tree = usePaneWidth(TREE);
   const [split, setSplit] = useState(false);
   const panelId = useId();
 
@@ -189,9 +195,10 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
       <div
         ref={nav}
         tabIndex={-1}
+        style={split ? tree.style : undefined}
         className={cn(
           "flex min-h-0 min-w-0 flex-col outline-none",
-          split ? "w-[38%] max-w-80 min-w-48 shrink-0 border-r" : "flex-1",
+          split ? "shrink-0" : "flex-1",
           covering && "hidden",
         )}
       >
@@ -228,6 +235,9 @@ export function FilesTab({ workspaceId, agentId }: { workspaceId: string; agentI
           </div>
         )}
       </div>
+      {split && (
+        <Splitter label="Resize the file tree" side="left" pane={nav} sizing={TREE} width={tree.width} />
+      )}
       {(split || covering) && (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <FileTabStrip

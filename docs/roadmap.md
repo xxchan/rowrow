@@ -8,6 +8,11 @@ file when something lands.
 
 ## Done recently
 
+- **Resizable side panels** (D-058): a divider you can see and grab between the conversation and
+  the inspector, between Files' tree and its preview, and beside pinned Coach: drag it, use the
+  arrow keys, or double-click it for the default width. Each width is kept on this device in
+  pixels (other tabs follow, reloads keep it); a narrower window takes from the side panel, and
+  the conversation always keeps 360 px.
 - **Transcript search** (D-055): a search button in an agent's header (or ⌘F) opens a bar above
   the conversation that finds your messages, its answers and its tool calls' input and output
   in all of its history, on the server: You / Agent / Tool toggles with counts (roamgate's),
