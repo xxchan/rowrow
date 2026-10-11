@@ -1154,17 +1154,17 @@ test("there are no quick replies, in the composer or in Settings", async ({ page
   await expect(page.getByText("Quick replies")).toHaveCount(0);
 });
 
-test("a title suffix set in Settings names this server's pages and installed app", async ({
+test("a title suffix set in Settings names this machine's pages and installed app", async ({
   page,
   rowrow,
 }, info) => {
   await rowrow.open(page, "/settings");
   await expect(page).toHaveTitle("rowrow");
-  const server = page.getByRole("region", { name: "Server" });
-  await server.getByRole("textbox", { name: "App and webpage title suffix" }).fill("  Work  ");
-  await expect(server.getByText("rowrow · Work", { exact: true })).toBeVisible(); // the preview
-  await server.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(server.getByText("Saved for this rowrow server.")).toBeVisible();
+  const machine = page.getByRole("region", { name: "This machine" });
+  await machine.getByRole("textbox", { name: "App and webpage title suffix" }).fill("  Work  ");
+  await expect(machine.getByText("rowrow · Work", { exact: true })).toBeVisible(); // the preview
+  await machine.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(machine.getByText("Saved for this machine.")).toBeVisible();
   await expect(page).toHaveTitle("rowrow · Work");
   if (info.project.name === "phone") await page.getByRole("button", { name: "Open navigation" }).click();
   await expect(page.getByRole("navigation").getByText("rowrow · Work")).toBeVisible();
@@ -1182,7 +1182,7 @@ test("a title suffix set in Settings names this server's pages and installed app
 
   await page.goto(`${rowrow.url}/settings`);
   await page
-    .getByRole("region", { name: "Server" })
+    .getByRole("region", { name: "This machine" })
     .getByRole("button", { name: "Reset to default" })
     .click();
   await expect(page).toHaveTitle("rowrow");
@@ -2353,6 +2353,30 @@ test("a .mmd file previews as a diagram, its source a tab away", async ({ page, 
   await expect(figure).toBeHidden();
 });
 
+test("Settings signs another device in to this machine, and says that isn't how to add a machine", async ({
+  page,
+  rowrow,
+}, info) => {
+  await rowrow.open(page, "/settings");
+  // In a browser there's one machine: the sidebar's first row names it, and Settings has no Machines.
+  if (info.project.name === "phone") await page.getByRole("button", { name: "Open navigation" }).click();
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  await expect(nav.getByRole("link", { name: /rowrow/ }).first()).toBeVisible();
+  await expect(nav.getByRole("button", { name: /^Machine:/ })).toHaveCount(0);
+  if (info.project.name === "phone") await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Machines" })).toHaveCount(0);
+
+  const devices = page.getByRole("region", { name: "Signed-in devices" });
+  await expect(devices).toContainText(
+    "Phones, browsers and apps that can see and steer this machine's agents.",
+  );
+  await expect(devices.getByText("(this device)")).toBeVisible();
+  await devices.getByRole("button", { name: "Sign in another device" }).click();
+  const dialog = page.getByRole("dialog", { name: "Sign in another device" });
+  await expect(dialog.getByText(/\/auth\/redeem\?code=/)).toBeVisible();
+  await expect(dialog).toContainText("To run agents on another machine, add it in rowrow for Mac");
+});
+
 test.describe("in the Mac app", () => {
   // The app gives its sessions this user agent (src/desktop/windows.ts).
   test.use({
@@ -2387,6 +2411,160 @@ test.describe("in the Mac app", () => {
       await page.evaluate(() => document.documentElement.toggleAttribute("data-fullscreen", true));
       expect(await style(row, "paddingLeft")).toBe("12px");
     }
+  });
+
+  test("the sidebar's first row switches between the app's machines, and Settings lists them (D-059)", async ({
+    page,
+    rowrow,
+  }, info) => {
+    // The app's bridge (src/desktop/preload.ts) as a stand-in: three machines, two agents need you on devbox.
+    await page.addInitScript(() => {
+      type Machines = { current: string | null; machines: Record<string, unknown>[] };
+      const calls: unknown[][] = [];
+      const listeners = new Set<(machines: Machines) => void>();
+      let machines: Machines = {
+        current: "local",
+        machines: [
+          {
+            id: "local",
+            name: "This Mac",
+            kind: "local",
+            status: "online",
+            statusText: "Connected",
+            needsYou: 0,
+            version: "0.3.77",
+            upgrade: null,
+          },
+          {
+            id: "srv_devbox",
+            name: "devbox",
+            kind: "ssh",
+            status: "online",
+            statusText: "Connected",
+            needsYou: 2,
+            version: "0.3.76",
+            upgrade: { version: "0.3.77", state: "waiting", waitingFor: 1, error: null },
+          },
+          {
+            id: "srv_lab",
+            name: "lab",
+            kind: "url",
+            status: "offline",
+            statusText: "can't reach it (connection refused)",
+            needsYou: null,
+            version: null,
+            upgrade: null,
+          },
+        ],
+      };
+      const record = (...call: unknown[]): Promise<void> => {
+        calls.push(call);
+        return Promise.resolve();
+      };
+      Object.assign(window, {
+        appCalls: calls,
+        setMachines: (next: Machines) => {
+          machines = next;
+          for (const listener of listeners) listener(next);
+        },
+        rowrowApp: {
+          update: () =>
+            Promise.resolve({
+              current: "0.3.77",
+              state: "idle",
+              version: null,
+              progress: null,
+              error: null,
+              checkedAt: null,
+            }),
+          onUpdate: () => () => undefined,
+          checkForUpdates: () => record("checkForUpdates"),
+          installUpdate: () => record("installUpdate"),
+          machines: () => Promise.resolve(machines),
+          onMachines: (listener: (machines: Machines) => void) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          openMachine: (id: string) => record("openMachine", id),
+          showMachines: (to: string) => record("showMachines", to),
+          removeMachine: (id: string) => record("removeMachine", id),
+          upgradeMachine: (id: string) => record("upgradeMachine", id),
+        },
+      });
+    });
+    const calls = () =>
+      page.evaluate(() => (window as unknown as { appCalls: unknown[][] }).appCalls.splice(0));
+    const phone = info.project.name === "phone";
+    await rowrow.open(page);
+
+    if (phone) await page.getByRole("button", { name: "Open navigation" }).click();
+    const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+    const switcher = nav.getByRole("button", { name: "Machine: This Mac, 2 need you on other machines" });
+    await switcher.click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitemradio", { name: /This Mac/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(menu.getByRole("menuitemradio", { name: /devbox/ })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    await expect(menu.getByRole("menuitemradio", { name: /devbox/ })).toContainText("2 need you");
+    await expect(menu.getByRole("menuitemradio", { name: /lab/ })).toContainText("connection refused");
+    await menu.getByRole("menuitemradio", { name: /devbox/ }).click();
+    expect(await calls()).toEqual([["openMachine", "srv_devbox"]]);
+
+    // The window that's open already isn't opened again.
+    await switcher.click();
+    await menu.getByRole("menuitemradio", { name: /This Mac/ }).click();
+    await switcher.click();
+    await menu.getByRole("menuitem", { name: "Add a machine…" }).click();
+    await switcher.click();
+    await menu.getByRole("menuitem", { name: "Manage machines…" }).click();
+    expect(await calls()).toEqual([
+      ["showMachines", "add"],
+      ["showMachines", "manage"],
+    ]);
+
+    // The app says when something changes: nobody needs you on devbox any more.
+    await page.evaluate(async () => {
+      const app = window as unknown as {
+        rowrowApp: { machines(): Promise<{ machines: { needsYou: number | null }[] }> };
+        setMachines(next: unknown): void;
+      };
+      const list = await app.rowrowApp.machines();
+      const [here, devbox, lab] = list.machines;
+      app.setMachines({ ...list, machines: [here, { ...devbox, needsYou: 0 }, lab] });
+    });
+    await expect(nav.getByRole("button", { name: "Machine: This Mac", exact: true })).toBeVisible();
+
+    await page.goto(`${rowrow.url}/settings`);
+    const machines = page.getByRole("region", { name: "Machines" });
+    await expect(machines.getByRole("listitem", { name: "This Mac" })).toContainText("(this window)");
+    const devbox = machines.getByRole("listitem", { name: "devbox" });
+    await expect(devbox).toContainText(
+      "rowrow 0.3.77 is ready for devbox. It restarts into it when an agent finishes.",
+    );
+    await devbox.getByRole("button", { name: "Restart now" }).click();
+    await machines.getByRole("listitem", { name: "lab" }).getByRole("button", { name: "Open" }).click();
+    await devbox.getByRole("button", { name: "More for devbox" }).click();
+    await page.getByRole("menuitem", { name: "Remove from this Mac…" }).click();
+    await machines.getByRole("button", { name: "Add a machine" }).click();
+    expect(await calls()).toEqual([
+      ["upgradeMachine", "srv_devbox"],
+      ["openMachine", "srv_lab"],
+      ["removeMachine", "srv_devbox"],
+      ["showMachines", "add"],
+    ]);
+
+    // Signing a device in isn't adding a machine: the dialog points there.
+    await page.getByRole("button", { name: "Sign in another device" }).click();
+    const dialog = page.getByRole("dialog", { name: "Sign in another device" });
+    await expect(dialog).toContainText("To run agents on another machine, add it to this app instead.");
+    await dialog.getByRole("button", { name: "Add a machine…" }).click();
+    await expect(dialog).toBeHidden();
+    expect(await calls()).toEqual([["showMachines", "add"]]);
   });
 });
 

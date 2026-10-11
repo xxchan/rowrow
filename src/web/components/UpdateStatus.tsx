@@ -1,6 +1,6 @@
-// Settings → Server: whether rowrow is up to date, checked by hand when you like. Inside rowrow
+// Settings → This machine: whether rowrow is up to date, checked by hand when you like. Inside rowrow
 // for Mac it's the app's own updater (window.rowrowApp): the app updates itself, then the
-// servers it runs to match. A server installed with npm says when it last asked the registry
+// machines it runs to match. A server installed with npm says when it last asked the registry
 // and the command that updates it (D-025); a checkout updates with git.
 import { Button } from "@/components/ui/button";
 import { Copy, LoaderCircle } from "lucide-react";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { AppBridge, AppUpdateView } from "../../shared/app-bridge.ts";
 import type { HostInfo } from "../../shared/schemas.ts";
 import { ago } from "../lib/format.ts";
+import { appBridge } from "../lib/mac-app.ts";
 import { useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { copyText } from "./MenuActions.tsx";
@@ -17,10 +18,6 @@ import { copyText } from "./MenuActions.tsx";
 function since(at: number): string {
   const elapsed = ago(at);
   return elapsed === "now" ? "just now" : `${elapsed} ago`;
-}
-
-function appBridge(): AppBridge | null {
-  return (globalThis as { rowrowApp?: AppBridge }).rowrowApp ?? null;
 }
 
 export function UpdateStatus({ host }: { host: HostInfo }) {
@@ -33,7 +30,7 @@ export function UpdateStatus({ host }: { host: HostInfo }) {
       ) : bridge === null ? (
         <p className="text-muted-foreground">
           {host.updateCheck.via === "mac"
-            ? "rowrow for Mac keeps this server up to date."
+            ? "rowrow for Mac keeps rowrow on this machine up to date."
             : "Runs from a checkout: update it with git pull."}
         </p>
       ) : null}
@@ -103,7 +100,7 @@ function AppUpdate({ bridge }: { bridge: AppBridge }) {
     case "ready":
       return (
         <Line action={act(`Restart to update`, () => bridge.installUpdate())}>
-          {`rowrow ${view.version ?? ""} is ready: the app restarts, then updates this Mac's server.`}
+          {`rowrow ${view.version ?? ""} is ready: the app restarts, then updates rowrow on the machines it runs.`}
         </Line>
       );
     case "error":

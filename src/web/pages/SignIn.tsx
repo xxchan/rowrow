@@ -13,10 +13,10 @@ export function SignIn() {
           This browser isn't signed in. rowrow uses one-time sign-in links instead of passwords.
         </p>
         <p className="text-sm text-muted-foreground">
-          On the computer running rowrow, run <Code>rowrow open</Code> (this browser) or{" "}
+          On the machine running rowrow, run <Code>rowrow open</Code> (this browser) or{" "}
           <Code>rowrow pair</Code> (another device), or open{" "}
-          <b className="text-foreground">Settings → Pair a device</b> in a browser that is already signed in
-          and scan the code.
+          <b className="text-foreground">Settings → Sign in another device</b> in a browser that is already
+          signed in and scan the code.
         </p>
       </div>
     </div>

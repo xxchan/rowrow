@@ -99,13 +99,24 @@ test("sets this Mac up, opens its server signed in, and counts what needs you", 
     // No title bar (D-057): the server's page knows it's in the app and leaves the buttons room.
     await expect(again.locator("html")).toHaveAttribute("data-chrome", "mac");
     await shoot(again, "server");
+
+    // The sidebar's first row switches machines (D-059): the app's, through window.rowrowApp.
+    await again.getByRole("button", { name: /^Machine: This Mac/ }).click();
+    const menu = again.getByRole("menu");
+    await expect(menu.getByRole("menuitemradio", { name: /This Mac/ })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await shoot(again, "switcher");
+    await menu.getByRole("menuitem", { name: "Manage machines…" }).click();
+    await expect(home.getByRole("heading", { name: "Machines" })).toBeVisible();
   } finally {
     await app.close();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("adds a server by its sign-in link", async () => {
+test("adds a machine by its sign-in link", async () => {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-desktop-e2e-")));
   // A server of its own, not the app's: started here, in the background.
   const serve = await import("node:child_process").then(({ spawn }) =>

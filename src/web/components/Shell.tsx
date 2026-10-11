@@ -3,7 +3,8 @@
 // finished unseen; below it, workspaces hold their agents, and linked worktrees nest under
 // their repository; archived workspaces wait folded at the bottom (D-047). On a phone the
 // nav is a sheet, opened from each page's header (PageHeader), which shows how many
-// agents need you. Coach (D-044) opens from every page's header and sits beside the page.
+// agents need you. Coach (D-044) opens from every page's header and sits beside the page. The
+// nav's first row names this machine; in rowrow for Mac it switches between machines (D-059).
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Kbd } from "@/components/ui/kbd";
@@ -49,6 +50,7 @@ import { openCoachTask, useCoach } from "../lib/coach.ts";
 import { CoachButton, CoachDock } from "./Coach.tsx";
 import { CommandMenu, needsYou, useCommandMenu } from "./CommandMenu.tsx";
 import { ConnectionBanner } from "./ConnectionBanner.tsx";
+import { MachineSwitcher } from "./Machines.tsx";
 import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
 import { ShortcutsDialog, useShortcuts } from "./ShortcutsDialog.tsx";
 import { UpdateBanner } from "./UpdateBanner.tsx";
@@ -80,7 +82,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             <SheetContent side="left" className="w-[86vw] max-w-80 gap-0 border-sidebar-border p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <SheetDescription className="sr-only">Agents and workspaces</SheetDescription>
-              <Nav route={route} />
+              <Nav route={route} sheet />
             </SheetContent>
           </Sheet>
         ) : (
@@ -170,7 +172,8 @@ export function PageHeader({
   );
 }
 
-function Nav({ route }: { route: Route }) {
+/** `sheet`: in the phone's sheet, whose close button sits at the first row's right end. */
+function Nav({ route, sheet = false }: { route: Route; sheet?: boolean }) {
   const state = useApp((s) => s.state) as AppState;
   const openNewAgent = useNewAgent((s) => s.open);
   const agents = useMemo(
@@ -290,18 +293,17 @@ function Nav({ route }: { route: Route }) {
       aria-label="Agents and workspaces"
       className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground"
     >
-      <div data-titlebar data-traffic-lights className="flex items-center gap-2.5 px-3 pt-3 pb-2">
-        <RouterLink href="/" className="flex min-w-0 items-center gap-2.5 rounded-md">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <RowrowMark />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm leading-4 font-semibold text-foreground">
-              {appName(state.settings.instanceName)}
-            </span>
-            <span className="block truncate text-[11px] text-muted-foreground">{state.host.name}</span>
-          </span>
-        </RouterLink>
+      <div
+        data-titlebar
+        data-traffic-lights
+        className={cn("flex items-center gap-2.5 px-3 pt-3 pb-2", sheet && "pr-11")}
+      >
+        {/* In rowrow for Mac, the machines it knows (D-059). */}
+        <MachineSwitcher
+          appName={appName(state.settings.instanceName)}
+          hostName={state.host.name}
+          mark={<RowrowMark />}
+        />
       </div>
       <div className="px-3 pb-2">
         <Button size="sm" className="w-full" onClick={() => openNewAgent({})}>

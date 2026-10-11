@@ -88,7 +88,7 @@ export interface DesktopApi {
   setUpLocal(): Promise<void>;
   /** A machine over SSH: put a server there (VS Code's Remote-SSH, for rowrow). */
   addSsh(destination: string, name: string | null): Promise<{ id: string }>;
-  /** A server you can reach, by the sign-in link `rowrow pair` or Pair a device gives. */
+  /** A machine that runs rowrow, by the sign-in link `rowrow pair` (or Sign in another device) gives there. */
   addLink(link: string, name: string | null): Promise<{ id: string }>;
   open(serverId: string): Promise<void>;
   remove(serverId: string): Promise<void>;

@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     setQuitting,
   });
   shell = new Shell({ config, store, windows, bundles, local, log, notifications, updater: () => updater });
-  registerIpc(shell, log, (url) => windows.isServerPage(url));
+  registerIpc(shell, log, windows);
 
   const actions: MenuActions = {
     openServer: (id) => void current().open(id),

@@ -46,7 +46,8 @@ Server
   rowrow serve [--port ${DEFAULT_PORT}] [--host 127.0.0.1] [--profile default] [--public-url URL]
                [--tls-cert FILE --tls-key FILE] [--test-runtime] [--idle-timeout 30m] [--open]
   rowrow open                      sign this machine's browser in and open rowrow
-  rowrow pair [name]               a one-time sign-in link for another device (show it as a QR code)
+  rowrow pair [name]               a one-time link that signs another device (a phone, a browser,
+                                   rowrow for Mac) in to this machine, to steer its agents
   rowrow status                    server, live runs, connected clients, recent problems
   rowrow version                   this rowrow's version, and how it was installed
 

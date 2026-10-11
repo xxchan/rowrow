@@ -1,5 +1,5 @@
-// Adding a server: a host over SSH (the app puts rowrow's server there), or a server you can
-// reach, by its sign-in link.
+// Adding a machine (D-059): one over SSH (the app puts rowrow there), or one that runs rowrow
+// already, by a sign-in link from it.
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +22,7 @@ export function AddServer({ state, kind }: { state: ShellState; kind: "ssh" | "l
           <ChevronLeft />
         </Button>
         <h2 id="add" className="text-lg font-semibold">
-          {kind === "ssh" ? "Add an SSH host" : kind === "link" ? "Sign in to a server" : "Add a server"}
+          {kind === "ssh" ? "Add an SSH host" : kind === "link" ? "Sign in to a machine" : "Add a machine"}
         </h2>
       </div>
       {kind === "ssh" ? (
@@ -38,7 +38,7 @@ export function AddServer({ state, kind }: { state: ShellState; kind: "ssh" | "l
           >
             <span className="block text-sm font-semibold">A machine over SSH</span>
             <span className="mt-1 block text-sm text-muted-foreground">
-              rowrow puts its server there and runs it.
+              rowrow installs itself there and keeps it running.
             </span>
           </button>
           <button
@@ -46,8 +46,8 @@ export function AddServer({ state, kind }: { state: ShellState; kind: "ssh" | "l
             className="rounded-xl border bg-card p-4 text-left hover:bg-accent"
             onClick={() => go("/add/link")}
           >
-            <span className="block text-sm font-semibold">A server you can reach</span>
-            <span className="mt-1 block text-sm text-muted-foreground">Sign in with its link.</span>
+            <span className="block text-sm font-semibold">A machine that runs rowrow</span>
+            <span className="mt-1 block text-sm text-muted-foreground">Sign in with a link from it.</span>
           </button>
           {state.localSupported && !state.servers.some((s) => s.kind === "local") && (
             <button
@@ -97,7 +97,7 @@ function SshForm() {
         <p className="text-xs text-muted-foreground">
           rowrow uses your ssh: <code className="font-mono">~/.ssh/config</code>, your keys and agent,
           ProxyJump. The host must let <code className="font-mono">ssh &lt;host&gt;</code> in without a
-          password prompt (run it once in a terminal to trust its key). rowrow installs its server in{" "}
+          password prompt (run it once in a terminal to trust its key). rowrow installs itself in{" "}
           <code className="font-mono">~/.rowrow</code> there (Linux x64 or arm64, or an Apple silicon Mac) and
           keeps it running with systemd or launchd.
         </p>
@@ -147,16 +147,16 @@ function LinkForm() {
           onChange={(event) => setLink(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          On the machine running rowrow, <code className="font-mono">rowrow pair</code> prints one; in rowrow
-          on a device that's signed in, it's under Settings → Pair a device. A link works once, for 10
-          minutes. This Mac then shows up there as a device you can revoke.
+          On that machine, <code className="font-mono">rowrow pair</code> prints one; so does Settings → Sign
+          in another device in its rowrow, on a device signed in to it. A link works once, for 10 minutes.
+          This Mac then shows up there as a signed-in device you can revoke.
         </p>
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="link-name">Name (optional)</Label>
         <Input
           id="link-name"
-          placeholder="the server's name"
+          placeholder="the machine's name"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />

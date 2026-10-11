@@ -13,6 +13,12 @@ file when something lands.
   arrow keys, or double-click it for the default width. Each width is kept on this device in
   pixels (other tabs follow, reloads keep it); a narrower window takes from the side panel, and
   the conversation always keeps 360 px.
+- **Machines, and the switcher** (D-059): where agents run is a *machine* everywhere you read it,
+  and Settings → Signed-in devices → Sign in another device signs a phone or browser in (its
+  dialog says that isn't how you add a machine). In the Mac app, the sidebar's first row is a
+  machine switcher (each machine's status, how many agents need you on the others, Add a
+  machine…, Manage machines…) and Settings has Machines; the welcome page no longer sends you to
+  Pair a device. In the iOS app: not yet.
 - **Transcript search** (D-055): a search button in an agent's header (or ⌘F) opens a bar above
   the conversation that finds your messages, its answers and its tool calls' input and output
   in all of its history, on the server: You / Agent / Tool toggles with counts (roamgate's),
