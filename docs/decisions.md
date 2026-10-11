@@ -1766,3 +1766,74 @@ machine whose page predates it simply doesn't show it; the app's menus stay the 
 from their own accounts: on iOS, Settings → Servers and the inbox's title, where it would go), a
 machine's page should do more of what the app's page does, or the CLI's words for its own
 commands ("Server", `rowrow serve`) start to confuse people too.
+
+## D-060 Adding a machine: `rowrow up` there, pick it in the Mac app, type its code (2026-10-11)
+
+**Context.** powerfool found adding a remote machine clunky. SSH works (D-033), but a machine the
+Mac doesn't reach over SSH needed `rowrow serve --host 0.0.0.0 --public-url …` in a terminal,
+then `rowrow pair`, then a long link carried over into the Mac app's Paste a sign-in link. And
+`--host 0.0.0.0` on a machine with a public address puts rowrow on the internet.
+
+**Decision.**
+
+- **`rowrow up`, on the machine** (`npx rowrow up` too: a service can't run from npx's cache, so
+  it installs rowrow with `npm install -g` first and runs that one's `up`). It makes sure rowrow
+  runs there as a service (`rowrow service install`'s) other devices can reach: none yet, it
+  installs one with `--host private`; one on loopback is reinstalled with its other flags and
+  `--host private` (not while an agent is mid-turn: exit code 75, as `--if-idle`); one already
+  set up to be reached (another `--host`, or a `--public-url`, say behind `tailscale serve`) is
+  left as it is. On Linux it turns lingering on for your user, so the service outlives your SSH
+  session (or says how, when it may not). Then it prints the machine's name, the addresses
+  other devices reach it at (Tailscale's name and address first, then the LAN's, each saying
+  whether it's encrypted), a pairing code, and a QR code of a sign-in link for a phone. Again: a
+  fresh code.
+- **`--host private`**: listen on every interface, and close any connection that doesn't come
+  from loopback, a LAN (RFC 1918, IPv6 unique-local), link-local, or 100.64.0.0/10 (Tailscale's)
+  before reading a byte of it. So "your devices, not the internet" holds on a cloud VM with a
+  public address and no firewall, and still holds when interfaces come and go (Tailscale coming
+  up after rowrow at login: there's no address to bind to before that). A device credential
+  stays required on every request (D-009): this is a second wall, not the door.
+- **Tailscale first, then the LAN, over plain HTTP.** Over Tailscale (WireGuard) nobody between
+  the two devices can read anything; on a LAN plain HTTP can be read by that network, and `rowrow
+  up` says so where it prints the address. Not `tailscale serve`, which would give HTTPS: it
+  needs HTTPS certificates turned on for the tailnet (a consent page in Tailscale's admin console
+  the first time) and, on Linux, root or `tailscale set --operator`, so it can't be set up
+  unattended. A service you put behind it (with `--public-url`) is kept and listed first. A
+  server listening on every interface without `--public-url` makes its sign-in links at its
+  first address, looked up again at each link.
+- **Pairing codes** (`devices.pairingCode`, `POST /auth/pair`): 8 characters from 31 without
+  look-alikes, shown as ABCD-EFGH (about 8.5 × 10^11), traded for a device credential exactly
+  as a link's code is (an app gets a bearer token, a browser the session cookie). One code at a
+  time (a new one replaces the last), 10 minutes, once; 5 wrong tries end it; past 20 wrong
+  tries in 10 minutes the server checks no code at all until they age out, and tries while it
+  refuses count too: at most about 3,000 guesses a day, under one chance in 10^8. Kept in
+  memory (a restart ends the code). Links stay for QR codes and pasting: their 144 bits need no
+  limit. A browser's sign-in page takes a code too.
+- **Advertised on the LAN** while the server listens beyond loopback: DNS-SD over multicast DNS,
+  `_rowrow._tcp`, TXT `id`, `name`, `version` and `port`, from a small responder of our own on
+  `multicast-dns` (avahi isn't on every Linux, and an advertisement that fails must never stop
+  the server), under a host name of its own (`rowrow-srv-….local`), never the machine's.
+  `/healthz` says the server's id too (`srv_…`, made once per profile).
+- **rowrow for Mac's Add a machine** lists what it finds while it's open, looking again every
+  few seconds: answers to an mDNS query for `_rowrow._tcp` (2.5 s; the address on one of this
+  Mac's subnets), and, when Tailscale's CLI answers on this Mac, the tailnet's online computers
+  that answer `/healthz` on rowrow's port (2 s each, all at once). One row per server (by id),
+  over Tailscale when it's found both ways; Added when the app has it. Pick one, type the code,
+  and it's a machine like one added by link. An address can be typed instead; SSH and Paste a
+  sign-in link stay. The app's Info.plist says why it uses the local network, which macOS asks
+  about.
+
+**Why.** One command where the agents will run and a code short enough to read across the room
+is about the least a person can do without an account or a relay in between (PRINCIPLES.md,
+product 7). Finding the machine removes the other thing people get wrong: the address. Every
+piece is a fallback for the next one: no Tailscale, the LAN; no discovery, an address; no code,
+a link.
+
+**Cost.** Someone on your network can keep codes from working while they keep guessing (links
+still work). On a LAN without Tailscale, what you send and see can be read on that network.
+100.64.0.0/10 is carrier-grade NAT's range too: behind one, the carrier's other customers count as
+private. `npx rowrow up` needs a writable npm global prefix.
+
+**Revisit when** `tailscale serve` can be set up unattended (then HTTPS by default over
+Tailscale), the iOS app should take a code or find machines itself, or people run rowrow on
+networks they don't trust (TLS by default, with the code checking the certificate).

@@ -6,7 +6,8 @@ server on the machines it set up. Agents run on the machines, never in the app: 
 windows or quit it and every agent keeps working (PRINCIPLES.md, product 2). The decisions
 behind it are D-030 (an Electron window onto each server's own web app), D-031 (updates from
 GitHub Releases), D-032 (server bundles, and one service per profile shared with the CLI), D-033
-(hosts over SSH) and D-059 (machines and devices, and the machine switcher).
+(hosts over SSH), D-059 (machines and devices, and the machine switcher) and D-060 (`rowrow up`,
+finding machines, pairing codes).
 
 ## Two setups
 
@@ -18,9 +19,8 @@ When you first open it, the app asks where your agents run.
   it too (Settings → Sign in another device, over Tailscale or your LAN).
 - **On another machine** (the Mac is only a client). Either a machine you reach over SSH (a
   dev box, a cloud VM, a Mac mini): the app puts rowrow's server there and keeps it running,
-  the way VS Code's Remote-SSH puts its server on the host. Or a machine that already runs
-  rowrow, reachable over Tailscale or your LAN: `rowrow pair` there prints a link that signs
-  the app in.
+  the way VS Code's Remote-SSH puts its server on the host. Or a machine on your network or
+  tailnet: `npx rowrow up` there, then pick it in the app and type the code it printed (below).
 
 Both can be true at once: the app holds any number of machines, one window each.
 
@@ -38,6 +38,34 @@ machines with their status, this one checked; picking one brings its window forw
 machine… and Manage machines… open the app's own window. The machine's **Settings → Machines**
 lists the same machines with Open, Remove from this Mac… and a waiting upgrade's Restart now.
 The machines window (rowrow → Machines…, ⌘,) and the menu bar list them too.
+
+## Machines on your network or tailnet (D-060)
+
+On the machine, one command:
+
+```bash
+npx rowrow up          # or `rowrow up` where rowrow is installed
+```
+
+It runs rowrow there as a service (`rowrow service install`'s: it starts at login and restarts
+after a crash) that takes connections from your private networks only (`--host private`: the
+LAN, Tailscale, never the internet), and prints the machine's name, its addresses (Tailscale's
+first: encrypted; the LAN's: plain HTTP, readable on that network), a pairing code (ABCD-EFGH:
+once, for 10 minutes) and a QR code of a sign-in link for a phone. `rowrow up` again prints a new
+code. A service you set up yourself to be reached (`--host`, or `--public-url` behind `tailscale
+serve`) is left as it is.
+
+In the app, **Add a machine** lists the machines it finds, looking again every few seconds while
+it's open: rowrow servers advertising themselves on this Mac's network (mDNS, `_rowrow._tcp`, which
+a server does while it listens beyond loopback), and, when Tailscale runs on this Mac, the
+tailnet's computers that answer rowrow's `/healthz` on port 7373. Pick one, type the code, and
+it's added like any machine (a URL machine: the app holds a device credential there). Or type its
+address and the code (By its address), or paste a link from `rowrow pair` (With a sign-in link).
+A browser's sign-in page takes the same code.
+
+Finding a machine signs nothing in: only the code does, and the server limits it hard (5 wrong
+tries end a code; 20 in 10 minutes and it takes none for a while; D-060). macOS asks once whether
+rowrow may use the local network.
 
 ### Next to VS Code
 
@@ -63,6 +91,7 @@ The machines window (rowrow → Machines…, ⌘,) and the menu bar list them to
     │   ├─ Tunnel (ssh -N -L 127.0.0.1:p:127.0.0.1:7373)    the app's pages (rowrow-app://ui):
     │   └─ Connection ── /healthz, /auth/token,              welcome, machines, add, offline
     │                    notify.watch → notifications
+    ├─ discovery (mDNS _rowrow._tcp, tailscale status → /healthz): Add a machine's list
     ├─ Updater (electron-updater, GitHub Releases)
     └─ menus, menu bar (who needs you), Dock badge
 ```
@@ -90,10 +119,11 @@ The machines window (rowrow → Machines…, ⌘,) and the menu bar list them to
 - **The credential**: the app pairs with each server like the iOS app (a one-time code traded
   for a bearer token at `POST /auth/token`, device kind `app`, named "rowrow for Mac (<name>)").
   It mints the code itself where it can (`rowrow pair` on this Mac or over SSH); a URL server
-  takes a link from you. A server from before `/auth/token` is signed into through its
-  `/auth/redeem` page, in the window's session, and the app uses that cookie. Revoke it on the
-  server (Settings → Signed-in devices) and the app signs in again where it can mint a code, or says it
-  was signed out.
+  takes the pairing code `rowrow up` shows there (`POST /auth/pair`, D-060), or a link from
+  you. A server from before `/auth/token` is signed into through its `/auth/redeem` page, in
+  the window's session, and the app uses that cookie. Revoke it on the server (Settings →
+  Signed-in devices) and the app signs in again where it can mint a code, or says it was
+  signed out.
 - **Notifications** come from `notify.watch` (D-030): the server decides what to say and when,
   exactly as for Web Push (after a short delay, and not to a device with a focused window), and
   the app shows it as a macOS notification with Reply and Mark as Seen. When an agent is seen
@@ -232,12 +262,13 @@ The app reads these (none is needed by a packaged app):
 | Variable | |
 | --- | --- |
 | `ROWROW_HOME` | as everywhere (`~/.rowrow`) |
-| `ROWROW_DESKTOP_PROFILE`, `ROWROW_DESKTOP_PORT` | the profile the app runs on this Mac and SSH hosts, and a port for a profile other than `default` |
+| `ROWROW_DESKTOP_PROFILE`, `ROWROW_DESKTOP_PORT` | the profile the app runs on this Mac and SSH hosts, and a port for a profile other than `default` (also where Add a machine asks tailnet machines for rowrow) |
 | `ROWROW_DESKTOP_SUPERVISOR=child` | the server as the app's child process, not a launchd service |
 | `ROWROW_DESKTOP_SERVER`, `ROWROW_DESKTOP_NODE` | the server to run: a bundle, or a checkout with the Node to run it |
 | `ROWROW_DESKTOP_TEST_RUNTIME=1` | serve with the scripted runtime |
 | `ROWROW_DESKTOP_BUNDLES` | directories of `rowrow-server-<v>-<target>.tar.gz` to upload to SSH hosts before asking GitHub |
 | `ROWROW_DESKTOP_SSH` | the `ssh` to run (a wrapper with its own config, for tests) |
+| `ROWROW_DESKTOP_TAILSCALE` | the Tailscale CLI to ask for the tailnet's machines (a stand-in, for tests) |
 | `ROWROW_DESKTOP_UPDATE_URL` | a directory with `latest-mac.yml` to update from, instead of GitHub Releases |
 | `ROWROW_DESKTOP_USER_DATA` | the app's data (and logs), instead of `~/Library/Application Support/rowrow` |
 | `ROWROW_DESKTOP_MOCK_KEYCHAIN=1` | with `ROWROW_DESKTOP_USER_DATA`: a stand-in for the Keychain (tests of a packaged app) |
@@ -245,11 +276,12 @@ The app reads these (none is needed by a packaged app):
 | `ROWROW_DESKTOP_NO_MOVE=1` | don't offer to move the app to /Applications |
 
 Where to look: the app's log is `~/Library/Logs/rowrow/desktop.jsonl` (Help → Show the App's
-Log): `desktop.host.*`, `desktop.connection.*`, `desktop.tunnel.*`, `desktop.update.*`. A
+Log): `desktop.host.*`, `desktop.connection.*`, `desktop.tunnel.*`, `desktop.update.*`,
+`desktop.discover.*`. A
 server's own log and `rowrow logs` work as always.
 
 Tests: the pure parts (`src/desktop/*.test.ts`: planning, SSH scripts run by a real `sh`, the
-server list, what a machine's page sees and may call) and the server side (`test/desktop.test.ts`: notify.watch, and the app's
+server list, what a machine's page sees and may call, what discovery makes of what it hears) and the server side (`test/desktop.test.ts`: notify.watch, and the app's
 connection against a real server) run in `pnpm check`. `pnpm package:desktop --inspectable`
 builds an app Playwright can drive (Node's inspector left on); never ship one.
 
@@ -312,7 +344,7 @@ takes an update only when it's signed like the app that asks.
   Updates after the first download only what changed.
 - SSH hosts need key authentication (no password or 2FA prompts yet) and a glibc Linux or an
   Apple silicon Mac.
-- Reaching this Mac's server from your phone still means setting up Tailscale (or `--host`)
-  yourself; the app could offer it.
+- Reaching this Mac's server from your phone means `rowrow up` in a terminal (or Tailscale and
+  `--host` yourself); the app could offer it.
 - Nothing yet shows a server's own notifications preferences or the phone's pairing QR outside
   the web app.
