@@ -28,6 +28,23 @@ npm install -g rowrow
 rowrow service install         # again after switching Node versions
 ```
 
+### A second machine
+
+Agents on a dev box, a Mac mini or a cloud VM, steered from your laptop and phone. On that
+machine:
+
+```bash
+npx rowrow up
+```
+
+It runs rowrow there as a service that only your own networks reach (your LAN and
+[Tailscale](https://tailscale.com), never the internet), and prints its addresses, a pairing
+code (ABCD-EFGH, once, for 10 minutes) and a QR code. Then, on the device you steer from:
+rowrow for Mac → **Add a machine**, pick it, type the code; or open one of the addresses in a
+browser and type the code; or scan the QR code with your phone. `rowrow up` again for a new code.
+With Tailscale on both, the connection is encrypted and works from anywhere; on a LAN alone it's
+plain HTTP, which that network can read.
+
 ## What it is
 
 [herdr](https://herdr.dev)-style workspaces (a long-lived server owns your agents, and
@@ -49,15 +66,14 @@ go through a vendor's server are not allowed.
 
 ## On your phone
 
-With [Tailscale](https://tailscale.com):
+`rowrow up` (above) and scan its code, or **Settings → Sign in another device** on a signed-in
+browser. For push notifications on iPhone (*Add to Home Screen*), the web app needs HTTPS: with
+[Tailscale](https://tailscale.com),
 
 ```bash
 tailscale serve --bg 7373
 rowrow service install --public-url https://<machine>.<tailnet>.ts.net
 ```
-
-Then scan the code in **Settings → Sign in another device**. On iPhone, *Add to Home Screen* for
-push notifications. On a trusted LAN, `--host 0.0.0.0` also works (plain HTTP, no push).
 
 Every request needs a device credential, and anyone signed in can run commands on this
 machine: guard your pairing links.
@@ -78,11 +94,11 @@ rowrow for Mac (Apple silicon, from the [releases](https://github.com/xxchan/row
 is a window onto the machines your agents run on, and the manager of rowrow on them. Add a
 machine: **this Mac** (it installs rowrow and hands it to launchd, like
 `rowrow service install`), **one over SSH** (it puts rowrow there and keeps it running, the
-way VS Code's Remote-SSH does), or **one that already runs rowrow** (sign in with a link from
-`rowrow pair` there). The sidebar's top row switches between them. Agents keep working when the
-app is closed; it stays in the menu bar with notifications you can reply to, and keeps itself
-and rowrow on its machines up to date, waiting for agents to finish their turn before rowrow
-restarts there ([docs/desktop.md](docs/desktop.md)).
+way VS Code's Remote-SSH does), or **one on your network or tailnet** (run `npx rowrow up`
+there, pick it from the list, type its code). The sidebar's top row switches between them.
+Agents keep working when the app is closed; it stays in the menu bar with notifications you
+can reply to, and keeps itself and rowrow on its machines up to date, waiting for agents to
+finish their turn before rowrow restarts there ([docs/desktop.md](docs/desktop.md)).
 
 ## CLI
 

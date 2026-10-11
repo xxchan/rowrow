@@ -8,6 +8,11 @@ file when something lands.
 
 ## Done recently
 
+- **A second machine in one command** (D-060): `npx rowrow up` on it runs rowrow as a service
+  your LAN and Tailscale reach (`--host private`: never the internet) and prints its addresses,
+  a pairing code and a QR code; rowrow for Mac's Add a machine lists the machines it finds (mDNS
+  on this network, Tailscale peers that answer rowrow) and adds one with that code. A browser's
+  sign-in page takes the code too. In the iOS app: the QR code, as before.
 - **Resizable side panels** (D-058): a divider you can see and grab between the conversation and
   the inspector, between Files' tree and its preview, and beside pinned Coach: drag it, use the
   arrow keys, or double-click it for the default width. Each width is kept on this device in

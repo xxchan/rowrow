@@ -319,15 +319,25 @@ message says what to do next.
 
 ## Auth and remote access
 
-- The server binds to `127.0.0.1` by default. `--host` exposes it; `--tls-cert/--tls-key`
-  serve HTTPS directly, or put it behind `tailscale serve` or a tunnel. Service workers
-  and Web Push need HTTPS (or localhost).
+- The server binds to `127.0.0.1` by default. `--host` exposes it; `--host private` (what
+  `rowrow up` installs, D-060) listens on every interface but closes connections from outside
+  loopback, the LAN, link-local and Tailscale's 100.64.0.0/10 before reading them.
+  `--tls-cert/--tls-key` serve HTTPS directly, or put it behind `tailscale serve` or a tunnel.
+  Service workers and Web Push need HTTPS (or localhost).
+- Listening beyond loopback, the server advertises itself on the LAN (mDNS `_rowrow._tcp`:
+  its name, version, port and id, `server/advertise.ts`). On every interface, its sign-in links
+  use the first address other devices reach (Tailscale's, then the LAN's; `shared/reach.ts`)
+  unless `--public-url` says otherwise.
 - Every request needs a device credential, even from loopback: a tunnel or proxy makes
   remote requests look local. Browsers hold an HttpOnly session cookie; the CLI and the
   iOS app hold a bearer token (the app in the Keychain). Tokens are stored hashed.
 - New browsers sign in with a one-time link: `rowrow open` mints one for this machine,
   and **Sign in another device** (Settings) shows one as a QR code for your phone. The iOS app scans the same
   code and trades it for a token (`POST /auth/token`). There are no passwords.
+- Or a device types a pairing code (`rowrow up` prints one; `devices.pairingCode`): 8
+  characters, one at a time, 10 minutes, once, traded at `POST /auth/pair` for a token (rowrow
+  for Mac) or the cookie (a browser's sign-in page). Being short, it's limited hard (5 wrong
+  tries end it; past 20 in 10 minutes none is checked; `auth/pairing.ts`, D-060).
 - WebSocket upgrades must come from the server's own origin.
 
 ## Workspaces and git
