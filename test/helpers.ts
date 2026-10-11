@@ -40,6 +40,8 @@ export async function startTestServer(
     kitFile?: string;
     webDir?: string;
     extraRuntimes?: readonly Runtime[];
+    /** `private` to listen as `rowrow up` has it (D-060); 127.0.0.1 otherwise. */
+    host?: string;
   } = {},
 ): Promise<TestServer> {
   const home = options.home ?? fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-test-"));
@@ -47,8 +49,10 @@ export async function startTestServer(
     {
       home,
       profile: "test",
-      host: "127.0.0.1",
+      host: options.host ?? "127.0.0.1",
       port: 0,
+      // Never on the test machine's LAN.
+      advertise: false,
       testRuntime: true,
       probeRuntimes: false,
       idleTimeoutMs: options.idleTimeoutMs ?? 60_000,

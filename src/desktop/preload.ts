@@ -23,6 +23,8 @@ if (location.protocol === "rowrow-app:" && location.host === "ui") {
     setUpLocal: () => call("setUpLocal"),
     addSsh: (destination, name) => call("addSsh", destination, name),
     addLink: (link, name) => call("addLink", link, name),
+    discover: () => call("discover"),
+    addByCode: (address, code, name) => call("addByCode", address, code, name),
     open: (serverId) => call("open", serverId),
     remove: (serverId) => call("remove", serverId),
     rename: (serverId, name) => call("rename", serverId, name),

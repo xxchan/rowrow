@@ -5,7 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { newId } from "../shared/ids.ts";
+import { listensEverywhere } from "../shared/reach.ts";
 import { appName, DEFAULT_SETTINGS, type HostInfo } from "../shared/schemas.ts";
+import { advertise } from "./advertise.ts";
 import { AgentLog } from "./agents/log.ts";
 import { Runtimes } from "./agents/runtimes.ts";
 import { TranscriptSearches } from "./agents/search.ts";
@@ -28,6 +31,7 @@ import { LiveNotices } from "./notify/live.ts";
 import { needingYou, Notifier } from "./notify/notifier.ts";
 import { Presence } from "./notify/presence.ts";
 import { Push } from "./notify/push.ts";
+import { findAddresses, machineName } from "./reach.ts";
 import { augmentPathFromLoginShell } from "./shell-env.ts";
 import { SettingsService } from "./settings.ts";
 import { StateStore } from "./state/store.ts";
@@ -41,7 +45,10 @@ import { detectInstall, npmRegistry, UpdateChecker } from "./updates.ts";
 
 export interface RunningServer {
   readonly url: string;
-  /** What people open: `publicUrl` when set, else `url`. */
+  /**
+   * What people open: `publicUrl` when set; else, listening on every interface, the address
+   * other devices reach first (Tailscale, then the LAN); else `url`.
+   */
   readonly publicUrl: string;
   readonly dataDir: string;
   /** A fresh one-time sign-in link for a browser. */
@@ -66,6 +73,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 /** Oar records are packed once they are this old (D-041): a live agent's newest stay rows. */
 const PACK_AFTER_MS = 2 * 60_000;
 const PACK_EVERY_MS = 5 * 60_000;
+
+/** The server's id (D-060): made once per profile, so it stays the same across restarts and upgrades. */
+function readServerId(file: string): string {
+  try {
+    const id = fs.readFileSync(file, "utf8").trim();
+    if (/^srv_[0-9a-z]+$/.test(id)) return id;
+  } catch {
+    // none yet
+  }
+  const id = newId("srv");
+  fs.writeFileSync(file, `${id}\n`, { mode: 0o600 });
+  return id;
+}
 
 export function readVersion(): string {
   return (JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as { version: string })
@@ -101,6 +121,8 @@ export async function startServer(
     node: process.version,
   });
 
+  const serverId = readServerId(paths.idFile);
+  const exposed = !isLoopback(options.host);
   const db = new Db(paths.db);
   const devices = new Devices(db);
   const builtins = devices.rotateBuiltins();
@@ -123,7 +145,8 @@ export async function startServer(
     oar: oarVersion(),
     dataDir: paths.dir,
     url: publicUrl,
-    exposed: !isLoopback(options.host),
+    exposed,
+    listen: options.host,
     pushKey: push.publicKey,
     update: updates?.current ?? null,
     apns: apns.configured,
@@ -319,7 +342,17 @@ export async function startServer(
     git,
     commands,
     uploadsDir: paths.uploads,
-    loginUrl: (code) => `${publicUrl}/auth/redeem?code=${code}`,
+    loginUrl: async (code) => {
+      // Tailscale may have come up since the server started (both start at login).
+      const reachable = await reachableUrl();
+      if (reachable !== publicUrl) {
+        publicUrl = reachable;
+        state.update("host", (draft) => {
+          draft.host = host();
+        });
+      }
+      return `${publicUrl}/auth/redeem?code=${code}`;
+    },
     refreshRuntimes: async () => {
       await runtimes.refresh(syncRuntimes);
     },
@@ -333,6 +366,7 @@ export async function startServer(
     coachTokens,
     host: options.host,
     port: options.port,
+    serverId,
     ...(options.tls === undefined ? {} : { tls: options.tls }),
     ...(options.webDir === undefined ? {} : { webDir: options.webDir }),
     kitFile: options.kitFile ?? path.join(root, "dist/kit/kit.js"),
@@ -340,8 +374,20 @@ export async function startServer(
     version,
   });
   url = http.url;
-  publicUrl = (options.publicUrl ?? url).replace(/\/$/, "");
   const localUrl = (): string => url.replace(/\/\/(0\.0\.0\.0|\[::\])/, "//127.0.0.1");
+  // On every interface, the address others reach first; on one, that one.
+  const reachableUrl = async (): Promise<string> =>
+    options.publicUrl?.replace(/\/$/, "") ??
+    (listensEverywhere(options.host)
+      ? (await findAddresses(http.port, options.tls !== undefined))[0]?.url
+      : undefined) ??
+    localUrl();
+  publicUrl = await reachableUrl();
+  // Found on the LAN by rowrow for Mac while it listens beyond loopback (D-060).
+  const advertisement =
+    exposed && options.advertise !== false
+      ? advertise({ id: serverId, name: machineName(), version, port: http.port })
+      : null;
   state.update("host", (draft) => {
     draft.host = host();
   });
@@ -420,7 +466,7 @@ export async function startServer(
         clearInterval(pruneTimer);
         if (packTimer !== null) clearInterval(packTimer);
         workspaces.close();
-        await Promise.all([agents.shutdown(), commands.close()]);
+        await Promise.all([agents.shutdown(), commands.close(), advertisement?.stop()]);
         await http.close();
         try {
           const current = JSON.parse(fs.readFileSync(paths.serverFile, "utf8")) as ServerFile;

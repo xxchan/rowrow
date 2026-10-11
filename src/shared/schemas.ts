@@ -43,6 +43,11 @@ export const HostInfo = z.object({
   dataDir: z.string(),
   url: z.string().describe("Where the server listens."),
   exposed: z.boolean().describe("Listening on a non-loopback address."),
+  listen: z
+    .string()
+    .describe(
+      "Where it listens (--host): an address, 0.0.0.0 (every interface), or private (every interface, connections from private networks only: D-060).",
+    ),
   pushKey: z.string().nullable().describe("The VAPID public key for Web Push subscriptions."),
   update: UpdateInfo.nullable().describe(
     "A newer rowrow is on npm (checked on start, then twice a day; off with settings.checkForUpdates). null when up to date, unknown, or not checked.",
@@ -554,6 +559,12 @@ export const LoginLink = z.object({
   expiresAt: z.number(),
 });
 export type LoginLink = z.infer<typeof LoginLink>;
+
+export const PairingCode = z.object({
+  code: z.string().describe("8 characters, shown as ABCD-EFGH; typed in any case, with or without the dash."),
+  expiresAt: z.number(),
+});
+export type PairingCode = z.infer<typeof PairingCode>;
 
 /** What notify.watch streams to an app that stays connected (the Mac app, D-030). */
 export const Notice = z.discriminatedUnion("kind", [

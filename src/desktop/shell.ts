@@ -7,9 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import { app, dialog, shell } from "electron";
 import type { Notice } from "../shared/schemas.ts";
-import type { DesktopApi, HostAction, LocalFound, ShellState } from "./api.ts";
-import { redeemCode } from "./connection.ts";
+import type { DesktopApi, HostAction, LocalFound, NearbyMachine, ShellState } from "./api.ts";
+import { pairWithCode, redeemCode } from "./connection.ts";
 import { deviceName, ServerController, type ControllerDeps } from "./controller.ts";
+import { browseLan, discover, fetchHealth, parseAddress, tailnetStatus } from "./discovery.ts";
 import { cliError, type Host } from "./hosts.ts";
 import { serializeError } from "./log.ts";
 import type { Notifications } from "./notifications.ts";
@@ -33,6 +34,8 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
   private readonly listeners = new Set<(state: ShellState) => void>();
   private localFound: LocalFound | null = null;
   private emitting = false;
+  /** A look for nearby machines under way: pages that ask meanwhile get the same one. */
+  private looking: Promise<NearbyMachine[]> | null = null;
 
   constructor(deps: ShellDeps) {
     this.d = deps;
@@ -221,22 +224,71 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
       (await redeemCode(parsed.origin, parsed.code, deviceName())) ??
       (await this.d.windows.redeemInBrowser(id, parsed.origin, parsed.code));
     if (token === null) throw new Error("that machine didn't sign this app in");
+    return this.addUrl(id, parsed.origin, token, name);
+  }
+
+  async discover(): Promise<readonly NearbyMachine[]> {
+    this.looking ??= discover({
+      browse: () => browseLan(),
+      tailnet: () => tailnetStatus(this.d.config.tailscale),
+      health: (origin) => fetchHealth(origin),
+      local: Object.values(os.networkInterfaces())
+        .flat()
+        .filter((entry) => entry !== undefined && entry.family === "IPv4" && !entry.internal)
+        .map((entry) => ({ address: entry?.address ?? "", netmask: entry?.netmask ?? "" })),
+      port: this.d.config.port,
+      known: new Map(
+        this.d.store
+          .list()
+          .filter((s) => s.kind === "url" && s.url !== null)
+          .map((s) => [s.url ?? "", s.id]),
+      ),
+    }).finally(() => {
+      this.looking = null;
+    });
+    const found = await this.looking;
+    this.d.log.info("desktop.discover.found", {
+      machines: found.length,
+      lan: found.filter((m) => m.via === "lan").length,
+      tailscale: found.filter((m) => m.via === "tailscale").length,
+    });
+    return found;
+  }
+
+  async addByCode(address: string, code: string, name: string | null): Promise<{ id: string }> {
+    const origin = parseAddress(address, this.d.config.port);
+    if (origin === null)
+      throw new Error(`"${address}" isn't an address: try devbox.your-tailnet.ts.net, or 192.168.1.20:7373`);
+    const known = this.d.store.list().find((s) => s.kind === "url" && s.url === origin);
+    const token = await pairWithCode(origin, code, deviceName());
+    this.d.log.info("desktop.add.paired", { origin });
+    return this.addUrl(known?.id ?? `srv_${Date.now().toString(36)}`, origin, token, name);
+  }
+
+  /** A machine reached by URL, signed in: stored (or its credential renewed), connected and opened. */
+  private async addUrl(
+    id: string,
+    origin: string,
+    token: string,
+    name: string | null,
+  ): Promise<{ id: string }> {
+    const known = this.d.store.get(id);
     let serverName = name?.trim() ?? "";
     if (serverName === "") {
       try {
         const info = (await (
-          await fetch(`${parsed.origin}/api/app/info`, {
+          await fetch(`${origin}/api/app/info`, {
             method: "POST",
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: "{}",
           })
         ).json()) as { name?: string };
-        serverName = info.name?.replace(/\.local$/, "") ?? new URL(parsed.origin).hostname;
+        serverName = info.name?.replace(/\.local$/, "") ?? new URL(origin).hostname;
       } catch {
-        serverName = new URL(parsed.origin).hostname;
+        serverName = new URL(origin).hostname;
       }
     }
-    if (known !== undefined) {
+    if (known !== null) {
       this.d.store.update(known.id, { token, name: serverName });
       this.controller(known.id).retry();
     } else {
@@ -246,7 +298,7 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
         kind: "url",
         profile: "default",
         destination: null,
-        url: parsed.origin,
+        url: origin,
         localPort: null,
         background: false,
         token,

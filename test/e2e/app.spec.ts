@@ -13,6 +13,19 @@ test("a signed-out browser is asked to sign in, not shown an error", async ({ pa
   await expect(page.getByRole("heading", { name: "Sign in to rowrow" })).toBeVisible();
 });
 
+test("a signed-out browser signs in with the pairing code rowrow up prints", async ({ page, rowrow }) => {
+  await page.goto(rowrow.url);
+  const code = page.getByLabel("Pairing code");
+  await code.fill("2222-2222");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("That code doesn't work")).toBeVisible();
+  await code.fill((await rowrow.client.devices.pairingCode({})).code.toLowerCase());
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+  const devices = await rowrow.client.devices.list();
+  expect(devices.some((device) => device.kind === "browser")).toBe(true);
+});
+
 test("sign in with a one-time link, create an agent, and read its answer", async ({ page, rowrow }) => {
   await rowrow.client.workspaces.add({ path: rowrow.repo() });
   await rowrow.open(page);

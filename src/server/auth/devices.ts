@@ -1,14 +1,16 @@
 // Devices and their credentials (docs/decisions.md, D-009). A device is one signed-in
 // browser, app or CLI. Its token is shown once and stored only as a SHA-256 hash. Browsers
 // get one by opening a one-time login link; the iOS app trades the same link's code for a
-// bearer token (D-026). The local CLI and the agents rowrow runs get tokens that rotate at
-// every server start (written to server.json and the agents' env).
+// bearer token (D-026). Or a device types a short pairing code instead (pairing.ts, D-060). The
+// local CLI and the agents rowrow runs get tokens that rotate at every server start (written to
+// server.json and the agents' env).
 import { createHash, randomBytes } from "node:crypto";
 import os from "node:os";
 import { newId } from "../../shared/ids.ts";
 import type { Device } from "../../shared/schemas.ts";
 import type { Db } from "../store/db.ts";
 import { log } from "../telemetry/log.ts";
+import { PairingCodes, type PairingOutcome } from "./pairing.ts";
 
 export type DeviceKind = "browser" | "app" | "cli";
 
@@ -36,9 +38,12 @@ export const AGENTS = "agents run by rowrow";
 export class Devices {
   private readonly db: Db;
   private readonly seen = new Map<string, number>();
+  /** In memory: a restart ends the code, as it would a code nobody typed in time. */
+  private readonly pairing: PairingCodes;
 
-  constructor(db: Db) {
+  constructor(db: Db, pairing = new PairingCodes()) {
     this.db = db;
+    this.pairing = pairing;
   }
 
   private mint(name: string, kind: DeviceKind): { device: DeviceRecord; token: string } {
@@ -157,6 +162,22 @@ export class Devices {
     }
     this.db.run("update login_links set used_at = ? where code_hash = ?", Date.now(), hash(code));
     return this.mint(row.name ?? as.name ?? describeBrowser(userAgent), as.kind);
+  }
+
+  /** A short code that signs one device in (D-060); it replaces the one before. */
+  createPairingCode(name?: string): { code: string; expiresAt: number } {
+    return this.pairing.create(name);
+  }
+
+  /** Trade a pairing code for a new device, named like `redeem` names it; or why not. */
+  redeemPairingCode(
+    code: string,
+    userAgent: string | undefined,
+    as: { readonly kind: "browser" | "app"; readonly name?: string },
+  ): { device: DeviceRecord; token: string } | Exclude<PairingOutcome, { ok: true }> {
+    const outcome = this.pairing.redeem(code);
+    if (!outcome.ok) return outcome;
+    return this.mint(outcome.name ?? as.name ?? describeBrowser(userAgent), as.kind);
   }
 }
 

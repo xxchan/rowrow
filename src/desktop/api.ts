@@ -81,6 +81,20 @@ export interface ShellState {
 
 export type HostAction = "start" | "stop" | "restart" | "upgrade-now" | "adopt";
 
+/** A machine running rowrow that the app found without an address from you (D-060). */
+export interface NearbyMachine {
+  /** The server's own id (srv_…); "" from a server too old to say. */
+  readonly id: string;
+  readonly name: string;
+  /** Where the app would reach it: its Tailscale name or address, or its address on this network. */
+  readonly url: string;
+  /** tailscale: encrypted end to end; lan: plain HTTP on this network. */
+  readonly via: "tailscale" | "lan";
+  readonly version: string;
+  /** The app's id for it, when the app has it already (at that address). */
+  readonly added: string | null;
+}
+
 export interface DesktopApi {
   getState(): Promise<ShellState>;
   onState(listener: (state: ShellState) => void): () => void;
@@ -90,6 +104,10 @@ export interface DesktopApi {
   addSsh(destination: string, name: string | null): Promise<{ id: string }>;
   /** A machine that runs rowrow, by the sign-in link `rowrow pair` (or Sign in another device) gives there. */
   addLink(link: string, name: string | null): Promise<{ id: string }>;
+  /** Machines running rowrow on this network and on your tailnet (Tailscale), looked for now (a few seconds). */
+  discover(): Promise<readonly NearbyMachine[]>;
+  /** A machine that runs rowrow, at an address (found, or typed), by the pairing code `rowrow up` shows there. */
+  addByCode(address: string, code: string, name: string | null): Promise<{ id: string }>;
   open(serverId: string): Promise<void>;
   remove(serverId: string): Promise<void>;
   rename(serverId: string, name: string): Promise<void>;

@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
@@ -798,6 +798,96 @@ describe("auth", () => {
       body: "{}",
     });
     expect(revoked.status).toBe(401);
+  });
+
+  const pair = (body: unknown): Promise<Response> =>
+    fetch(`${t?.server.url}/auth/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const whoami = async (headers: Record<string, string>): Promise<{ kind: string; name: string }> =>
+    (await (
+      await fetch(`${t?.server.url}/api/devices/whoami`, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: "{}",
+      })
+    ).json()) as { kind: string; name: string };
+
+  it("trades a pairing code, once, for an app's token or a browser's cookie (D-060)", async () => {
+    t = await startTestServer();
+    const health = (await (await fetch(`${t.server.url}/healthz`)).json()) as { ok: boolean; id: string };
+    expect(health).toMatchObject({ ok: true, id: expect.stringMatching(/^srv_/) });
+
+    const { code } = await t.client.devices.pairingCode({});
+    expect(code).toMatch(/^[2-9A-Z]{4}-[2-9A-Z]{4}$/);
+    // What a form on another site could send: refused before it costs a try.
+    const form = await fetch(`${t.server.url}/auth/pair`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ code, kind: "browser" }),
+    });
+    expect(form.status).toBe(415);
+    const app = await pair({
+      code: ` ${code.toLowerCase().replace("-", "")} `,
+      name: "rowrow for Mac (test)",
+    });
+    expect(app.status).toBe(200);
+    const { token } = (await app.json()) as { token: string };
+    expect(await whoami({ authorization: `Bearer ${token}` })).toMatchObject({
+      kind: "app",
+      name: "rowrow for Mac (test)",
+    });
+    const again = await pair({ code });
+    expect(again.status).toBe(400);
+    expect(((await again.json()) as { code: string }).code).toBe("INVALID_CODE");
+
+    const browserCode = await t.client.devices.pairingCode({});
+    const browser = await pair({ code: browserCode.code, kind: "browser" });
+    expect(browser.status).toBe(200);
+    const cookie = (browser.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    expect((await whoami({ cookie })).kind).toBe("browser");
+  });
+
+  it("refuses an expired pairing code", async () => {
+    t = await startTestServer();
+    const { code } = await t.client.devices.pairingCode({});
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 10 * 60_000 + 1000 });
+    try {
+      expect((await pair({ code })).status).toBe(400);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends a pairing code after 5 wrong tries, and takes no code after 20 (D-060)", async () => {
+    t = await startTestServer();
+    const { code } = await t.client.devices.pairingCode({});
+    const wrong = code.startsWith("2") ? "3333-3333" : "2222-2222";
+    for (let i = 0; i < 5; i++) expect((await pair({ code: wrong })).status).toBe(400);
+    expect((await pair({ code })).status).toBe(400);
+    for (let i = 0; i < 14; i++) await pair({ code: wrong });
+    const fresh = await t.client.devices.pairingCode({});
+    const refused = await pair({ code: fresh.code });
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+    // A sign-in link still works.
+    const link = new URL((await t.client.devices.pair({})).url);
+    expect(
+      (await fetch(`${t.server.url}/auth/redeem?${link.searchParams.toString()}`, { redirect: "manual" }))
+        .status,
+    ).toBe(302);
+  });
+
+  it("listens for private networks with --host private, and signs in at an address others reach", async () => {
+    t = await startTestServer({ host: "private" });
+    expect(t.server.url).toMatch(/^http:\/\/0\.0\.0\.0:\d+$/);
+    const local = t.server.url.replace("0.0.0.0", "127.0.0.1");
+    expect((await fetch(`${local}/healthz`)).status).toBe(200);
+    expect((await t.client.app.info()).exposed).toBe(true);
+    const link = new URL((await t.client.devices.pair({})).url);
+    expect(link.hostname).not.toBe("0.0.0.0");
   });
 
   it("refuses a WebSocket from another origin", async () => {
