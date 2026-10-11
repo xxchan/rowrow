@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Info, LoaderCircle, Plus, TriangleAlert } from "lucide-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
