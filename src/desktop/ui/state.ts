@@ -49,7 +49,7 @@ export async function run(what: string, action: () => Promise<unknown>): Promise
   }
 }
 
-/** Navigation inside the app's window: #/, #/add, #/add/ssh, #/add/link, #/offline/<id>. */
+/** Navigation inside the app's window: #/, #/add, #/add/ssh, #/add/link, #/add/code, #/offline/<id>. */
 export function go(route: string): void {
   window.location.hash = route;
 }

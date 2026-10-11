@@ -69,6 +69,14 @@ export function registerIpc(shell: Shell, log: Logger, pages: ServerPages): void
           return await shell.addSsh(z.string().max(300).parse(args[0]), optionalName.parse(args[1]));
         case "addLink":
           return await shell.addLink(z.string().max(2000).parse(args[0]), optionalName.parse(args[1]));
+        case "discover":
+          return await shell.discover();
+        case "addByCode":
+          return await shell.addByCode(
+            z.string().max(300).parse(args[0]),
+            z.string().max(40).parse(args[1]),
+            optionalName.parse(args[2]),
+          );
         case "open":
           return await shell.open(id.parse(args[0]));
         case "remove":

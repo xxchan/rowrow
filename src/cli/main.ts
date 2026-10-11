@@ -34,7 +34,7 @@ import {
 import { ATTENTION_RANK, type Attention } from "../shared/summary.ts";
 import { reduceTimeline, initialTimeline } from "../shared/timeline.ts";
 import { agentListed, workspaceArchived, workspaceLabel } from "../shared/workspaces.ts";
-import { DEFAULT_PORT, isLoopback, rowrowHome } from "../server/config.ts";
+import { DEFAULT_PORT, isLoopback, PRIVATE_HOST, rowrowHome } from "../server/config.ts";
 import { connect, resolveTarget, type Client } from "./client.ts";
 import { COACH_HELP, coachCommand } from "./coach.ts";
 import { formatLogin, formatLogout, login } from "./login.ts";
@@ -43,8 +43,15 @@ import { formatUsage } from "./usage.ts";
 const HELP = `rowrow: run a crew of coding agents and steer them from any browser.
 
 Server
+  rowrow up [--port ${DEFAULT_PORT}]          make this machine one your other devices can add: rowrow as a
+                                   service, reachable from your LAN and Tailscale only; prints its
+                                   addresses, a pairing code to type on the other device (rowrow
+                                   for Mac's Add a machine, a browser) and a QR code for a phone.
+                                   Again: a new code. Works as npx rowrow up (it installs rowrow)
   rowrow serve [--port ${DEFAULT_PORT}] [--host 127.0.0.1] [--profile default] [--public-url URL]
                [--tls-cert FILE --tls-key FILE] [--test-runtime] [--idle-timeout 30m] [--open]
+                                   --host private: every interface, but only connections from
+                                   private networks (LAN, Tailscale); 0.0.0.0: from anywhere
   rowrow open                      sign this machine's browser in and open rowrow
   rowrow pair [name]               a one-time link that signs another device (a phone, a browser,
                                    rowrow for Mac) in to this machine, to steer its agents
@@ -260,6 +267,19 @@ async function main(argv: string[]): Promise<void> {
       testRuntime: bool("test-runtime") || process.env["ROWROW_TEST_RUNTIME"] === "1",
       idleTimeoutMs: duration(str("idle-timeout"), 30 * 60_000),
       open: bool("open"),
+    });
+    return;
+  }
+
+  if (command === "up") {
+    const { up } = await import("./up.ts");
+    const { packageVersion } = await import("../server/install.ts");
+    await up({
+      profile: str("profile") ?? process.env["ROWROW_PROFILE"] ?? "default",
+      port: str("port"),
+      json,
+      argv: argv.filter((_, i) => i !== argv.indexOf("up")),
+      version: packageVersion(path.resolve(import.meta.dirname, "../..")) ?? "latest",
     });
     return;
   }
@@ -1224,7 +1244,11 @@ async function serve(options: {
   });
   const link = server.loginLink();
   console.log(`\nrowrow is running at ${server.publicUrl}  (data: ${server.dataDir})`);
-  if (!isLoopback(options.host))
+  if (options.host === PRIVATE_HOST)
+    console.log(
+      "It takes connections from your private networks only (LAN, Tailscale), and every request needs a device credential.",
+    );
+  else if (!isLoopback(options.host))
     console.log(
       "It listens beyond this machine: every request needs a device credential. Prefer HTTPS (--tls-cert/--tls-key, or tailscale serve).",
     );

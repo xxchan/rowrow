@@ -2,7 +2,7 @@
 // its notifications. Reconnects with backoff forever (PRINCIPLES.md, engineering 2: a server
 // restarting, a tunnel dropping and a Mac waking up are all the normal case), and signs in again
 // on its own where the app can mint a code (this Mac, SSH hosts). A URL server whose credential
-// stops working needs a new link from you.
+// stops working needs a new pairing code or link from you.
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { ContractRouterClient } from "@orpc/contract";
@@ -48,6 +48,39 @@ export async function redeemCode(
     body: JSON.stringify({ code, name }),
   });
   if (response.status === 404) return null;
+  const body = (await response.json().catch(() => ({}))) as { token?: string; message?: string };
+  if (!response.ok || body.token === undefined)
+    throw new Error(body.message ?? `signing in failed: HTTP ${response.status}`);
+  return body.token;
+}
+
+/**
+ * Trade a pairing code someone typed (`rowrow up` shows it) for a bearer token (POST /auth/pair,
+ * D-060). Throws what the server says: a wrong, used or expired code, or too many wrong tries.
+ */
+export async function pairWithCode(
+  origin: string,
+  code: string,
+  name: string,
+  fetcher: typeof fetch = fetch,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetcher(`${origin}/auth/pair`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, name, kind: "app" }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    throw new Error(`can't reach ${origin} (${error instanceof Error ? error.message : String(error)})`, {
+      cause: error,
+    });
+  }
+  if (response.status === 404)
+    throw new Error(
+      "rowrow on that machine is older than pairing codes: update it there, or run `rowrow pair` there and paste its link instead",
+    );
   const body = (await response.json().catch(() => ({}))) as { token?: string; message?: string };
   if (!response.ok || body.token === undefined)
     throw new Error(body.message ?? `signing in failed: HTTP ${response.status}`);
@@ -181,8 +214,8 @@ export class Connection {
     if (this.o.mintCode === null)
       throw new SignedOut(
         held === null
-          ? "not signed in yet: add it with a sign-in link"
-          : "this Mac was signed out there (its device was revoked): sign in again with a new link",
+          ? "not signed in yet: add it with a pairing code (rowrow up there) or a sign-in link"
+          : "this Mac was signed out there (its device was revoked): sign in again with a new code (rowrow up there) or link",
       );
     this.set({ kind: "connecting", detail: "Signing in" });
     const code = await this.o.mintCode();

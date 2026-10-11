@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_PORT, TAILSCALE_COMMANDS } from "../shared/reach.ts";
 import type { ServerSource } from "./hosts.ts";
 
 export interface DesktopConfig {
@@ -21,6 +22,10 @@ export interface DesktopConfig {
   readonly bundleDirs: readonly string[];
   /** The ssh to run (tests: a wrapper with its own config); the system's otherwise. */
   readonly ssh: string;
+  /** The port rowrow listens on: where the app looks for it on tailnet machines (D-060). */
+  readonly port: number;
+  /** Tailscale CLIs to try (tests: a stand-in that prints a status). */
+  readonly tailscale: readonly string[];
   /** An update feed instead of GitHub Releases (testing updates). */
   readonly updateFeed: string | null;
   readonly updates: boolean;
@@ -65,6 +70,9 @@ export function desktopConfig(options: {
     ],
     bundleDirs: (env["ROWROW_DESKTOP_BUNDLES"] ?? "").split(path.delimiter).filter((dir) => dir !== ""),
     ssh: env["ROWROW_DESKTOP_SSH"] ?? "ssh",
+    port: port === undefined || !/^\d+$/.test(port) ? DEFAULT_PORT : Number(port),
+    tailscale:
+      env["ROWROW_DESKTOP_TAILSCALE"] === undefined ? TAILSCALE_COMMANDS : [env["ROWROW_DESKTOP_TAILSCALE"]],
     updateFeed: feed,
     updates: packaged || feed !== null,
     offerMove: packaged && env["ROWROW_DESKTOP_NO_MOVE"] !== "1",

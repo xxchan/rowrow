@@ -41,6 +41,7 @@ import {
   LogEntry,
   LogFilter,
   LoginLink,
+  PairingCode,
   LoginResult,
   LogoutResult,
   ModelInfo,
@@ -689,6 +690,13 @@ const devices = {
     })
     .input(z.object({ name: z.string().max(100).optional() }))
     .output(LoginLink),
+  pairingCode: oc
+    .route({
+      summary:
+        "A short pairing code (ABCD-EFGH) that signs one device in: typed into rowrow for Mac's Add a machine or a browser's sign-in page, traded at POST /auth/pair (D-060). It replaces the code before; works once, for 10 minutes; 5 wrong tries end it. `rowrow up` prints one.",
+    })
+    .input(z.object({ name: z.string().max(100).optional() }))
+    .output(PairingCode),
   rename: oc
     .route({ summary: "Rename a device." })
     .input(z.object({ id: z.string(), name: z.string().min(1).max(100) }))

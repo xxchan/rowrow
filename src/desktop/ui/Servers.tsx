@@ -249,9 +249,18 @@ function ServerCard({ server }: { server: ServerView }) {
         </div>
       )}
       {server.status.kind === "signed-out" && server.kind === "url" && (
-        <div>
-          <Button size="sm" variant="outline" onClick={() => go("/add/link")}>
-            Sign in again with a new link
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              go(`/add/code?${new URLSearchParams({ url: server.where, name: server.name }).toString()}`)
+            }
+          >
+            Sign in again with a code
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => go("/add/link")}>
+            With a link
           </Button>
         </div>
       )}

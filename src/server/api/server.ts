@@ -1,8 +1,9 @@
 // The server's front door (docs/architecture.md, "API" and "Auth and remote access"):
 //
-//   GET  /healthz             liveness, no auth
+//   GET  /healthz             liveness, no auth: rowrow's version and this server's id
 //   GET  /auth/redeem?code=…  one-time login link → session cookie → the app
 //   POST /auth/token          the same link's code → a bearer token, for the iOS app (D-026)
+//   POST /auth/pair           a typed pairing code → a bearer token (apps) or the cookie (browsers), D-060
 //   POST /auth/logout         sign this browser out
 //   GET  /kit.js              src/shared's folds for the iOS app to run (D-027), no auth: it's code
 //   GET  /rpc  (Upgrade)      the WebSocket every browser uses (oRPC)
@@ -12,7 +13,8 @@
 //                             browser gets its page and manifest under this server's name
 //
 // Every request to a procedure needs a device credential: the session cookie or a bearer
-// token (D-009). A WebSocket must also come from this server's own origin.
+// token (D-009). A WebSocket must also come from this server's own origin. With `--host
+// private` (D-060), a connection from outside your private networks is closed before any of it.
 import { OpenAPIGenerator } from "@orpc/openapi";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { RPCHandler as FetchRPCHandler } from "@orpc/server/fetch";
@@ -25,12 +27,13 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import http, { type IncomingMessage } from "node:http";
 import https from "node:https";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
 import { contract } from "../../shared/contract.ts";
 import type { Actor } from "../../shared/entries.ts";
+import { isPrivateAddress, PRIVATE_HOST, type Health } from "../../shared/reach.ts";
 import type { DeviceRecord, Devices } from "../auth/devices.ts";
 import type { CoachTokens } from "../coach/tokens.ts";
 import type { Presence } from "../notify/presence.ts";
@@ -51,8 +54,11 @@ export interface HttpOptions {
   readonly agentDeviceId: string;
   /** The tokens of Coach's runs (D-044): the router lets them only read and propose (D-045). */
   readonly coachTokens?: CoachTokens;
+  /** An interface's address, or `private` (every interface, only private networks' connections). */
   readonly host: string;
   readonly port: number;
+  /** This server's id (srv_…), at /healthz. */
+  readonly serverId: string;
   readonly tls?: { readonly cert: string; readonly key: string };
   readonly webDir?: string;
   /** The kit (dist/kit/kit.js), when built. */
@@ -108,7 +114,9 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
     c.header("X-Frame-Options", "DENY");
   });
 
-  app.get("/healthz", (c) => c.json({ ok: true, version: options.version }));
+  app.get("/healthz", (c) =>
+    c.json({ ok: true, version: options.version, id: options.serverId } satisfies Health),
+  );
 
   app.get("/auth/redeem", (c) => {
     const code = c.req.query("code") ?? "";
@@ -162,6 +170,67 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
         400,
       );
     log.info("auth.login", { device: redeemed.device.id, name: redeemed.device.name, kind: "app" });
+    return c.json({ token: redeemed.token, device: { id: redeemed.device.id, name: redeemed.device.name } });
+  });
+
+  // A pairing code someone typed (D-060): the Mac app's Add a machine (kind app, a bearer token
+  // like /auth/token's) or a browser's sign-in page (the session cookie, like /auth/redeem's).
+  app.post("/auth/pair", async (c) => {
+    // JSON only: another site can't make a browser send that without asking first (CORS), so it
+    // can't spend this server's tries (below) from a visitor's browser.
+    if (!(c.req.header("content-type") ?? "").startsWith("application/json"))
+      return c.json({ code: "BAD_REQUEST", message: "Send JSON (content-type: application/json)." }, 415);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json(
+        { code: "BAD_REQUEST", message: 'Send JSON: {"code": "ABCD-EFGH", "name": "…", "kind": "app"}.' },
+        400,
+      );
+    }
+    const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    const code = typeof fields["code"] === "string" ? fields["code"].slice(0, 40) : "";
+    const kind = fields["kind"] === "browser" ? "browser" : "app";
+    const name =
+      typeof fields["name"] === "string" && fields["name"].trim() !== ""
+        ? fields["name"].trim().slice(0, 100)
+        : undefined;
+    const redeemed = options.devices.redeemPairingCode(code, c.req.header("user-agent"), {
+      kind,
+      ...(name === undefined ? {} : { name }),
+    });
+    if ("ok" in redeemed) {
+      if (redeemed.reason === "throttled") {
+        c.header("Retry-After", String(Math.ceil(redeemed.retryAfterMs / 1000)));
+        return c.json(
+          {
+            code: "TOO_MANY_TRIES",
+            message: `Too many wrong codes lately: this machine takes none for ${Math.ceil(redeemed.retryAfterMs / 60_000)} minutes. A sign-in link still works (rowrow pair there).`,
+          },
+          429,
+        );
+      }
+      return c.json(
+        {
+          code: "INVALID_CODE",
+          message:
+            "That code doesn't work: it was mistyped, already used, replaced by a newer one, or expired (codes last 10 minutes, and 5 wrong tries end one). Run `rowrow up` on that machine for a new one.",
+        },
+        400,
+      );
+    }
+    log.info("auth.login", { device: redeemed.device.id, name: redeemed.device.name, kind, via: "code" });
+    if (kind === "browser") {
+      setCookie(c, COOKIE, redeemed.token, {
+        httpOnly: true,
+        sameSite: "Lax",
+        secure,
+        path: "/",
+        maxAge: 400 * 24 * 3600,
+      });
+      return c.json({ device: { id: redeemed.device.id, name: redeemed.device.name } });
+    }
     return c.json({ token: redeemed.token, device: { id: redeemed.device.id, name: redeemed.device.name } });
   });
 
@@ -231,6 +300,20 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
         listener,
       )
     : http.createServer(listener);
+  const privateOnly = options.host === PRIVATE_HOST;
+  if (privateOnly) {
+    // Before TLS or HTTP: someone on the internet gets a closed connection, nothing more.
+    const refused = new Set<string>();
+    server.on("connection", (socket: Socket) => {
+      const remote = socket.remoteAddress ?? "";
+      if (isPrivateAddress(remote)) return;
+      socket.destroy();
+      if (refused.size < 100 && !refused.has(remote)) {
+        refused.add(remote);
+        log.warn("http.connection_refused", { remote, why: "not a private network (--host private)" });
+      }
+    });
+  }
 
   // ─── WebSocket ─────────────────────────────────────────────────────────────
   const wss = new WebSocketServer({
@@ -285,7 +368,7 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.port, options.host, () => resolve());
+    server.listen(options.port, privateOnly ? "0.0.0.0" : options.host, () => resolve());
   });
   const address = server.address() as AddressInfo;
   const hostForUrl = address.family === "IPv6" ? `[${address.address}]` : address.address;

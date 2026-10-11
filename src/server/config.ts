@@ -2,8 +2,9 @@
 import type { Runtime } from "@botiverse/oar";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_PORT, PRIVATE_HOST } from "../shared/reach.ts";
 
-export const DEFAULT_PORT = 7373;
+export { DEFAULT_PORT, PRIVATE_HOST };
 
 export function rowrowHome(env: NodeJS.ProcessEnv = process.env): string {
   return env["ROWROW_HOME"] ?? path.join(os.homedir(), ".rowrow");
@@ -25,6 +26,8 @@ export interface ProfilePaths {
   readonly bin: string;
   /** Where Coach's chats run (D-044): an empty directory of their own, in no workspace. */
   readonly coach: string;
+  /** The server's own id (srv_…), made once: devices that find it on the LAN and over Tailscale list it once (D-060). */
+  readonly idFile: string;
 }
 
 /**
@@ -62,13 +65,17 @@ export function profilePaths(home: string, profile: string): ProfilePaths {
     apnsFile: path.join(dir, "apns.json"),
     bin: path.join(dir, "bin"),
     coach: path.join(dir, "coach"),
+    idFile: path.join(dir, "server-id"),
   };
 }
 
 export interface ServerOptions {
   readonly home: string;
   readonly profile: string;
-  /** Interface to listen on. 127.0.0.1 unless you expose the server on purpose. */
+  /**
+   * Interface to listen on. 127.0.0.1 unless you expose the server on purpose; `private`: every
+   * interface, connections only from private networks (D-060).
+   */
   readonly host: string;
   /** 0 picks a free port (tests). */
   readonly port: number;
@@ -100,6 +107,8 @@ export interface ServerOptions {
   readonly kitFile?: string;
   /** The claude settings file Coach takes claude's sign-in from: claude's own unless given (tests). */
   readonly claudeSettings?: string;
+  /** Advertise the server on the LAN (mDNS) while it listens beyond loopback; on unless false (tests). */
+  readonly advertise?: boolean;
 }
 
 export function isLoopback(host: string): boolean {

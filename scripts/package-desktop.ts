@@ -53,7 +53,13 @@ export function builderConfig(options: { inspectable?: boolean } = {}): Configur
       identity: null,
       hardenedRuntime: true,
       minimumSystemVersion: "12.0",
-      extendInfo: { NSUserNotificationAlertStyle: "alert" },
+      extendInfo: {
+        NSUserNotificationAlertStyle: "alert",
+        // macOS asks before an app talks to its local network (Add a machine finds rowrow there, D-060).
+        NSLocalNetworkUsageDescription:
+          "rowrow finds and connects to the machines your agents run on, on this network.",
+        NSBonjourServices: ["_rowrow._tcp"],
+      },
     },
     // The app can't be used to run other code with its signature and your permissions.
     electronFuses: {

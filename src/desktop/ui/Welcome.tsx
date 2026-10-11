@@ -1,9 +1,10 @@
 // The first page: where do your agents run? On this Mac (the app runs rowrow here), or on
-// another machine (a dev box over SSH, where the app puts rowrow, or one that runs rowrow already
-// and signs this app in with a link). Every machine is added here or later in the same way
-// (D-059), never from a machine's "Sign in another device", which signs a device in instead.
+// another machine (a dev box over SSH, where the app puts rowrow, or one where `rowrow up` ran,
+// found on this network or tailnet and signed in with its code, D-060). Every machine is added
+// here or later in the same way (D-059), never from a machine's "Sign in another device", which
+// signs a device in instead.
 import { Button } from "@/components/ui/button";
-import { Laptop, Link2, Server } from "lucide-react";
+import { Laptop, Radar, Server } from "lucide-react";
 import { useState } from "react";
 import type { ShellState } from "../api.ts";
 import { api, go, run } from "./state.ts";
@@ -55,17 +56,19 @@ export function Welcome({ state }: { state: ShellState }) {
       </Choice>
 
       <Choice
-        icon={<Link2 />}
-        title="On a machine that already runs rowrow"
+        icon={<Radar />}
+        title="On a machine on your network or tailnet"
         body={
           <>
-            Reachable over Tailscale or your network: run{" "}
-            <code className="font-mono text-foreground">rowrow pair</code> on that machine and paste the link
-            it prints, which signs this app in there.
+            Run <code className="font-mono text-foreground">npx rowrow up</code> on that machine: it shows up
+            here (on this Mac's network, or over Tailscale), and the code it prints signs this app in there.
           </>
         }
       >
-        <Button variant="outline" onClick={() => go("/add/link")}>
+        <Button variant="outline" onClick={() => go("/add")}>
+          Find it
+        </Button>
+        <Button variant="ghost" onClick={() => go("/add/link")}>
           Paste a sign-in link
         </Button>
       </Choice>

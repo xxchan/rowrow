@@ -10,7 +10,7 @@ import { electronBinary } from "../../scripts/electron.ts";
 
 const root = path.resolve(import.meta.dirname, "../..");
 
-async function launch(tmp: string): Promise<ElectronApplication> {
+async function launch(tmp: string, env: Record<string, string> = {}): Promise<ElectronApplication> {
   return electron.launch({
     executablePath: electronBinary(),
     args: [path.join(root, "dist", "desktop")],
@@ -23,6 +23,7 @@ async function launch(tmp: string): Promise<ElectronApplication> {
       ROWROW_DESKTOP_NODE: process.execPath,
       ROWROW_DESKTOP_TEST_RUNTIME: "1",
       ROWROW_DESKTOP_PLAIN_TOKENS: "1",
+      ...env,
     },
   });
 }
@@ -167,6 +168,62 @@ test("adds a machine by its sign-in link", async () => {
     await expect(home.getByRole("article", { name: "Elsewhere" })).toContainText("Connected");
   } finally {
     await app.close();
+    serve.kill("SIGTERM");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("finds a machine on the tailnet and adds it with the code rowrow up shows there", async () => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rowrow-desktop-e2e-")));
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("ROWROW_"))),
+    ROWROW_HOME: path.join(tmp, "elsewhere"),
+  };
+  const cli = path.join(root, "src", "cli", "main.ts");
+  const serve = await import("node:child_process").then(({ spawn }) =>
+    spawn(process.execPath, [cli, "serve", "--profile", "other", "--port", "0", "--test-runtime"], {
+      env,
+      stdio: "ignore",
+    }),
+  );
+  let app: ElectronApplication | null = null;
+  try {
+    const serverFile = path.join(tmp, "elsewhere", "other", "server.json");
+    await expect.poll(() => fs.existsSync(serverFile), { timeout: 30_000 }).toBe(true);
+    const { port } = new URL((JSON.parse(fs.readFileSync(serverFile, "utf8")) as { url: string }).url);
+    // A stand-in for the Tailscale CLI: this Mac, and one peer, the server above (D-060).
+    const status = {
+      BackendState: "Running",
+      CurrentTailnet: { MagicDNSEnabled: false },
+      Self: { HostName: "this-mac", TailscaleIPs: ["100.100.100.1"], OS: "macOS", Online: true },
+      Peer: {
+        "nodekey:1": { HostName: "elsewhere", TailscaleIPs: ["127.0.0.1"], OS: "linux", Online: true },
+      },
+    };
+    const tailscale = path.join(tmp, "tailscale");
+    fs.writeFileSync(tailscale, `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(status)}\nEOF\n`, { mode: 0o755 });
+    app = await launch(tmp, { ROWROW_DESKTOP_TAILSCALE: tailscale, ROWROW_DESKTOP_PORT: port });
+
+    const home = await app.firstWindow();
+    await home.getByRole("button", { name: "Find it" }).click();
+    const found = home.getByRole("button", { name: /elsewhere/ });
+    await expect(found).toContainText("Tailscale", { timeout: 30_000 });
+    await shoot(home, "add-nearby");
+    await found.click();
+    const { code } = JSON.parse(
+      execFileSync(process.execPath, [cli, "call", "devices.pairingCode", "{}", "--profile", "other"], {
+        env,
+        encoding: "utf8",
+      }),
+    ) as { code: string };
+    await home.getByLabel("Pairing code").fill(code);
+    await shoot(home, "add-code");
+    await home.getByRole("button", { name: "Add", exact: true }).click();
+    const server = await app.waitForEvent("window", { timeout: 30_000 });
+    await expect(server.getByRole("button", { name: /New agent/ }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(home.getByRole("article", { name: "elsewhere" })).toContainText("Connected");
+  } finally {
+    await app?.close();
     serve.kill("SIGTERM");
     fs.rmSync(tmp, { recursive: true, force: true });
   }

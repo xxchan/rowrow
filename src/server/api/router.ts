@@ -154,7 +154,8 @@ export interface Services {
   readonly settings: SettingsService;
   /** Where uploaded files go. */
   readonly uploadsDir: string;
-  loginUrl(code: string): string;
+  /** A sign-in link for a code, at an address other devices can reach. */
+  loginUrl(code: string): Promise<string>;
   refreshRuntimes(): Promise<void>;
 }
 
@@ -688,10 +689,11 @@ export function createRouter(s: Services) {
         );
       }),
       list: os.devices.list.handler(({ context }) => s.devices.list(context.device.id, pushDevices())),
-      pair: os.devices.pair.handler(({ input }) => {
+      pair: os.devices.pair.handler(async ({ input }) => {
         const { code, expiresAt } = s.devices.createLoginCode(input.name);
-        return { url: s.loginUrl(code), expiresAt };
+        return { url: await s.loginUrl(code), expiresAt };
       }),
+      pairingCode: os.devices.pairingCode.handler(({ input }) => s.devices.createPairingCode(input.name)),
       rename: os.devices.rename.handler(({ input }) => {
         s.devices.rename(input.id, input.name);
         return { ok: true as const };

@@ -29,10 +29,7 @@ export function App() {
         <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6">
           <Header state={state} />
           {route.startsWith("/add") ? (
-            <AddServer
-              state={state}
-              kind={route === "/add/ssh" ? "ssh" : route === "/add/link" ? "link" : null}
-            />
+            <AddServer state={state} route={route} />
           ) : state.servers.length === 0 ? (
             <Welcome state={state} />
           ) : (
