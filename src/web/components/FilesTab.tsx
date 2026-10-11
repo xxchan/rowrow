@@ -44,7 +44,9 @@ import { downloadFromWorkspace } from "../lib/download.ts";
 import { listFiles, onFileOpen, pendingFileOpen, tookFileOpen, type FileOpen } from "../lib/file-links.ts";
 import { closeTab, keepTab, openTab, parseTabs, pruneTabs, type FileTabs } from "../lib/file-tabs.ts";
 import { setDraft, useApp, useClient, useDrafts } from "../lib/store.ts";
+import { useHighlightedLines } from "../lib/highlight-file.ts";
 import { report } from "../lib/telemetry.ts";
+import { useTheme } from "../lib/theme.ts";
 import { ErrorText } from "./ErrorText.tsx";
 import { FileTabStrip } from "./FileTabs.tsx";
 import { copyText, MenuActions, type MenuAction } from "./MenuActions.tsx";
@@ -705,6 +707,8 @@ export function FilePreview({
   }, [text, line, view]);
 
   const lines = text === undefined ? 0 : text.split("\n").length;
+  const { dark } = useTheme();
+  const highlighted = useHighlightedLines(path, view === "source" ? text : undefined, dark);
   const download = (): void => void downloadFromWorkspace(workspaceId, path, "file");
   return (
     <section
@@ -826,7 +830,15 @@ export function FilePreview({
             <pre className="sticky left-0 z-10 border-r bg-code px-3 py-2 text-right text-muted-foreground/60 select-none">
               {Array.from({ length: lines }, (_, i) => i + 1).join("\n")}
             </pre>
-            <pre className={cn("px-3 py-2", file.data.truncated && "pb-0")}>{file.data.text}</pre>
+            {highlighted === null ? (
+              <pre className={cn("px-3 py-2", file.data.truncated && "pb-0")}>{file.data.text}</pre>
+            ) : (
+              <pre
+                className={cn("px-3 py-2", file.data.truncated && "pb-0")}
+                // shiki escapes the text: the HTML is its own spans around it.
+                dangerouslySetInnerHTML={{ __html: highlighted }}
+              />
+            )}
           </div>
           {file.data.truncated && (
             <p className="px-4 py-2 text-xs text-muted-foreground">

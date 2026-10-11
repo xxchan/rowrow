@@ -2307,3 +2307,21 @@ test.describe("in the Mac app", () => {
     }
   });
 });
+
+test("a file's preview is highlighted like its diff", async ({ page, rowrow }) => {
+  const repo = rowrow.repo();
+  fs.writeFileSync(path.join(repo, "app.ts"), "export const answer: number = 42; // the answer\n");
+  commit(repo, "app");
+  const ws = await rowrow.client.workspaces.add({ path: repo });
+  await rowrow.open(page, `/w/${ws.id}`);
+  const inspector = page.getByRole("region", { name: "Inspector" });
+  await inspector.getByRole("tab", { name: "Files" }).click();
+  await inspector.getByRole("treeitem", { name: /app\.ts/ }).click();
+  const preview = inspector.getByRole("region", { name: "File preview" });
+  await expect(preview.getByText("// the answer")).toBeVisible();
+  // Its words in the theme's colors, as in Changes: the keyword and the comment differ.
+  const colors = await preview
+    .locator("pre span[style*='color']")
+    .evaluateAll((spans) => new Set(spans.map((span) => getComputedStyle(span).color)).size);
+  expect(colors).toBeGreaterThan(1);
+});
