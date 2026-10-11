@@ -1,5 +1,7 @@
-// Settings: this device (theme, notifications, sign out), your other devices (pair one with
-// a QR code, revoke), the agent runtimes installed on the server, and what the server is.
+// Settings: this device (theme, notifications, sign out), the devices signed in to this machine
+// (sign another in with a QR code, revoke), the agent runtimes installed here, and what this
+// machine runs. In rowrow for Mac, also the machines the app knows (D-059): a machine is where
+// agents run, a device is what you steer them from.
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,11 +14,13 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { appName, Settings, type AppState, type Device, type LoginLink } from "../../shared/schemas.ts";
+import { MachineList } from "../components/Machines.tsx";
 import { PageHeader } from "../components/Shell.tsx";
 import { RuntimeList, useRuntimeUpdates } from "../components/RuntimeList.tsx";
 import { UsageList, useUsage } from "../components/UsageList.tsx";
 import { UpdateStatus } from "../components/UpdateStatus.tsx";
 import { ago } from "../lib/format.ts";
+import { askApp, useMachines, type MachinesBridge } from "../lib/mac-app.ts";
 import { currentSubscription, disablePush, enablePush, pushSupport } from "../lib/push.ts";
 import type { Route } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
@@ -30,6 +34,7 @@ export function SettingsPage({ route }: { route: Route }) {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [pairing, setPairing] = useState<LoginLink | null>(null);
   const [subscribed, setSubscribed] = useState<boolean | null>(null);
+  const machines = useMachines();
 
   const loadDevices = useCallback(async () => {
     if (client === null) return;
@@ -89,9 +94,9 @@ export function SettingsPage({ route }: { route: Route }) {
             {support === "desktop" ? (
               <div className="flex flex-col items-start gap-3">
                 <p className="text-sm text-muted-foreground">
-                  The rowrow app shows this server's notifications while it runs, in the menu bar when its
-                  windows are closed. Turn on "Open rowrow when you log in" in its Servers window to keep them
-                  coming.
+                  The rowrow app shows this machine's notifications while it runs, in the menu bar when its
+                  windows are closed. Turn on "Open rowrow when you log in" in its Machines window to keep
+                  them coming.
                 </p>
                 <Button variant="outline" onClick={() => void run("Test", async () => client?.notify.test())}>
                   Send a test
@@ -141,16 +146,37 @@ export function SettingsPage({ route }: { route: Route }) {
             )}
           </Section>
 
+          {machines !== null && (
+            <Section
+              title="Machines"
+              description="Where your agents run, as this app knows them. Each machine has its own agents, workspaces and settings."
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => askApp("Opening rowrow", () => machines.bridge.showMachines("add"))}
+                >
+                  <Plus /> Add a machine
+                </Button>
+              }
+            >
+              <MachineList bridge={machines.bridge} list={machines.list} />
+            </Section>
+          )}
+
           <Section
-            title="Devices"
+            title="Signed-in devices"
+            description="Phones, browsers and apps that can see and steer this machine's agents."
             action={
               <Button
                 size="sm"
                 onClick={() =>
-                  void run("Pair", async () => setPairing((await client?.devices.pair({})) ?? null))
+                  void run("Sign in another device", async () =>
+                    setPairing((await client?.devices.pair({})) ?? null),
+                  )
                 }
               >
-                Pair a device
+                Sign in another device
               </Button>
             }
           >
@@ -220,9 +246,9 @@ export function SettingsPage({ route }: { route: Route }) {
             <UsageList usage={usage} runtimes={state.runtimes} />
           </Section>
 
-          <Section title="Server">
+          <Section title="This machine">
             <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-lg border bg-card px-4 py-3 text-sm">
-              <Fact label="Machine">{host.name}</Fact>
+              <Fact label="Name">{host.name}</Fact>
               <Fact label="Version">
                 {`rowrow ${host.version} · oar ${host.oar} · node ${host.node}`}
                 <UpdateStatus host={host} />
@@ -255,7 +281,7 @@ export function SettingsPage({ route }: { route: Route }) {
           </Section>
         </div>
       </div>
-      <PairDialog link={pairing} onClose={() => setPairing(null)} />
+      <PairDialog link={pairing} machines={machines?.bridge ?? null} onClose={() => setPairing(null)} />
     </>
   );
 }
@@ -305,7 +331,7 @@ function InstanceName({ saved }: { saved: string }) {
     try {
       await client.settings.update({ instanceName });
       setDraft(null);
-      setStatus({ kind: "saved", message: "Saved for this rowrow server." });
+      setStatus({ kind: "saved", message: "Saved for this machine." });
     } catch (error) {
       setStatus({
         kind: "failed",
@@ -327,8 +353,8 @@ function InstanceName({ saved }: { saved: string }) {
           App and webpage title suffix
         </Label>
         <p id="instance-name-about" className="text-xs text-muted-foreground">
-          Saved on this rowrow server and shared by every device signed in to it. Your other rowrow servers
-          keep their own names.
+          Saved on this machine and shared by every device signed in to it. Your other machines keep their own
+          names.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -419,7 +445,19 @@ function Callout({ icon, title, children }: { icon: ReactNode; title: string; ch
   );
 }
 
-function PairDialog({ link, onClose }: { link: LoginLink | null; onClose: () => void }) {
+/**
+ * A one-time link that signs another device in to this machine. It doesn't add a machine: that's
+ * where agents run, added in rowrow for Mac (D-059), and the dialog says so.
+ */
+function PairDialog({
+  link,
+  machines,
+  onClose,
+}: {
+  link: LoginLink | null;
+  machines: MachinesBridge | null;
+  onClose: () => void;
+}) {
   const [svg, setSvg] = useState<string | null>(null);
   useEffect(() => {
     if (link === null) return;
@@ -429,9 +467,10 @@ function PairDialog({ link, onClose }: { link: LoginLink | null; onClose: () => 
     <Dialog open={link !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Pair a device</DialogTitle>
+          <DialogTitle>Sign in another device</DialogTitle>
           <DialogDescription>
-            Scan with the phone's camera, or open the link on the other device.
+            Scan with the phone's camera, or open the link on the other device. It can then see and steer this
+            machine's agents.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col items-center gap-3">
@@ -444,11 +483,29 @@ function PairDialog({ link, onClose }: { link: LoginLink | null; onClose: () => 
           </code>
           {link !== null && new URL(link.url).hostname === "127.0.0.1" && (
             <Callout icon={<TriangleAlert />} title="This address only works on this machine">
-              rowrow listens on 127.0.0.1. To pair a phone, run the server where the phone can reach it (for
+              rowrow listens on 127.0.0.1. To sign in a phone, run rowrow where the phone can reach it (for
               example behind tailscale serve) and start it with --public-url.
             </Callout>
           )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          {machines === null
+            ? "To run agents on another machine, add it in rowrow for Mac, or run rowrow there and sign in to it."
+            : "To run agents on another machine, add it to this app instead."}
+          {machines !== null && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto px-1 py-0 text-xs"
+              onClick={() => {
+                onClose();
+                askApp("Opening rowrow", () => machines.showMachines("add"));
+              }}
+            >
+              Add a machine…
+            </Button>
+          )}
+        </p>
       </DialogContent>
     </Dialog>
   );

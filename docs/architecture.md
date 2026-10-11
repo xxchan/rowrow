@@ -38,7 +38,10 @@ The Mac app is a client like the others (each window shows a server's own web ap
 holds `notify.watch` for notifications), and also the manager of the servers it runs: it
 installs a server bundle on this Mac or an SSH host (`ROWROW_HOME/versions/<version>`) and
 drives that bundle's own `rowrow service` commands, so launchd or systemd supervises the
-server as for a CLI install (D-030 to D-033, docs/desktop.md).
+server as for a CLI install (D-030 to D-033, docs/desktop.md). In the product's words a server
+is a *machine* (where agents run) and a client is a *device* (what you steer from) (D-059): the
+web app's sidebar switches between the Mac app's machines through `window.rowrowApp`, the
+narrow bridge that also carries the app's updater to a server's page.
 
 There are two tiers: the server and its clients. Remote control means reaching the
 server over a network you trust (a LAN, Tailscale, a tunnel), with device credentials on
@@ -323,7 +326,7 @@ message says what to do next.
   remote requests look local. Browsers hold an HttpOnly session cookie; the CLI and the
   iOS app hold a bearer token (the app in the Keychain). Tokens are stored hashed.
 - New browsers sign in with a one-time link: `rowrow open` mints one for this machine,
-  and **Pair a device** shows one as a QR code for your phone. The iOS app scans the same
+  and **Sign in another device** (Settings) shows one as a QR code for your phone. The iOS app scans the same
   code and trades it for a token (`POST /auth/token`). There are no passwords.
 - WebSocket upgrades must come from the server's own origin.
 
@@ -422,7 +425,7 @@ message says what to do next.
 | End to end | the built web app in Chromium against a real server with the scripted runtime; screenshots in `test-results/` | `pnpm test:e2e` |
 | Package | the npm tarball's contents, then the tarball installed with npm in a throwaway prefix and run: serve, status, the web app, a scripted agent | `pnpm test:package` |
 | iOS core | the Swift package: JSON patches, sealed pushes, Coach's models and words, and a real server from the checkout driven through the Swift client (pairing, state, the kit, transcripts, diffs, uploads, Coach and its tasks) | `pnpm ios:test` |
-| Mac app | its pure logic (planning a host, SSH scripts run by a real `sh`, the server list) and its connection against a real server, in `pnpm test`; the app itself in Electron, driven by Playwright (set up this Mac, sign in by link, notifications) | `pnpm test` and `pnpm test:desktop` |
+| Mac app | its pure logic (planning a host, SSH scripts run by a real `sh`, the server list, what a machine's page sees and may call) and its connection against a real server, in `pnpm test`; the web app's machine switcher and Settings → Machines against a stand-in bridge, in `pnpm test:e2e`; the app itself in Electron, driven by Playwright (set up this Mac, sign in by link, notifications, the switcher) | `pnpm test`, `pnpm test:e2e` and `pnpm test:desktop` |
 | Server bundle | a bundle in a throwaway `ROWROW_HOME/versions`, run by its own `bin/rowrow` with no Node on the PATH | `pnpm test:package --bundle <dir>` |
 
 ## Repository layout

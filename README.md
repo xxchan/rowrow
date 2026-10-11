@@ -56,7 +56,7 @@ tailscale serve --bg 7373
 rowrow service install --public-url https://<machine>.<tailnet>.ts.net
 ```
 
-Then scan the code in **Settings → Pair a device**. On iPhone, *Add to Home Screen* for
+Then scan the code in **Settings → Sign in another device**. On iPhone, *Add to Home Screen* for
 push notifications. On a trusted LAN, `--host 0.0.0.0` also works (plain HTTP, no push).
 
 Every request needs a device credential, and anyone signed in can run commands on this
@@ -75,13 +75,14 @@ never what it said.
 ## On your Mac
 
 rowrow for Mac (Apple silicon, from the [releases](https://github.com/xxchan/rowrow/releases))
-is a window onto your servers and the manager of the ones it runs. Tell it where your agents
-run: **on this Mac** (it installs the server and hands it to launchd, like
-`rowrow service install`), **on a machine over SSH** (it puts the server there and keeps it
-running, the way VS Code's Remote-SSH does), or **on a server you can reach** (sign in with
-its link). Agents keep working when the app is closed; it stays in the menu bar with
-notifications you can reply to, and keeps itself and its servers up to date, waiting for
-agents to finish their turn before a server restarts ([docs/desktop.md](docs/desktop.md)).
+is a window onto the machines your agents run on, and the manager of rowrow on them. Add a
+machine: **this Mac** (it installs rowrow and hands it to launchd, like
+`rowrow service install`), **one over SSH** (it puts rowrow there and keeps it running, the
+way VS Code's Remote-SSH does), or **one that already runs rowrow** (sign in with a link from
+`rowrow pair` there). The sidebar's top row switches between them. Agents keep working when the
+app is closed; it stays in the menu bar with notifications you can reply to, and keeps itself
+and rowrow on its machines up to date, waiting for agents to finish their turn before rowrow
+restarts there ([docs/desktop.md](docs/desktop.md)).
 
 ## CLI
 

@@ -1,5 +1,5 @@
 // The app menu and the menu-bar item (docs/desktop.md). Both are rebuilt from the ShellState:
-// servers with how many agents need you there, and the update's state ("Restart to Update").
+// machines with how many agents need you there, and the update's state ("Restart to Update").
 import {
   app,
   BrowserWindow,
@@ -69,7 +69,7 @@ export function appMenu(state: ShellState, actions: MenuActions): Menu {
         { role: "about" },
         updateItem(state, actions),
         { type: "separator" },
-        { label: "Servers…", accelerator: "Cmd+,", click: () => actions.openHosts("/") },
+        { label: "Machines…", accelerator: "Cmd+,", click: () => actions.openHosts("/") },
         { label: "Install the rowrow Command…", click: () => actions.installCommand() },
         { type: "separator" },
         { role: "services" },
@@ -85,7 +85,7 @@ export function appMenu(state: ShellState, actions: MenuActions): Menu {
       label: "File",
       submenu: [
         { label: "New Window", accelerator: "Cmd+N", click: () => actions.newWindow() },
-        { label: "Add a Server…", accelerator: "Shift+Cmd+N", click: () => actions.openHosts("/add") },
+        { label: "Add a Machine…", accelerator: "Shift+Cmd+N", click: () => actions.openHosts("/add") },
         ...(servers.length === 0 ? [] : [{ type: "separator" as const }, ...servers]),
         { type: "separator" },
         { role: "close" },
@@ -121,7 +121,7 @@ export function appMenu(state: ShellState, actions: MenuActions): Menu {
   return Menu.buildFromTemplate(template);
 }
 
-/** The menu-bar item: how many agents need you, and one click to the server they're on. */
+/** The menu-bar item: how many agents need you, and one click to the machine they're on. */
 export class MenuBar {
   private tray: Tray | null = null;
   private readonly icon: string;
@@ -150,7 +150,7 @@ export class MenuBar {
           click: () => actions.openServer(server.id),
         })),
         { type: "separator" },
-        { label: "Servers…", click: () => actions.openHosts("/") },
+        { label: "Machines…", click: () => actions.openHosts("/") },
         updateItem(state, actions),
         { type: "separator" },
         { label: "Quit rowrow", click: () => app.quit() },
@@ -159,7 +159,7 @@ export class MenuBar {
   }
 }
 
-/** The focused window's server, for File → New Window. */
+/** The focused window's machine, for File → New Window. */
 export function focusedWindow(): BrowserWindow | null {
   return BrowserWindow.getFocusedWindow();
 }

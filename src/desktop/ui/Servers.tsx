@@ -1,5 +1,6 @@
-// The servers this Mac knows: each one's state, who runs it (and so who updates it, D-032),
-// a server upgrade waiting for agents to finish, and what you can do about it.
+// The machines this Mac knows (where agents run, D-059): each one's state, who runs rowrow there
+// (and so who updates it, D-032), an upgrade waiting for agents to finish, and what you can do
+// about it.
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,13 +19,18 @@ import { api, go, run } from "./state.ts";
 export function Servers({ state }: { state: ShellState }) {
   return (
     <>
-      <section aria-labelledby="servers" className="flex flex-col gap-3">
+      <section aria-labelledby="machines" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="servers" className="text-sm font-semibold text-muted-foreground">
-            Servers
-          </h2>
+          <div>
+            <h2 id="machines" className="text-sm font-semibold text-muted-foreground">
+              Machines
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Where your agents run. Each has its own agents, workspaces and settings.
+            </p>
+          </div>
           <Button size="sm" variant="outline" onClick={() => go("/add")}>
-            <Plus /> Add a server
+            <Plus /> Add a machine
           </Button>
         </div>
         {state.servers.map((server) => (
@@ -50,8 +56,8 @@ export function Servers({ state }: { state: ShellState }) {
               <span className="block">The rowrow command</span>
               <span className="block text-xs text-muted-foreground">
                 {state.commandInstalled
-                  ? "Installed in /usr/local/bin: it matches this Mac's server."
-                  : "rowrow agents, rowrow logs… in your terminal, matching this Mac's server."}
+                  ? "Installed in /usr/local/bin: it matches the rowrow this Mac runs."
+                  : "rowrow agents, rowrow logs… in your terminal, matching the rowrow this Mac runs."}
               </span>
             </span>
             {!state.commandInstalled && (
@@ -72,6 +78,7 @@ export function Servers({ state }: { state: ShellState }) {
 
 const KIND_ICON = { local: Laptop, ssh: Server, url: Link2 } as const;
 
+/** A status in words (a machine's own Settings says the same: src/desktop/machines.ts). */
 function statusWords(status: ServerStatus): { tone: string; text: string } {
   switch (status.kind) {
     case "online":
@@ -96,7 +103,7 @@ const FROM: Readonly<Record<string, string>> = {
   checkout: " from a checkout",
 };
 
-/** Who runs a host's server, and so who updates it. */
+/** Who runs rowrow on a machine, and so who updates it. */
 function ownerWords(host: HostView): string {
   const version = host.runningVersion === null ? "" : ` ${host.runningVersion}`;
   switch (host.owner) {
@@ -107,7 +114,7 @@ function ownerWords(host: HostView): string {
     case "terminal":
       return `rowrow${version}, started in a terminal. To let this app keep it running and up to date, stop it there, then Start here.`;
     case "background":
-      return `rowrow${version}, started by this app in the background: this host has no user service manager, so it won't come back after a reboot.`;
+      return `rowrow${version}, started by this app in the background: this machine has no user service manager, so it won't come back after a reboot.`;
     case "none":
       return "rowrow isn't running there.";
   }
@@ -151,19 +158,19 @@ function ServerCard({ server }: { server: ServerView }) {
             <DropdownMenuContent align="end">
               {host !== null && host.owner !== "none" && host.owner !== "terminal" && (
                 <>
-                  <DropdownMenuItem onSelect={() => act("restart", "Restarting the server")}>
-                    Restart the server
+                  <DropdownMenuItem onSelect={() => act("restart", "Restarting rowrow")}>
+                    Restart rowrow there
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => act("stop", "Stopping the server")}>
-                    Stop the server
+                  <DropdownMenuItem onSelect={() => act("stop", "Stopping rowrow")}>
+                    Stop rowrow there
                   </DropdownMenuItem>
                 </>
               )}
               {host !== null &&
                 (host.owner === "none" || server.status.kind === "offline") &&
                 host.owner !== "terminal" && (
-                  <DropdownMenuItem onSelect={() => act("start", "Starting the server")}>
-                    Start the server
+                  <DropdownMenuItem onSelect={() => act("start", "Starting rowrow")}>
+                    Start rowrow there
                   </DropdownMenuItem>
                 )}
               {host?.owner === "cli" && (
@@ -209,7 +216,7 @@ function ServerCard({ server }: { server: ServerView }) {
       )}
       {server.status.kind === "online" && server.notifications === false && (
         <p className="text-xs text-muted-foreground">
-          This server's rowrow is too old to send notifications to this Mac; update it to get them.
+          The rowrow this machine runs is too old to send notifications to this Mac; update it to get them.
         </p>
       )}
 
@@ -217,13 +224,13 @@ function ServerCard({ server }: { server: ServerView }) {
         <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm">
           <span className="min-w-0 flex-1">
             {host.upgrade.state === "waiting"
-              ? `rowrow ${host.upgrade.version} is ready for this server. It restarts when ${host.upgrade.waitingFor.length === 1 ? "an agent finishes" : `${host.upgrade.waitingFor.length} agents finish`}: ${host.upgrade.waitingFor.join(", ")}.`
+              ? `rowrow ${host.upgrade.version} is ready for this machine. It restarts into it when ${host.upgrade.waitingFor.length === 1 ? "an agent finishes" : `${host.upgrade.waitingFor.length} agents finish`}: ${host.upgrade.waitingFor.join(", ")}.`
               : host.upgrade.state === "installing"
-                ? `Updating the server to rowrow ${host.upgrade.version}…`
-                : `Updating the server to rowrow ${host.upgrade.version} failed: ${host.upgrade.error ?? "unknown error"}`}
+                ? `Updating this machine to rowrow ${host.upgrade.version}…`
+                : `Updating this machine to rowrow ${host.upgrade.version} failed: ${host.upgrade.error ?? "unknown error"}`}
           </span>
           {host.upgrade.state !== "installing" && (
-            <Button size="sm" variant="outline" onClick={() => act("upgrade-now", "Updating the server")}>
+            <Button size="sm" variant="outline" onClick={() => act("upgrade-now", "Updating rowrow")}>
               {host.upgrade.state === "waiting" ? "Restart now" : "Try again"}
             </Button>
           )}

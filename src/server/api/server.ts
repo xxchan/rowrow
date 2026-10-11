@@ -117,7 +117,7 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
       return c.html(
         page(
           "This sign-in link doesn't work",
-          "It was already used, or it expired (links last 10 minutes). Get a new one with <code>rowrow open</code>, or from <b>Pair a device</b> in rowrow on a device that is signed in.",
+          "It was already used, or it expired (links last 10 minutes). Get a new one with <code>rowrow open</code>, or from <b>Sign in another device</b> in rowrow's Settings on a device that is signed in.",
         ),
         400,
       );
@@ -157,7 +157,7 @@ export async function startHttp(options: HttpOptions): Promise<HttpServer> {
         {
           code: "INVALID_LINK",
           message:
-            "This sign-in link was already used, or it expired (links last 10 minutes). Get a new one with `rowrow pair`, or from Pair a device on a device that is signed in.",
+            "This sign-in link was already used, or it expired (links last 10 minutes). Get a new one with `rowrow pair`, or from Settings → Sign in another device on a device that is signed in.",
         },
         400,
       );
@@ -334,7 +334,7 @@ function unauthorized(c: HonoContext): Response {
     {
       code: "UNAUTHORIZED",
       message:
-        "Sign in first. Browsers: open a login link (`rowrow open` or Pair a device). CLI: the token is in <profile>/server.json (`rowrow` reads it for you).",
+        "Sign in first. Browsers: open a login link (`rowrow open`, or Settings → Sign in another device). CLI: the token is in <profile>/server.json (`rowrow` reads it for you).",
     },
     401,
   );

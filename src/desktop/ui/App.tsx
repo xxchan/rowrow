@@ -1,4 +1,4 @@
-// The Mac app's own window: welcome, servers, adding one; and, in a server's window, what to do
+// The Mac app's own window: welcome, machines, adding one; and, in a machine's window, what to do
 // while it can't be reached (docs/desktop.md).
 import { Button } from "@/components/ui/button";
 import { ArrowUpCircle, Loader2 } from "lucide-react";

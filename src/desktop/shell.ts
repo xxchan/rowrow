@@ -151,7 +151,7 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
   // ─── What you can do ──────────────────────────────────────────────────────
 
   async setUpLocal(): Promise<void> {
-    if (this.d.local === null) throw new Error("this build of rowrow has no server for this Mac");
+    if (this.d.local === null) throw new Error("this build of rowrow can't run agents on this Mac");
     const existing = this.d.store.get(LOCAL_ID);
     if (existing === null)
       this.d.store.add({
@@ -213,14 +213,14 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
     const parsed = parsePairingLink(link);
     if (parsed === null)
       throw new Error(
-        "that isn't a sign-in link: copy one from `rowrow pair`, or from Settings → Pair a device",
+        "that isn't a sign-in link: run `rowrow pair` on that machine, or open Settings → Sign in another device in its rowrow",
       );
     const known = this.d.store.list().find((s) => s.kind === "url" && s.url === parsed.origin);
     const id = known?.id ?? `srv_${Date.now().toString(36)}`;
     const token =
       (await redeemCode(parsed.origin, parsed.code, deviceName())) ??
       (await this.d.windows.redeemInBrowser(id, parsed.origin, parsed.code));
-    if (token === null) throw new Error("the server didn't sign this app in");
+    if (token === null) throw new Error("that machine didn't sign this app in");
     let serverName = name?.trim() ?? "";
     if (serverName === "") {
       try {
@@ -272,8 +272,8 @@ export class Shell implements Omit<DesktopApi, "onState" | "getState"> {
       message: `Remove ${record.name} from rowrow?`,
       detail:
         record.kind === "url"
-          ? "This Mac forgets the server and its sign-in. The server and its agents stay as they are."
-          : "This Mac forgets the server and its sign-in. The server keeps running there with its agents; `rowrow service uninstall` on that machine stops it for good.",
+          ? "This Mac forgets the machine and its sign-in. rowrow and its agents there stay as they are."
+          : "This Mac forgets the machine and its sign-in. rowrow keeps running there with its agents; `rowrow service uninstall` on that machine stops it for good.",
       buttons: ["Remove", "Cancel"],
       defaultId: 1,
       cancelId: 1,

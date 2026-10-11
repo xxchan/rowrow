@@ -41,7 +41,7 @@ export function isAppPage(url: string): boolean {
 }
 
 export class Windows {
-  /** A page of a server this app opened (it gets window.rowrowApp, the updater). */
+  /** A page of a machine this app opened (it gets window.rowrowApp: the updater, the machines). */
   isServerPage(url: string): boolean {
     let origin: string;
     try {
@@ -50,6 +50,14 @@ export class Windows {
       return false;
     }
     return [...this.origins.values()].includes(origin);
+  }
+
+  /** The machine whose window shows this page. */
+  serverOf(contents: WebContents): string | null {
+    const window = BrowserWindow.fromWebContents(contents);
+    if (window === null) return null;
+    for (const [id, windows] of this.byServer) if (windows.has(window)) return id;
+    return null;
   }
 
   private readonly preload: string;

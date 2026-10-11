@@ -104,7 +104,7 @@ On iPad the tab bar becomes a sidebar (`.sidebarAdaptable`); the screens are the
 ## Pairing
 
 The app pairs the way a browser signs in, with the one-time link `rowrow pair` prints and
-Settings → Pair a device shows as a QR code. Scan it in the app, paste it (Universal
+Settings → Sign in another device shows as a QR code. Scan it in the app, paste it (Universal
 Clipboard brings it from a Mac), or open a `rowrow://pair?link=…` URL (the app asks first:
 pairing sends your messages to that server). The app trades the link's code for a bearer
 token (`POST /auth/token`), which it keeps in the Keychain; the server lists it as a device of
@@ -230,6 +230,10 @@ with `ITSAppUsesNonExemptEncryption` in `ios/Config/Info.plist`.
   could only say "3 agents working" without names. Not built yet.
 - App Intents (Siri, Shortcuts: "start a rowrow agent in …"), a merged inbox across
   servers, and a split view with the conversation beside the inbox on iPad.
+- Servers are machines in the web and Mac apps' words (D-059), and the web app's Pair a device
+  is Sign in another device; the app's own copy (Settings → Servers, Pair a Device, and the
+  sign-in hints in `PairView` and `API.swift`) still says the old words. A machine switcher
+  would sit in the inbox's title, over the accounts Settings → Servers lists.
 - Permission prompts stay parked with the web app's (D-022).
 - Coach's settings (the workspaces it reads, its runtime, model and effort), turning Full
   access on, and writing or editing a task are the web app's for now; the app says so where

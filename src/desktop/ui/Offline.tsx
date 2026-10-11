@@ -1,5 +1,5 @@
-// A server's window while the server can't be reached: why, and what to do. The window goes
-// back to the server's own page by itself once it's reachable (the main process moves it).
+// A machine's window while it can't be reached: why, and what to do. The window goes back to the
+// machine's own page by itself once it's reachable (the main process moves it).
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import type { ShellState } from "../api.ts";
@@ -11,8 +11,8 @@ export function Offline({ state, serverId }: { state: ShellState; serverId: stri
   if (server === undefined)
     return (
       <Centered
-        title="This server was removed"
-        body="Close this window, or open another server from the menu bar."
+        title="This machine was removed"
+        body="Close this window, or open another machine from the menu bar."
       />
     );
   const { status } = server;
@@ -39,9 +39,9 @@ export function Offline({ state, serverId }: { state: ShellState; serverId: stri
       {server.host !== null && server.host.owner !== "terminal" && status.kind !== "setting-up" && (
         <Button
           variant="outline"
-          onClick={() => void run("Starting the server", () => api().hostAction(server.id, "start"))}
+          onClick={() => void run("Starting rowrow", () => api().hostAction(server.id, "start"))}
         >
-          Start the server
+          Start rowrow there
         </Button>
       )}
       <Button variant="ghost" onClick={() => void run("Showing the log", () => api().showLogs(server.id))}>

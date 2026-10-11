@@ -75,7 +75,7 @@ export function portOf(url: string): number | null {
 }
 
 /**
- * A sign-in link (`rowrow pair`, Pair a device): the server's origin and the one-time code.
+ * A sign-in link (`rowrow pair`, Sign in another device): the server's origin and the one-time code.
  * Also takes the iOS app's rowrow://pair?link=… form.
  */
 export function parsePairingLink(text: string): { origin: string; code: string } | null {

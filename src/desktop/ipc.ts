@@ -1,9 +1,11 @@
 // The main process's side of window.rowrow (preload.ts): each call checked to come from one of
 // the app's own pages, its arguments checked, then handed to the Shell. State goes back to every
-// app page on each change.
-import { BrowserWindow, ipcMain } from "electron";
+// app page on each change. A machine's own page gets window.rowrowApp instead: the updater and
+// the machines (machines.ts, D-059), each pushed again when it changes.
+import { BrowserWindow, ipcMain, type WebContents } from "electron";
 import { z } from "zod";
 import { serializeError, type Logger } from "./log.ts";
+import { fromServerPage, machinesFor, parseServerPageCall, upgradeWaiting } from "./machines.ts";
 import type { Shell } from "./shell.ts";
 import { isAppPage } from "./windows.ts";
 
@@ -11,22 +13,47 @@ const id = z.string().min(1).max(100);
 const optionalName = z.string().max(100).nullable();
 const action = z.enum(["start", "stop", "restart", "upgrade-now", "adopt"]);
 
-export function registerIpc(shell: Shell, log: Logger, isServerPage: (url: string) => boolean): void {
-  // A server's web app (window.rowrowApp): the app's updater and nothing else, and only for the
-  // top frame of a server this app opened.
-  ipcMain.handle("rowrow-app", async (event, method: unknown) => {
-    const frame = event.senderFrame;
-    if (frame === null || frame !== event.sender.mainFrame || !isServerPage(frame.url))
+/** What ipc needs of the windows (windows.ts). */
+export interface ServerPages {
+  /** A page of a machine this app opened. */
+  isServerPage(url: string): boolean;
+  /** The machine whose window shows this page. */
+  serverOf(contents: WebContents): string | null;
+  openHosts(route: string): Promise<unknown>;
+}
+
+export function registerIpc(shell: Shell, log: Logger, pages: ServerPages): void {
+  // A machine's web app (window.rowrowApp): only for the top frame of a machine this app opened.
+  ipcMain.handle("rowrow-app", async (event, method: unknown, ...args: unknown[]) => {
+    if (!fromServerPage(event.senderFrame, event.sender.mainFrame, (url) => pages.isServerPage(url)))
       throw new Error("not allowed");
-    switch (method) {
-      case "update":
-        return shell.state().update;
-      case "checkForUpdates":
-        return await shell.checkForUpdates();
-      case "installUpdate":
-        return await shell.installUpdate();
-      default:
-        throw new Error(`no method ${String(method)}`);
+    try {
+      const call = parseServerPageCall(method, args);
+      switch (call.method) {
+        case "update":
+          return shell.state().update;
+        case "checkForUpdates":
+          return await shell.checkForUpdates();
+        case "installUpdate":
+          return await shell.installUpdate();
+        case "machines":
+          return machinesFor(shell.state(), pages.serverOf(event.sender));
+        case "openMachine":
+          return await shell.open(call.id);
+        case "showMachines":
+          await pages.openHosts(call.page === "add" ? "/add" : "/");
+          return;
+        case "removeMachine":
+          // The app asks first (Shell.remove), so a page can't remove a machine by itself.
+          return await shell.remove(call.id);
+        case "upgradeMachine":
+          // Only into an upgrade the app put there: not a restart of any machine's server at will.
+          if (!upgradeWaiting(shell.state(), call.id)) throw new Error("no rowrow upgrade waits there");
+          return await shell.hostAction(call.id, "upgrade-now");
+      }
+    } catch (error) {
+      log.warn("desktop.ipc.failed", { method: String(method), page: true, err: serializeError(error) });
+      throw error;
     }
   });
 
@@ -72,14 +99,23 @@ export function registerIpc(shell: Shell, log: Logger, isServerPage: (url: strin
   });
 
   let update = "";
+  let machines = "";
   shell.onState((state) => {
     const updateChanged = JSON.stringify(state.update) !== update;
     update = JSON.stringify(state.update);
+    const list = JSON.stringify(machinesFor(state, null));
+    const machinesChanged = list !== machines;
+    machines = list;
     for (const window of BrowserWindow.getAllWindows()) {
       if (window.isDestroyed()) continue;
-      const url = window.webContents.getURL();
-      if (isAppPage(url)) window.webContents.send("rowrow:state", state);
-      else if (updateChanged && isServerPage(url)) window.webContents.send("rowrow-app:update", state.update);
+      const contents = window.webContents;
+      const url = contents.getURL();
+      if (isAppPage(url)) contents.send("rowrow:state", state);
+      else if (pages.isServerPage(url)) {
+        if (updateChanged) contents.send("rowrow-app:update", state.update);
+        if (machinesChanged)
+          contents.send("rowrow-app:machines", machinesFor(state, pages.serverOf(contents)));
+      }
     }
   });
 }

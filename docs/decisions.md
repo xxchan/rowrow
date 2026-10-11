@@ -1712,3 +1712,57 @@ transcript and the diffs don't re-render on every move.
 
 **Revisit when** panes stack vertically (a divider that resizes heights), or a layout needs more
 than two panes in one row.
+
+## D-059 A machine is where agents run, a device is what you steer from; the Mac app's machines in every machine's sidebar (2026-10-11)
+
+**Context.** powerfool wanted agents on a remote machine from the Mac app. He found Settings →
+Devices → Pair a device in This Mac's window, signed the remote machine in as a device *of This
+Mac*, and then couldn't make workspaces "on it": they were This Mac's. The app's list of servers
+was only in the menu bar and the File menu, never in the window he was looking at. The UI said
+"server" for where agents run, "device" for what you steer from, and "pair" for both directions.
+
+**Decision.**
+
+- **One word for each.** A *machine* is where agents run ("This Mac", "devbox"); each has its
+  own agents, workspaces and settings. A *device* is what you steer them from (a phone, a
+  browser, the Mac app). Copy says machine wherever a person reads about or picks the place: the
+  web app, the Mac app's pages and menus (Machines…, Add a Machine…), CLI help, the docs.
+  "Server" stays for rowrow's program on a machine, and in code (`servers.ts`, `ServerView`, the
+  contract): copy only, no renames.
+- **Signing a device in says what it is.** Settings → Devices is **Signed-in devices**
+  ("Phones, browsers and apps that can see and steer this machine's agents"), Pair a device is
+  **Sign in another device**, and its dialog says that running agents on another machine is
+  adding a machine (in the Mac app, with **Add a machine…** right there). The Mac app's welcome
+  and add pages send you to `rowrow pair` *on the other machine* for a sign-in link.
+- **The sidebar's first row switches machines** in the Mac app: the mark, the app's name and
+  this machine's name, with how many agents need you on the *other* machines. Its menu lists the
+  app's machines (a status dot, the name, "2 need you" or why it can't be reached), this one
+  checked; picking one brings that machine's window forward (opening it if none is); **Add a
+  machine…** and **Manage machines…** open the app's own window. It sits in D-057's band, past
+  the window buttons. In a browser the row is what it was, a link home: a browser knows one
+  machine.
+- **Settings → Machines**, only in the Mac app, lists the same machines with Open, Remove from
+  this Mac… and a waiting rowrow upgrade's Restart now; the rest (rename, start and stop, logs)
+  stays on the app's page, a click away (Manage machines…). The menu bar keeps its list as a
+  shortcut.
+- **The bridge is `window.rowrowApp`**, the updater's (D-037), grown by six calls (`machines`,
+  `onMachines`, `openMachine`, `showMachines`, `removeMachine`, `upgradeMachine`), with the
+  updater's sender check (the top frame of a page of a machine this app opened) and each call's
+  arguments checked (`src/desktop/machines.ts`). A machine's page learns the others' names,
+  kinds, status, versions, upgrade state and needs-you counts; not where they are (an SSH
+  destination, an address) or anything else about their agents. It can remove one only through
+  the app's own confirmation, and restart one only into an upgrade the app put there. The web
+  app checks that the calls exist: an app older than the page has just the updater, and the row
+  stays a link.
+
+**Why.** The question a person brings is "where do my agents run, and which one am I looking
+at?": one word for it, answered at the top of the sidebar where the eye already lands, with the
+others' waiting count (PRINCIPLES.md, product 1). Signing a device in stays what it is, and says
+so at the moment someone reaches for it to add a machine. The switcher is part of the page
+(served by each machine), not the app's chrome, so it looks like the page around it, and a
+machine whose page predates it simply doesn't show it; the app's menus stay the fallback.
+
+**Revisit when** the iOS app or a browser holds several machines (the switcher's list would come
+from their own accounts: on iOS, Settings → Servers and the inbox's title, where it would go), a
+machine's page should do more of what the app's page does, or the CLI's words for its own
+commands ("Server", `rowrow serve`) start to confuse people too.

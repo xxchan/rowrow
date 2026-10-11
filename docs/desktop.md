@@ -1,11 +1,12 @@
 # rowrow for Mac
 
-A Mac app that is two things: a window onto rowrow servers (this Mac's, a dev box's over
-SSH, any you can reach), and the manager of the servers it runs. Agents run in the servers,
-never in the app: close its windows or quit it and every agent keeps working (PRINCIPLES.md,
-product 2). The decisions behind it are D-030 (an Electron window onto each server's own web
-app), D-031 (updates from GitHub Releases), D-032 (server bundles, and one service per profile
-shared with the CLI) and D-033 (hosts over SSH).
+A Mac app that is two things: a window onto the machines your agents run on (this Mac, a dev
+box over SSH, any machine that runs rowrow and that you can reach), and the manager of rowrow's
+server on the machines it set up. Agents run on the machines, never in the app: close its
+windows or quit it and every agent keeps working (PRINCIPLES.md, product 2). The decisions
+behind it are D-030 (an Electron window onto each server's own web app), D-031 (updates from
+GitHub Releases), D-032 (server bundles, and one service per profile shared with the CLI), D-033
+(hosts over SSH) and D-059 (machines and devices, and the machine switcher).
 
 ## Two setups
 
@@ -14,13 +15,29 @@ When you first open it, the app asks where your agents run.
 - **On this Mac** (the Mac is your dev machine). The app installs rowrow's server here and
   hands it to launchd, exactly as `rowrow service install` does: it starts when you log in,
   restarts if it crashes, and runs whether or not the app is open. Your phone can connect to
-  it too (Settings → Pair a device, over Tailscale or your LAN).
+  it too (Settings → Sign in another device, over Tailscale or your LAN).
 - **On another machine** (the Mac is only a client). Either a machine you reach over SSH (a
   dev box, a cloud VM, a Mac mini): the app puts rowrow's server there and keeps it running,
-  the way VS Code's Remote-SSH puts its server on the host. Or a server you can already reach
-  (Tailscale, your LAN): sign in with its link.
+  the way VS Code's Remote-SSH puts its server on the host. Or a machine that already runs
+  rowrow, reachable over Tailscale or your LAN: `rowrow pair` there prints a link that signs
+  the app in.
 
-Both can be true at once: the app holds any number of servers, one window each.
+Both can be true at once: the app holds any number of machines, one window each.
+
+## Machines and devices (D-059)
+
+A **machine** is where agents run, with its own agents, workspaces and settings; a **device** is
+what you steer them from (a phone, a browser, this app). Adding a machine is the app's job (File
+→ Add a Machine…, or Add a machine in the machines window); signing a device in to a machine is
+that machine's (its Settings → Signed-in devices → Sign in another device, or `rowrow pair`), and
+its dialog says it doesn't add a machine.
+
+In a machine's window, the sidebar's first row is the **machine switcher**: the machine's name
+(as the app calls it), with how many agents need you on the others. Its menu lists the app's
+machines with their status, this one checked; picking one brings its window forward, and Add a
+machine… and Manage machines… open the app's own window. The machine's **Settings → Machines**
+lists the same machines with Open, Remove from this Mac… and a waiting upgrade's Restart now.
+The machines window (rowrow → Machines…, ⌘,) and the menu bar list them too.
 
 ### Next to VS Code
 
@@ -44,7 +61,7 @@ Both can be true at once: the app holds any number of servers, one window each.
     │   ├─ HostManager ── LocalHost ── ROWROW_HOME/versions/<v>/bin/rowrow service … (launchd)
     │   │              └─ SshHost ─── ssh host sh -s < script, tar -xzf - (upload)
     │   ├─ Tunnel (ssh -N -L 127.0.0.1:p:127.0.0.1:7373)    the app's pages (rowrow-app://ui):
-    │   └─ Connection ── /healthz, /auth/token,              welcome, servers, add, offline
+    │   └─ Connection ── /healthz, /auth/token,              welcome, machines, add, offline
     │                    notify.watch → notifications
     ├─ Updater (electron-updater, GitHub Releases)
     └─ menus, menu bar (who needs you), Dock badge
@@ -63,12 +80,19 @@ Both can be true at once: the app holds any number of servers, one window each.
 - **The app's own pages** (src/desktop/ui: React and src/web's components) are served from
   `rowrow-app://ui`, and only they get `window.rowrow` (the preload checks the page's origin,
   and the main process checks every call's sender again).
+- **A machine's page** gets `window.rowrowApp` (src/shared/app-bridge.ts) instead, and only
+  in its top frame: the app's updater (D-037), and the machines for the switcher and Settings
+  (D-059). `src/desktop/machines.ts` shapes what a page sees of the machines (names, kinds,
+  status, versions, upgrades, needs-you counts; not where they are, nothing about their agents)
+  and checks its calls: open a machine, open the app's window on adding or managing them,
+  remove one (the app asks first, in its own dialog), restart one into an upgrade the app put
+  there. The app pushes the list again whenever it changes.
 - **The credential**: the app pairs with each server like the iOS app (a one-time code traded
   for a bearer token at `POST /auth/token`, device kind `app`, named "rowrow for Mac (<name>)").
   It mints the code itself where it can (`rowrow pair` on this Mac or over SSH); a URL server
   takes a link from you. A server from before `/auth/token` is signed into through its
   `/auth/redeem` page, in the window's session, and the app uses that cookie. Revoke it on the
-  server (Settings → Devices) and the app signs in again where it can mint a code, or says it
+  server (Settings → Signed-in devices) and the app signs in again where it can mint a code, or says it
   was signed out.
 - **Notifications** come from `notify.watch` (D-030): the server decides what to say and when,
   exactly as for Web Push (after a short delay, and not to a device with a focused window), and
@@ -117,7 +141,8 @@ server. Agents get their server's own CLI first on their PATH either way (the se
 seconds after it starts, every 4 hours and after the Mac wakes, downloads in the background
 (only the changed blocks, after the first update), and installs:
 
-- when you choose **Restart to Update** (menu, menu bar, or the Servers window);
+- when you choose **Restart to Update** (menu, menu bar, the machines window, or a machine's
+  Settings);
 - by itself when no rowrow window is visible and the Mac has been idle for 10 minutes; it comes
   back as it was, in the menu bar;
 - whenever the app quits anyway.
@@ -183,8 +208,9 @@ through this Mac.
 - Credentials: one device credential per server, sealed with Electron's safeStorage (the
   Keychain) in the app's data; the same one is the window's session cookie. Removing a server
   revokes it there.
-- A server's pages get no Node, no app API (sandboxed, context-isolated), and no permissions
-  beyond copying to the clipboard and full screen.
+- A machine's pages get no Node and no app API (sandboxed, context-isolated) beyond
+  `window.rowrowApp` (above), and no permissions beyond copying to the clipboard and full
+  screen.
 
 ## Development
 
@@ -223,7 +249,7 @@ Log): `desktop.host.*`, `desktop.connection.*`, `desktop.tunnel.*`, `desktop.upd
 server's own log and `rowrow logs` work as always.
 
 Tests: the pure parts (`src/desktop/*.test.ts`: planning, SSH scripts run by a real `sh`, the
-server list) and the server side (`test/desktop.test.ts`: notify.watch, and the app's
+server list, what a machine's page sees and may call) and the server side (`test/desktop.test.ts`: notify.watch, and the app's
 connection against a real server) run in `pnpm check`. `pnpm package:desktop --inspectable`
 builds an app Playwright can drive (Node's inspector left on); never ship one.
 

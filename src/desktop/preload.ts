@@ -1,9 +1,10 @@
 // The app's API for its own pages (src/desktop/ui), as `window.rowrow`. This preload runs in
-// every window, sandboxed, but gives the API only to pages at rowrow-app://ui: a server's web
-// app never sees it (and the main process checks the sender again, ipc.ts). A server's web app
-// gets only `window.rowrowApp`, the app's updater (src/shared/app-bridge.ts), for its Settings.
+// every window, sandboxed, but gives the API only to pages at rowrow-app://ui: a machine's web
+// app never sees it (and the main process checks the sender again, ipc.ts). A machine's web app
+// gets only `window.rowrowApp` (src/shared/app-bridge.ts): the app's updater for its Settings, and
+// the machines the app knows for its sidebar and Settings (D-059).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import type { AppBridge, AppUpdateView } from "../shared/app-bridge.ts";
+import type { AppBridge } from "../shared/app-bridge.ts";
 import type { DesktopApi, ShellState } from "./api.ts";
 
 // A page's location (this runs in the renderer; the main process's types have no DOM).
@@ -35,16 +36,24 @@ if (location.protocol === "rowrow-app:" && location.host === "ui") {
   };
   contextBridge.exposeInMainWorld("rowrow", api);
 } else if (location.protocol === "http:" || location.protocol === "https:") {
-  const call = <T>(method: string): Promise<T> => ipcRenderer.invoke("rowrow-app", method) as Promise<T>;
+  const call = <T>(method: string, ...args: unknown[]): Promise<T> =>
+    ipcRenderer.invoke("rowrow-app", method, ...args) as Promise<T>;
+  const on = <T>(channel: string, listener: (value: T) => void): (() => void) => {
+    const handler = (_event: IpcRendererEvent, value: T): void => listener(value);
+    ipcRenderer.on(channel, handler);
+    return () => void ipcRenderer.off(channel, handler);
+  };
   const bridge: AppBridge = {
     update: () => call("update"),
-    onUpdate: (listener) => {
-      const handler = (_event: IpcRendererEvent, view: AppUpdateView): void => listener(view);
-      ipcRenderer.on("rowrow-app:update", handler);
-      return () => void ipcRenderer.off("rowrow-app:update", handler);
-    },
+    onUpdate: (listener) => on("rowrow-app:update", listener),
     checkForUpdates: () => call("checkForUpdates"),
     installUpdate: () => call("installUpdate"),
+    machines: () => call("machines"),
+    onMachines: (listener) => on("rowrow-app:machines", listener),
+    openMachine: (id) => call("openMachine", id),
+    showMachines: (page) => call("showMachines", page),
+    removeMachine: (id) => call("removeMachine", id),
+    upgradeMachine: (id) => call("upgradeMachine", id),
   };
   contextBridge.exposeInMainWorld("rowrowApp", bridge);
 }
