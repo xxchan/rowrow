@@ -11,6 +11,7 @@ import {
   type NewAgentContext,
   type NewAgentPrefs,
 } from "../../shared/new-agent-setup.ts";
+import { announceHookRuns } from "./hook-runs.ts";
 import type { Route } from "./router.ts";
 import { report } from "./telemetry.ts";
 
@@ -63,6 +64,7 @@ export async function startAgent(client: Client, request: StartRequest): Promise
     target = created.workspace.id;
     if (created.hook !== null && !created.hook.ok)
       report("warn", "worktree.setup_hook_failed", undefined, { output: created.hook.output.slice(-500) });
+    announceHookRuns(`Created the worktree ${created.workspace.label}.`, created.hookRuns);
   }
   const { agent, sent } = await client.agents.create({
     workspaceId: target,

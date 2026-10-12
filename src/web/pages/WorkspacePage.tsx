@@ -46,6 +46,7 @@ import { workspaceArchived } from "../../shared/workspaces.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { ErrorText } from "../components/ErrorText.tsx";
 import { HookReview } from "../components/HookReview.tsx";
+import { HookRunList, useRepoHookRuns } from "../components/HookRuns.tsx";
 import {
   Inspector,
   saveInspectorTab,
@@ -58,7 +59,9 @@ import { openWorkspaceDialog, useUnarchive, useWorkspaceActions } from "../compo
 import { PageHeader } from "../components/Shell.tsx";
 import { AgentAvatar } from "../components/AgentIcon.tsx";
 import { ago, statusDot, title } from "../lib/format.ts";
+import { announceHookRuns, hookRunsChanged } from "../lib/hook-runs.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
+import { report } from "../lib/telemetry.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { useNow } from "../lib/use-now.ts";
 
@@ -88,6 +91,7 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
   const archived = workspaceArchived(state.workspaces, ws.id);
   const parent = ws.parentId === null ? undefined : state.workspaces[ws.parentId];
   const unarchive = useUnarchive();
+  const hookRuns = useRepoHookRuns(ws);
 
   const [tab, setTab] = useState<InspectorTab>(savedInspectorTab);
   const [newWorktree, setNewWorktree] = useState(false);
@@ -116,15 +120,32 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
     if (client === null) return;
     setBusy(true);
     try {
-      await client.workspaces.removeWorktree({ id: ws.id, force });
+      const { hookRuns: ran } = await client.workspaces.removeWorktree({ id: ws.id, force });
       setRemoving(null);
-      toast.success(`Removed the worktree; branch ${git?.branch ?? ""} is kept.`);
+      const done = `Removed the worktree; branch ${git?.branch ?? ""} is kept.`;
+      if (ran.length === 0) toast.success(done);
+      else announceHookRuns(done, ran);
       navigate(ws.parentId === null ? "/" : `/w/${ws.parentId}`);
     } catch (error) {
       if (!force && error instanceof ORPCError && error.code === "CONFLICT") setRemoving("dirty");
       else {
         setRemoving(null);
-        toast.error(`Couldn't remove it: ${error instanceof Error ? error.message : String(error)}`);
+        // A teardown hook that failed kept the worktree (the one refusal that is a precondition):
+        // say so, with its output a click away.
+        const teardown =
+          error instanceof ORPCError && error.code === "PRECONDITION_FAILED"
+            ? await client.workspaces
+                .hookRuns({ id: ws.id })
+                .then((runs) => runs.find((r) => r.workspaceId === ws.id))
+                .catch((read: unknown) => {
+                  report("warn", "worktree.hook_runs_read_failed", read, { workspaceId: ws.id });
+                  return undefined;
+                })
+            : undefined;
+        if (teardown?.event === "teardown" && !teardown.ok) {
+          announceHookRuns("Couldn't remove the worktree; it's kept.", [teardown], true);
+          hookRunsChanged();
+        } else toast.error(`Couldn't remove it: ${error instanceof Error ? error.message : String(error)}`);
       }
     } finally {
       setBusy(false);
@@ -310,6 +331,11 @@ function WorkspaceView({ ws, state, route }: { ws: Workspace; state: AppState; r
               </ul>
             </Section>
           )}
+          {hookRuns !== null && (hookRuns.configured || hookRuns.runs.length > 0) && (
+            <Section label="Hook runs">
+              <HookRunList runs={hookRuns.runs} />
+            </Section>
+          )}
         </div>
       </div>
       <NewWorktreeDialog open={newWorktree} onClose={() => setNewWorktree(false)} workspaceId={ws.id} />
@@ -410,11 +436,11 @@ function NewWorktreeDialog({
     setBusy(true);
     setError(null);
     try {
-      const { workspace, hook } = await client.workspaces.createWorktree({
+      const { workspace, hookRuns } = await client.workspaces.createWorktree({
         id: workspaceId,
         ...(branch.trim() === "" ? {} : { branch: branch.trim() }),
       });
-      if (hook !== null && !hook.ok) toast.error(`The setup hook failed: ${hook.output.slice(-300)}`);
+      announceHookRuns(`Created the worktree ${workspace.label}.`, hookRuns);
       onClose();
       setBranch("");
       navigate(`/w/${workspace.id}`);

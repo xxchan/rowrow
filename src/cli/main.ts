@@ -20,6 +20,7 @@ import {
   type CommandRun,
 } from "../shared/commands.ts";
 import { stamp } from "../shared/describe.ts";
+import { hookOutcome } from "../shared/hook-runs.ts";
 import { newInputId } from "../shared/ids.ts";
 import { renderText } from "../shared/render-text.ts";
 import { fastOn, fastTierOf, NO_TIER, tierWords } from "../shared/service-tier.ts";
@@ -129,6 +130,9 @@ Workspaces
   rowrow ws runs <workspace>       the commands run there lately (the server keeps 20 each)
   rowrow ws output <run> [-f]      what a run printed (its start and end, when long); -f: follow it
   rowrow ws stop <run>             stop a running command (SIGTERM, then SIGKILL after 5 s)
+  rowrow ws hooks <workspace> [--full]   the worktree hooks its repository ran lately (setup,
+                                   teardown, removed; the server keeps 20); --full: with their output.
+                                   Archiving runs none
   (a <workspace> is its id, its label, or its path; file actions: rowrow call git.fileAction)
 
 Debugging
@@ -549,6 +553,8 @@ async function main(argv: string[]): Promise<void> {
           await manageCommand(client, sub, args, { str, bool, strings, json, out, trace });
         } else if (sub !== undefined && ["run", "runs", "output", "stop"].includes(sub)) {
           await runCommand(client, sub, args, { str, bool, strings, json, out, trace });
+        } else if (sub === "hooks") {
+          await hooksCommand(client, args, { str, bool, strings, json, out, trace });
         } else if (sub !== undefined) {
           throw new Error(`unknown ws command "${sub}"; rowrow help lists them`);
         } else {
@@ -878,6 +884,31 @@ async function manageCommand(client: Client, sub: string, args: string[], h: Hel
       return;
     }
   }
+}
+
+/** The worktree hooks a repository ran lately, newest first (docs/git.md, "Hook runs"). */
+async function hooksCommand(client: Client, args: string[], h: Helpers): Promise<void> {
+  const [ref = ""] = args;
+  const { state } = await client.state.get();
+  const found = findWorkspace(state, ref);
+  if (found === null) throw new Error(`no workspace matches "${ref}" (rowrow ws lists them)`);
+  const runs = await client.workspaces.hookRuns({ id: found.id });
+  h.out(runs, () =>
+    runs.length === 0
+      ? "No worktree hook has run in this repository yet (archiving runs none)."
+      : runs
+          .map((r) => {
+            const line = `${r.ok ? "✓" : "✗"} ${r.event.padEnd(8)} ${hookOutcome(r).padEnd(12)} ${runDuration(r.ms).padStart(7)}  ${ago(r.at)} ago  ${r.worktreeLabel}  ${r.command.split("\n")[0] ?? ""}`;
+            if (!h.bool("full")) return line;
+            const output = r.output.replace(/\s+$/, "");
+            return [
+              line,
+              `  ${r.config}${r.legacy ? " (legacy)" : ""} · ${r.worktreePath}`,
+              ...(output === "" ? ["  (no output)"] : output.split("\n").map((l) => `  │ ${l}`)),
+            ].join("\n");
+          })
+          .join(h.bool("full") ? "\n\n" : "\n"),
+  );
 }
 
 /** Commands run in a workspace (D-052): run one and stream it, list them, read one, stop one. */

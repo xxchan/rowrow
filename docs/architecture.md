@@ -360,7 +360,9 @@ message says what to do next.
   a dirty checkout unless forced and never deletes the branch; rowrow then forgets the
   workspace and archives its agents.
 - **Hooks** come from `rowrow.json` at the repository root: `worktree.setup`, `opened`,
-  `teardown`, `removed`. A failed teardown blocks removal.
+  `teardown`, `removed` (`opened` is read but never run). A failed teardown blocks removal.
+  Archiving runs none. Each run is kept (the newest 20 per repository, `workspaces.hookRuns`),
+  returned by the call that ran it for its toast, and listed on the workspace page.
 - **Diffs** have three scopes: working tree, branch (against the merge base with the
   default branch), and an agent's last turn (between snapshots taken when the turn started
   and when it ended, D-015). A snapshot never touches your index or object store: it is

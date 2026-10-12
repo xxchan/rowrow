@@ -39,6 +39,7 @@ describe("resolveHooks", () => {
         path: path.join(dir, name),
         legacy: name !== "rowrow.json",
         worktree: { setup: `${path.basename(dir)}/${name}` },
+        ignored: [],
       });
       fs.rmSync(path.join(dir, name));
     }
@@ -52,6 +53,7 @@ describe("resolveHooks", () => {
       path: path.join(target, "rowrow.json"),
       legacy: false,
       worktree: { teardown: "make clean" },
+      ignored: [],
     });
     write(target, "rowrow.json", "{}");
     expect((await resolveHooks({ target, source }))?.worktree).toEqual({});
@@ -80,7 +82,7 @@ describe("resolveHooks", () => {
     await expect(resolveHooks({ target, source })).rejects.toThrow(/cannot read/);
   });
 
-  it("ignores other tools' extra hooks in their files, and blank commands", async () => {
+  it("skips other tools' extra hooks in their files, and says which; and blank commands", async () => {
     write(
       target,
       "paseo.json",
@@ -90,6 +92,7 @@ describe("resolveHooks", () => {
       path: path.join(target, "paseo.json"),
       legacy: true,
       worktree: { setup: "make" },
+      ignored: ["worktree.archive"],
     });
   });
 });

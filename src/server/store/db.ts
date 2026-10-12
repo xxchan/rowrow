@@ -177,6 +177,28 @@ const MIGRATIONS: readonly string[] = [
     primary key (task_id, event_key)
   ) without rowid;
   `,
+  // 10: worktree hook runs (docs/git.md, "Hook runs"): the newest 20 per repository (repo_key, its
+  // git common dir), with the end of their output; workspace_id may name a forgotten workspace.
+  `
+  create table hook_runs (
+    id text primary key,
+    repo_key text not null,
+    workspace_id text not null,
+    event text not null,
+    worktree_path text not null,
+    worktree_label text not null,
+    config text not null,
+    legacy integer not null,
+    command text not null,
+    ok integer not null,
+    code integer,
+    timed_out integer not null,
+    ms integer not null,
+    output text not null,
+    at integer not null
+  );
+  create index hook_runs_by_repo on hook_runs (repo_key, at);
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

@@ -1,7 +1,8 @@
 // Before rowrow runs a repository's worktree hooks, which file they come from and what they
 // will run (roamgate #296: its hook dialogs show the effective config path and whether it's
 // native or legacy). Hooks run without asking (docs/git.md, "Hooks"), so the dialogs that
-// create or remove a worktree are where you read them.
+// create or remove a worktree are where you read them, with what the file has that never runs:
+// an `opened` hook, and another tool's hooks rowrow doesn't have.
 import { cn } from "@/lib/utils";
 import { Settings } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -12,25 +13,20 @@ import { report } from "../lib/telemetry.ts";
 const LABELS = { setup: "Setup", opened: "Opened", teardown: "Teardown", removed: "Removed" } as const;
 type HookEvent = keyof typeof LABELS;
 
-export function HookReview({
-  workspaceId,
-  action,
-  quiet = false,
-  className,
-}: {
-  workspaceId: string;
-  /** A new worktree from this checkout (its setup hook), or removing this one (teardown, removed). */
-  action: "create" | "remove";
-  /** Nothing at all when the repository has no hook file (the new-agent form). */
-  quiet?: boolean;
-  className?: string;
-}) {
+/**
+ * The repository's hooks as `workspaces.hooks` reads them for an action; null while loading, or
+ * when `workspaceId` is null (nothing to ask about).
+ */
+export function useWorktreeHooks(
+  workspaceId: string | null,
+  action: "create" | "remove",
+): WorktreeHooks | null {
   const client = useClient();
   const key = `${workspaceId}:${action}`;
   // What was read, for which workspace and action: another one's answer is no answer.
   const [loaded, setLoaded] = useState<{ key: string; hooks: WorktreeHooks } | null>(null);
   useEffect(() => {
-    if (client === null) return;
+    if (client === null || workspaceId === null) return;
     let cancelled = false;
     void (async () => {
       let hooks: WorktreeHooks;
@@ -46,7 +42,23 @@ export function HookReview({
       cancelled = true;
     };
   }, [client, workspaceId, action]);
-  const hooks = loaded?.key === key ? loaded.hooks : null;
+  return loaded?.key === key ? loaded.hooks : null;
+}
+
+export function HookReview({
+  workspaceId,
+  action,
+  quiet = false,
+  className,
+}: {
+  workspaceId: string;
+  /** A new worktree from this checkout (its setup hook), or removing this one (teardown, removed). */
+  action: "create" | "remove";
+  /** Nothing at all when the repository has no hook file (the new-agent form). */
+  quiet?: boolean;
+  className?: string;
+}) {
+  const hooks = useWorktreeHooks(workspaceId, action);
   if (hooks === null || (quiet && hooks.config === null && hooks.error === null)) return null;
 
   const { config, error } = hooks;
@@ -81,6 +93,21 @@ export function HookReview({
         {config !== null && runs.length === 0 && (
           <span className="text-muted-foreground">
             {`No ${events.map((event) => LABELS[event].toLowerCase()).join(" or ")} hook: nothing runs.`}
+          </span>
+        )}
+        {config?.hooks.opened !== undefined && (
+          <span className="flex gap-1.5 pt-0.5 text-muted-foreground">
+            <span className="shrink-0">{LABELS.opened}</span>
+            <span className="min-w-0">
+              <code className="font-mono break-all whitespace-pre-wrap">{config.hooks.opened}</code>
+              {" · never runs in rowrow"}
+            </span>
+          </span>
+        )}
+        {config !== null && config.ignored.length > 0 && (
+          <span className="text-muted-foreground">
+            {`Ignored (rowrow has no such hook${config.ignored.length === 1 ? "" : "s"}): `}
+            <code className="font-mono break-all">{config.ignored.join(", ")}</code>
           </span>
         )}
         {error !== null && (

@@ -26,6 +26,7 @@ import type {
   SeenFile,
   StateMessage,
   Workspace,
+  WorktreeHookRun,
   WorktreeHooks,
 } from "../../shared/schemas.ts";
 import type { Attention } from "../../shared/summary.ts";
@@ -81,9 +82,15 @@ export interface GitOps {
   ): Promise<{
     workspace: Workspace;
     hook: { ran: boolean; ok: boolean; output: string } | null;
+    hookRuns: WorktreeHookRun[];
   }>;
-  /** Removes the checkout; forgetting the workspace is the lifecycle's (D-047). */
-  removeWorktree(workspaceId: string, force: boolean): Promise<void>;
+  /**
+   * Removes the checkout, and returns the hooks it ran (teardown, removed); forgetting the
+   * workspace is the lifecycle's (D-047).
+   */
+  removeWorktree(workspaceId: string, force: boolean): Promise<WorktreeHookRun[]>;
+  /** The repository's recent hook runs, newest first: from its workspace or any of its worktrees. */
+  hookRuns(workspaceId: string): WorktreeHookRun[];
   /** The setup hook a worktree of this workspace's repository would run, as its checkout says; null for none. */
   worktreeSetup(workspaceId: string): Promise<string | null>;
   hooks(workspaceId: string, action: "create" | "remove"): Promise<WorktreeHooks>;
@@ -309,10 +316,11 @@ export function createRouter(s: Services) {
       ),
       hooks: os.workspaces.hooks.handler(({ input }) => s.git.hooks(input.id, input.action)),
       removeWorktree: os.workspaces.removeWorktree.handler(async ({ input, context }) => {
-        await s.git.removeWorktree(input.id, input.force ?? false);
+        const hookRuns = await s.git.removeWorktree(input.id, input.force ?? false);
         await s.lifecycle.worktreeRemoved(input.id, context.actor);
-        return { ok: true as const };
+        return { ok: true as const, hookRuns };
       }),
+      hookRuns: os.workspaces.hookRuns.handler(({ input }) => s.git.hookRuns(input.id)),
     },
 
     agents: {

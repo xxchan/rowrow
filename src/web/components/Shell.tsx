@@ -55,6 +55,7 @@ import { NewAgentDialog, useNewAgent } from "./NewAgentDialog.tsx";
 import { ShortcutsDialog, useShortcuts } from "./ShortcutsDialog.tsx";
 import { UpdateBanner } from "./UpdateBanner.tsx";
 import { openWorkspaceDialog, useUnarchive, WorkspaceDialogs } from "./WorkspaceActions.tsx";
+import { HookOutputDialog } from "./HookRuns.tsx";
 import { AgentIcon } from "./AgentIcon.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 
@@ -100,6 +101,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       <ShortcutsDialog />
       <AgentDialogs />
       <WorkspaceDialogs />
+      <HookOutputDialog />
       <Toaster position="top-center" />
     </div>
   );

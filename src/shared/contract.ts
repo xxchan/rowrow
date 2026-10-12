@@ -63,6 +63,7 @@ import {
   UpgradeResult,
   type StateMessage,
   Workspace,
+  WorktreeHookRun,
   WorktreeHooks,
 } from "./schemas.ts";
 
@@ -143,7 +144,7 @@ const workspaces = {
   update: oc
     .route({
       summary:
-        "Rename (label; null restores the derived name) or archive a workspace. Archiving hides it, the linked worktrees under it and their agents, and stops their runs; nobody can start or message an agent there until it is unarchived. The agents' own archived flags are untouched, so unarchiving brings back exactly what was there.",
+        "Rename (label; null restores the derived name) or archive a workspace. Archiving hides it, the linked worktrees under it and their agents, and stops their runs (it runs no worktree hooks); nobody can start or message an agent there until it is unarchived. The agents' own archived flags are untouched, so unarchiving brings back exactly what was there.",
     })
     .input(
       z.object({
@@ -185,7 +186,7 @@ const workspaces = {
   createWorktree: oc
     .route({
       summary:
-        "Create a linked git worktree of a workspace's repository on a new branch (from the freshly fetched default branch of origin unless `base` is given), register it as a workspace grouped under the repository, and run the repository's setup hook.",
+        "Create a linked git worktree of a workspace's repository on a new branch (from the freshly fetched default branch of origin unless `base` is given), register it as a workspace grouped under the repository, and run the repository's setup hook (its run is kept: workspaces.hookRuns).",
     })
     .input(
       z.object({
@@ -198,6 +199,7 @@ const workspaces = {
       z.object({
         workspace: Workspace,
         hook: z.object({ ran: z.boolean(), ok: z.boolean(), output: z.string() }).nullable(),
+        hookRuns: z.array(WorktreeHookRun).describe("The setup hook's run, when it ran."),
       }),
     ),
   hooks: oc
@@ -210,10 +212,25 @@ const workspaces = {
   removeWorktree: oc
     .route({
       summary:
-        "Remove a linked worktree workspace: runs the teardown hook (a failure stops removal), removes the checkout (refused when dirty unless force), keeps the branch. rowrow then forgets the workspace and archives its agents.",
+        "Remove a linked worktree workspace: runs the teardown hook (a failure stops removal), removes the checkout (refused when dirty unless force), runs the removed hook, keeps the branch. rowrow then forgets the workspace and archives its agents.",
     })
     .input(z.object({ id: workspaceId, force: z.boolean().optional() }))
-    .output(ok),
+    .output(
+      ok.extend({
+        hookRuns: z
+          .array(WorktreeHookRun)
+          .describe(
+            "The hooks it ran, in order: teardown, then removed. A failed removed hook doesn't undo the removal; it is reported here.",
+          ),
+      }),
+    ),
+  hookRuns: oc
+    .route({
+      summary:
+        "The worktree hooks rowrow ran for a repository lately (setup, teardown, removed), newest first: each with its worktree, the file and command, how it ended, how long it took and the end of its output. Archiving runs no hooks. Pass the repository's workspace or any of its worktrees; rowrow keeps the last 20 per repository.",
+    })
+    .input(z.object({ id: workspaceId }))
+    .output(z.array(WorktreeHookRun)),
 };
 
 const SERVICE_TIER =

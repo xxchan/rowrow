@@ -35,12 +35,13 @@ import {
 import { useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
-import type { AppState, Workspace } from "../../shared/schemas.ts";
+import type { AppState, Workspace, WorktreeHooks } from "../../shared/schemas.ts";
 import { workspaceArchived, workspaceGroup } from "../../shared/workspaces.ts";
 import { navigate } from "../lib/router.ts";
 import { useApp, useClient } from "../lib/store.ts";
 import { report } from "../lib/telemetry.ts";
 import { AddWorkspace } from "./AddWorkspace.tsx";
+import { useWorktreeHooks } from "./HookReview.tsx";
 import { copyText, type MenuAction } from "./MenuActions.tsx";
 import { useNewAgent } from "./NewAgentDialog.tsx";
 
@@ -236,6 +237,9 @@ function ArchiveWorkspaceDialog({
   const client = useClient();
   const [busy, setBusy] = useState(false);
   const { worktrees, agents, working } = contents(state, ws);
+  const linked = ws.git?.linked === true;
+  const hooks = useWorktreeHooks(ws.git === null || ws.missing ? null : ws.id, linked ? "remove" : "create");
+  const hookNote = archiveHookNote(hooks, linked);
   const archive = async (): Promise<void> => {
     if (client === null) return;
     setBusy(true);
@@ -267,6 +271,7 @@ function ArchiveWorkspaceDialog({
       <p>
         {`It's hidden${holds.length > 0 ? ` with its ${holds.join(" and ")}` : ""} until you unarchive it, and no agent can start or be messaged there meanwhile. Nothing is deleted.`}
       </p>
+      {hookNote !== null && <p>{hookNote}</p>}
       {working.length > 0 && (
         <p className="text-warning">
           {`${count(working.length, "agent is", "agents are")} working there: archiving stops ${working.length === 1 ? "it" : "them"}.`}
@@ -274,6 +279,15 @@ function ArchiveWorkspaceDialog({
       )}
     </Confirm>
   );
+}
+
+/** For a repository with worktree hooks: archiving runs none, and what does run them. */
+function archiveHookNote(hooks: WorktreeHooks | null, linked: boolean): string | null {
+  const config = hooks?.config;
+  if (config == null || Object.values(config.hooks).every((command) => command === undefined)) return null;
+  const removal = (["teardown", "removed"] as const).filter((event) => config.hooks[event] !== undefined);
+  if (removal.length === 0) return "Archiving runs no hooks.";
+  return `Archiving runs no hooks; ${linked ? "Remove this worktree…" : "removing a worktree"} runs ${removal.join(" and ")}.`;
 }
 
 function RemoveWorkspaceDialog({

@@ -8,6 +8,12 @@ file when something lands.
 
 ## Done recently
 
+- **Hook runs**: after New worktree, Remove this worktree, or a new agent in a new worktree, one
+  toast says which of the repository's hooks ran and how they ended (a warning when one failed,
+  a failed `removed` hook too), with Show output. Every run is kept, the newest 20 per
+  repository: the workspace page lists them under Hook runs, each opening to its output, and
+  `rowrow ws hooks <workspace>` prints them. Archiving runs no hook, and its dialog says so; the
+  hook review marks an `opened` hook as never run and lists another tool's hooks rowrow skips.
 - **A second machine in one command** (D-060): `npx rowrow up` on it runs rowrow as a service
   your LAN and Tailscale reach (`--host private`: never the internet) and prints its addresses,
   a pairing code and a QR code; rowrow for Mac's Add a machine lists the machines it finds (mDNS

@@ -97,10 +97,15 @@ export const WorktreeHooks = z.object({
       legacy: z.boolean().describe("Another tool's file, read for compatibility."),
       hooks: z.object({
         setup: z.string().optional(),
-        opened: z.string().optional(),
+        opened: z.string().optional().describe('Read, but never run: rowrow has no "open a worktree" act.'),
         teardown: z.string().optional(),
         removed: z.string().optional(),
       }),
+      ignored: z
+        .array(z.string())
+        .describe(
+          'Keys under "worktree" in another tool\'s file that rowrow has no hook for (worktree.archive…): skipped.',
+        ),
     })
     .nullable()
     .describe("null: no hook file, so nothing runs."),
@@ -110,6 +115,26 @@ export const WorktreeHooks = z.object({
     .describe("A hook file exists but can't be used; creating or removing a worktree fails with this."),
 });
 export type WorktreeHooks = z.infer<typeof WorktreeHooks>;
+
+/** One run of a worktree hook, as rowrow recorded it (docs/git.md, "Hook runs"). */
+export const WorktreeHookRun = z.object({
+  id: z.string(),
+  event: z.enum(["setup", "teardown", "removed"]),
+  repoKey: z.string().describe("The repository (its git common dir): runs are kept per repository."),
+  workspaceId: z.string().describe("The worktree's workspace; rowrow may have forgotten it since."),
+  worktreePath: z.string(),
+  worktreeLabel: z.string().describe("Its name when the hook ran."),
+  config: z.string().describe("The file the command came from."),
+  legacy: z.boolean().describe("Another tool's file (roamgate.json, paseo.json)."),
+  command: z.string(),
+  ok: z.boolean().describe("Exited 0 in time."),
+  code: z.number().nullable().describe("The exit code; null when it was killed or couldn't start."),
+  timedOut: z.boolean().describe("Killed after 10 minutes."),
+  ms: z.number(),
+  output: z.string().describe("stdout and stderr as they came; the last 16 K characters."),
+  at: z.number().describe("When it ended."),
+});
+export type WorktreeHookRun = z.infer<typeof WorktreeHookRun>;
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
 

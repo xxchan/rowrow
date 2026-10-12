@@ -201,6 +201,68 @@ test("a new worktree's dialog says which hook file runs and what, before it does
   );
 });
 
+test("removing a worktree says which hooks ran and how, and the repository lists them with their output", async ({
+  page,
+  rowrow,
+}) => {
+  const repo = rowrow.repo();
+  fs.writeFileSync(
+    path.join(repo, "rowrow.json"),
+    JSON.stringify({
+      worktree: {
+        opened: "code .",
+        teardown: "echo tearing down",
+        removed: "echo cleanup failed >&2; exit 1",
+      },
+    }),
+  );
+  const ws = await rowrow.client.workspaces.add({ path: repo });
+  const { workspace: wt } = await rowrow.client.workspaces.createWorktree({
+    id: ws.id,
+    branch: "feature/done",
+  });
+  await rowrow.open(page, `/w/${wt.id}`);
+
+  // Archiving runs none, and says what does.
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByRole("menuitem", { name: "Archive…" }).click();
+  const archive = page.getByRole("alertdialog", { name: "Archive feature/done?" });
+  await expect(archive).toContainText(
+    "Archiving runs no hooks; Remove this worktree… runs teardown and removed.",
+  );
+  await archive.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Workspace actions" }).click();
+  await page.getByRole("menuitem", { name: "Remove this worktree…" }).click();
+  const confirm = page.getByRole("alertdialog", { name: "Remove this worktree?" });
+  await expect(confirm.getByRole("region", { name: "Repository hooks" })).toContainText(
+    "Openedcode . · never runs in rowrow",
+  );
+  await confirm.getByRole("button", { name: "Remove" }).click();
+
+  const toast = page
+    .getByRole("region", { name: /Notifications/ })
+    .getByRole("listitem")
+    .filter({ hasText: "Removed the worktree; branch feature/done is kept." });
+  await expect(toast).toContainText("Its teardown hook ran, but its removed hook failed (exit 1).");
+  await toast.getByRole("button", { name: "Show output" }).click();
+  const output = page.getByRole("dialog", { name: "Hook output" });
+  await expect(output.getByRole("region", { name: "teardown hook" })).toContainText("tearing down");
+  await expect(output.getByRole("region", { name: "removed hook" })).toContainText("exit 1");
+  await expect(output.getByRole("region", { name: "removed hook" }).getByLabel("Output")).toHaveText(
+    "cleanup failed",
+  );
+  await page.keyboard.press("Escape");
+
+  // Removing it went to the repository's page, which keeps them.
+  await expect(page).toHaveURL(new RegExp(`/w/${ws.id}$`));
+  const runs = page.getByRole("list", { name: "Hook runs" });
+  await expect(runs.getByRole("listitem")).toHaveCount(2);
+  await expect(runs.getByRole("listitem").first()).toContainText(/removed.*feature\/done.*exit 1/);
+  await runs.getByRole("button", { name: /removed feature\/done/ }).click();
+  await expect(runs.getByLabel("Output")).toHaveText("cleanup failed");
+});
+
 test("double-click an agent's title to rename it", async ({ page, rowrow }, info) => {
   const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
   const { agent } = await rowrow.client.agents.create({

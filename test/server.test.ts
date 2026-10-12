@@ -10,6 +10,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Entry } from "../src/shared/entries.ts";
+import { hookOutcome } from "../src/shared/hook-runs.ts";
 import { newInputId } from "../src/shared/ids.ts";
 import { renderText } from "../src/shared/render-text.ts";
 import { TranscriptProjector } from "../src/shared/transcript-model.ts";
@@ -1000,6 +1001,76 @@ describe("git", () => {
       reason: `its worktree was removed (${wt.path})`,
     });
   });
+
+  it("keeps every hook run and returns the ones an action ran; a failed removed hook still removes", async () => {
+    const server = await startTestServer();
+    t = server;
+    const repo = server.repo();
+    const hooks = (worktree: Record<string, string>): void =>
+      fs.writeFileSync(path.join(repo, "rowrow.json"), JSON.stringify({ worktree }));
+    hooks({ setup: "echo set up", teardown: "echo cleaning; exit 3" });
+    const ws = await server.client.workspaces.add({ path: repo });
+    const created = await server.client.workspaces.createWorktree({ id: ws.id, branch: "feature/hooked" });
+    const wt = created.workspace;
+    expect(created.hook).toEqual({ ran: true, ok: true, output: "set up\n" });
+    expect(created.hookRuns).toEqual([
+      expect.objectContaining({
+        event: "setup",
+        repoKey: ws.git?.repoKey,
+        workspaceId: wt.id,
+        worktreePath: wt.path,
+        worktreeLabel: "feature/hooked",
+        config: path.join(repo, "rowrow.json"),
+        legacy: false,
+        command: "echo set up",
+        ok: true,
+        code: 0,
+        timedOut: false,
+        output: "set up\n",
+      }),
+    ]);
+
+    // A failed teardown keeps the worktree, and its run.
+    await expect(server.client.workspaces.removeWorktree({ id: wt.id })).rejects.toThrow(
+      /teardown hook failed \(exit 3\), so the worktree was kept:\ncleaning/,
+    );
+    expect(fs.existsSync(wt.path)).toBe(true);
+    // The repository's runs, from any of its workspaces.
+    expect(await server.client.workspaces.hookRuns({ id: wt.id })).toEqual(
+      await server.client.workspaces.hookRuns({ id: ws.id }),
+    );
+
+    // A removed hook runs once the checkout is gone: its failure is reported, not undone.
+    hooks({ teardown: "echo cleaned", removed: "echo bye >&2; exit 4" });
+    const removed = await server.client.workspaces.removeWorktree({ id: wt.id });
+    expect(fs.existsSync(wt.path)).toBe(false);
+    expect((await server.client.state.get()).state.workspaces[wt.id]).toBeUndefined();
+    expect(removed.hookRuns.map((r) => [r.event, r.ok, r.code, r.output])).toEqual([
+      ["teardown", true, 0, "cleaned\n"],
+      ["removed", false, 4, "bye\n"],
+    ]);
+
+    const runs = await server.client.workspaces.hookRuns({ id: ws.id });
+    expect(runs.map((r) => `${r.event} ${hookOutcome(r)} ${r.worktreeLabel}`)).toEqual([
+      "removed exit 4 feature/hooked",
+      "teardown ok feature/hooked",
+      "teardown exit 3 feature/hooked",
+      "setup ok feature/hooked",
+    ]);
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [path.resolve(import.meta.dirname, "../src/cli/main.ts"), "ws", "hooks", ws.id],
+      { env: { ...process.env, ROWROW_URL: server.server.url, ROWROW_TOKEN: server.token } },
+    );
+    expect(stdout.split("\n")[0]).toMatch(
+      /^✗ removed +exit 4 +\d+\.\ds  \d+s ago  feature\/hooked  echo bye >&2; exit 4$/,
+    );
+
+    // Removing the repository from rowrow forgets them with it.
+    await server.client.workspaces.remove({ id: ws.id });
+    const again = await server.client.workspaces.add({ path: repo });
+    expect(await server.client.workspaces.hookRuns({ id: again.id })).toEqual([]);
+  });
 });
 
 describe("workspaces (D-047)", () => {
@@ -1158,6 +1229,7 @@ describe("workspaces (D-047)", () => {
         file: "paseo.json",
         legacy: true,
         hooks: { setup: "true" },
+        ignored: [],
       },
       error: null,
     });

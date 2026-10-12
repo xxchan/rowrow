@@ -70,7 +70,8 @@ A valid file without a hook for an event means that event runs nothing; there is
 fallback to a lower file. A file that exists but can't be read, isn't JSON, isn't an
 object, or has a non-string hook throws. In `rowrow.json` an unknown key under `worktree`
 also throws (a typo would otherwise silently skip a hook); other tools' files may carry
-hooks rowrow doesn't have. Blank commands count as absent.
+hooks rowrow doesn't have, which are skipped and listed as `ignored` (`worktree.archive`).
+Blank commands count as absent.
 
 **When they run** (the caller orchestrates; `target` is the worktree, `source` the checkout
 it came from):
@@ -78,9 +79,14 @@ it came from):
 | Event | Runs | cwd | Config read from | On failure |
 | --- | --- | --- | --- | --- |
 | `setup` | after a new worktree is created | target | target, then source | report it; the worktree exists |
-| `opened` | after an existing worktree is opened | target | target, then source | report it |
+| `opened` | never: rowrow has no "open a worktree" act | | | |
 | `teardown` | before removal | target | target, then source | **removal is blocked** (the caller checks `ok`) |
-| `removed` | after removal | source | source (the target is gone) | report it |
+| `removed` | after removal | source | source (the target is gone) | report it; the removal stands |
+
+**Archiving runs no hook.** Archiving a workspace (D-047) only hides it and stops its agents:
+its checkout and branch stay, and Unarchive brings it back, so there is nothing to set up or
+tear down. Only New worktree (setup) and Remove this worktree (teardown, removed) run hooks;
+the archive dialog of a repository or worktree with hooks says so.
 
 **Running** (`runHook`): `sh -c <command>` in its own process group, with
 `ROWROW_HOOK_EVENT`, `ROWROW_WORKTREE_PATH` and `ROWROW_SOURCE_PATH` set on top of the
@@ -96,7 +102,23 @@ New worktree is on) show the file that is in effect, whether it is rowrow's own 
 tool's read for compatibility, its path, and the commands this action runs; a file that
 can't be used shows its error there. `create` resolves against the checkout the worktree
 comes from (the new worktree's own copy, if origin's default branch has one, wins when it
-runs); `remove` resolves exactly as removal will.
+runs); `remove` resolves exactly as removal will. The review also shows what the file has that
+never runs: an `opened` hook ("never runs in rowrow"), and another tool's hooks rowrow
+doesn't have (Ignored: …).
+
+**Hook runs** (`workspaces/hook-runs.ts`, `workspaces.hookRuns {id}`): every run is a fact in
+the database (`hook_runs`): the event, the repository (its git common dir), the worktree's
+workspace, path and name, the file and command, `ok`, the exit code, whether it timed out, how
+long it took, the last 16 K characters of its output, and when it ended. The newest 20 per
+repository are kept; they go when rowrow forgets the repository's last workspace (D-047).
+`createWorktree` and `removeWorktree` return the runs they made (`hookRuns`), so the caller
+says what ran right away: the web app's toast after New worktree, Remove this worktree and a
+new agent in a new worktree names the hooks and how they ended ("Its teardown hook ran, but
+its removed hook failed (exit 1)."), a warning when one failed, with Show output. A failed
+teardown refuses removal with the end of its output (the toast says the worktree was kept).
+The workspace page of a repository or any of its worktrees lists them under Hook runs (when
+it has a hook file or runs), each opening to its output; `rowrow ws hooks <workspace>
+[--full]` prints them.
 
 ## Turn snapshots (`snapshots.ts`)
 

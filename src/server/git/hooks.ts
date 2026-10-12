@@ -22,6 +22,8 @@ export interface HookConfig {
   /** Read from another tool's file (roamgate.json or paseo.json). */
   readonly legacy: boolean;
   readonly worktree: WorktreeHooks;
+  /** Keys under "worktree" in another tool's file that rowrow has no hook for, as `worktree.<key>`. */
+  readonly ignored: readonly string[];
 }
 
 const FILES = ["rowrow.json", "roamgate.json", "paseo.json"] as const;
@@ -67,13 +69,17 @@ export function parseHookConfig(file: string, text: string, legacy: boolean): Ho
   }
   if (!isObject(parsed)) throw new Error(`${file}: expected a JSON object`);
   const section = parsed["worktree"];
-  if (section === undefined) return { path: file, legacy, worktree: {} };
+  if (section === undefined) return { path: file, legacy, worktree: {}, ignored: [] };
   if (!isObject(section)) throw new Error(`${file}: "worktree" must be an object`);
   const worktree: { -readonly [K in HookEvent]?: string } = {};
+  const ignored: string[] = [];
   for (const [key, value] of Object.entries(section)) {
     if (!isHookEvent(key)) {
-      // Other tools' files may define hooks rowrow doesn't have; in ours it is a typo.
-      if (legacy) continue;
+      // Other tools' files may define hooks rowrow doesn't have (the review says so); in ours it is a typo.
+      if (legacy) {
+        ignored.push(`worktree.${key}`);
+        continue;
+      }
       throw new Error(
         `${file}: unknown hook "worktree.${key}" (expected setup, opened, teardown or removed)`,
       );
@@ -82,7 +88,7 @@ export function parseHookConfig(file: string, text: string, legacy: boolean): Ho
       throw new Error(`${file}: "worktree.${key}" must be a string (a shell command)`);
     if (value.trim() !== "") worktree[key] = value;
   }
-  return { path: file, legacy, worktree };
+  return { path: file, legacy, worktree, ignored };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

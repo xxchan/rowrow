@@ -13,8 +13,10 @@ import type {
   PullRequestStatus,
   SeenFile,
   Workspace,
+  WorktreeHookRun,
   WorktreeHooks,
 } from "../../shared/schemas.ts";
+import { hookOutcome } from "../../shared/hook-runs.ts";
 import { basename } from "node:path";
 import type { GitOps } from "../api/router.ts";
 import { UserError } from "../errors.ts";
@@ -30,6 +32,7 @@ import type { SnapshotStore } from "../git/snapshots.ts";
 import { createWorktree, DirtyWorktreeError, listWorktrees, removeWorktree } from "../git/worktrees.ts";
 import type { Db } from "../store/db.ts";
 import { log, serializeError } from "../telemetry/log.ts";
+import { forgetHookRuns, listHookRuns, recordHookRun } from "./hook-runs.ts";
 import type { Workspaces } from "./service.ts";
 
 export interface GitOpsDeps {
@@ -176,27 +179,46 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
     return parent?.path ?? (await listWorktrees(ws.path))[0]?.path ?? ws.git.repoRoot;
   };
 
+  /** Run the repository's hook for an event, if it has one, and keep the run (docs/git.md, "Hook runs"). */
   const hook = async (
-    event: HookEvent,
-    target: string,
-    source: string,
-    cwd: string,
+    event: Exclude<HookEvent, "opened">,
+    worktree: { readonly id: string; readonly label: string; readonly repoKey: string },
+    paths: { readonly target: string; readonly source: string; readonly cwd: string },
     expected?: string | null,
-  ): Promise<HookRun | null> => {
+  ): Promise<{ run: HookRun; record: WorktreeHookRun } | null> => {
+    const { target, source, cwd } = paths;
     const config = await resolveHooks({ target, source });
     const command = config?.worktree[event];
     if (expected !== undefined && (command ?? null) !== expected) throw new HookMismatch(command ?? null);
     if (config === null || command === undefined) return null;
     const run = await runHook({ event, command, cwd, worktreePath: target, sourcePath: source });
+    const record = recordHookRun(db, {
+      event,
+      repoKey: worktree.repoKey,
+      workspaceId: worktree.id,
+      worktreePath: target,
+      worktreeLabel: worktree.label,
+      config: config.path,
+      legacy: config.legacy,
+      command,
+      ok: run.ok,
+      code: run.code,
+      timedOut: run.timedOut,
+      ms: run.ms,
+      output: run.output,
+      at: Date.now(),
+    });
     log[run.ok ? "info" : "warn"]("worktree.hook", {
       event,
+      ws: worktree.id,
+      run: record.id,
       config: config.path,
       legacy: config.legacy,
       ok: run.ok,
       code: run.code,
       ms: run.ms,
     });
-    return run;
+    return { run, record };
   };
 
   return {
@@ -232,9 +254,14 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
         branch: created.branch,
         base: created.baseLabel,
       });
-      let setup: HookRun | null;
+      let setup: Awaited<ReturnType<typeof hook>>;
       try {
-        setup = await hook("setup", created.path, source.path, created.path, options.setup);
+        setup = await hook(
+          "setup",
+          { id: ws.id, label: ws.label, repoKey: source.git.repoKey },
+          { target: created.path, source: source.path, cwd: created.path },
+          options.setup,
+        );
       } catch (error) {
         if (!(error instanceof HookMismatch)) throw error;
         log.warn("worktree.hook_changed", { ws: ws.id, expected: options.setup ?? null });
@@ -245,11 +272,13 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
             ok: false,
             output: `The new worktree's setup hook (${error.command ?? "none"}) isn't the one shown (${options.setup ?? "none"}), so it didn't run.`,
           },
+          hookRuns: [],
         };
       }
       return {
         workspace: workspaces.get(ws.id) ?? ws,
-        hook: setup === null ? null : { ran: true, ok: setup.ok, output: setup.output },
+        hook: setup === null ? null : { ran: true, ok: setup.run.ok, output: setup.run.output },
+        hookRuns: setup === null ? [] : [setup.record],
       };
     },
 
@@ -278,6 +307,7 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
                   file: basename(config.path),
                   legacy: config.legacy,
                   hooks: config.worktree,
+                  ignored: [...config.ignored],
                 },
           error: null,
         };
@@ -290,10 +320,12 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
       const ws = gitWorkspace(workspaceId);
       const source = await sourceOf(ws);
       await deps.stopAgentsIn(workspaceId);
-      const teardown = await hook("teardown", ws.path, source, ws.path);
-      if (teardown !== null && !teardown.ok) {
+      const worktree = { id: ws.id, label: ws.label, repoKey: ws.git.repoKey };
+      const teardown = await hook("teardown", worktree, { target: ws.path, source, cwd: ws.path });
+      if (teardown !== null && !teardown.run.ok) {
+        const outcome = teardown.run.timedOut ? "timed out" : `failed (${hookOutcome(teardown.run)})`;
         throw new UserError(
-          `the repository's teardown hook failed, so the worktree was kept:\n${teardown.output.slice(-2000)}`,
+          `the repository's teardown hook ${outcome}, so the worktree was kept:\n${teardown.run.output.slice(-2000)}`,
           "PRECONDITION_FAILED",
         );
       }
@@ -307,24 +339,40 @@ export function createGitOps(deps: GitOpsDeps): GitOps & TurnSnapshots {
           );
         throw new UserError(error instanceof Error ? error.message : String(error));
       }
-      await hook("removed", ws.path, source, source);
+      // The checkout is gone whatever this hook does: a failure is reported, not undone.
+      const removed = await hook("removed", worktree, { target: ws.path, source, cwd: source });
       log.info("worktree.removed", { ws: workspaceId, force });
+      return [teardown, removed].flatMap((ran) => (ran === null ? [] : [ran.record]));
+    },
+
+    hookRuns(workspaceId) {
+      const ws = workspaces.require(workspaceId);
+      if (ws.git === null) throw new UserError(`${ws.label} is not a git repository`);
+      return listHookRuns(db, ws.git.repoKey);
     },
 
     async forget(ws) {
       prCache.delete(ws.id);
       prInFlight.delete(ws.id);
       const turns = db.run("delete from agent_turns where workspace_id = ?", ws.id).changes;
-      // The repository's snapshots go with the last workspace of it rowrow knows.
+      // The repository's snapshots and hook runs go with the last workspace of it rowrow knows.
       const repo = ws.git?.repoKey;
       const kept = workspaces.list().some((w) => w.id !== ws.id && w.git?.repoKey === repo);
-      if (repo !== undefined && !kept)
+      let hookRuns = 0;
+      if (repo !== undefined && !kept) {
+        hookRuns = forgetHookRuns(db, repo);
         await store
           .drop(repo)
           .catch((error: unknown) =>
             log.warn("git.snapshot.drop_failed", { ws: ws.id, err: serializeError(error) }),
           );
-      log.info("workspace.git_forgotten", { ws: ws.id, turns, snapshots: repo !== undefined && !kept });
+      }
+      log.info("workspace.git_forgotten", {
+        ws: ws.id,
+        turns,
+        snapshots: repo !== undefined && !kept,
+        hookRuns,
+      });
     },
 
     async changes(workspaceId, scope: DiffScope, agentId?: string): Promise<Changes> {
