@@ -44,6 +44,7 @@ import {
   type RunNote,
   type Timeline,
 } from "./timeline.ts";
+import { withInlineThoughts } from "./inline-thoughts.ts";
 
 /** Bumped when an item changes shape; a client checks it before trusting the kit. */
 export const TRANSCRIPT_MODEL_VERSION = 1;
@@ -386,16 +387,17 @@ function turnItems(
   out.push({ id: turnId, deps: [open], make: () => ({ kind: "turn", id: turnId, open }) });
   turn.sections.forEach((section, s) => {
     const lastSection = s === turn.sections.length - 1;
-    for (const { part, index: p, count } of foldHiddenThoughts(section.parts)) {
+    const parts = withInlineThoughts(section.parts);
+    for (const { part, index: p, count } of foldHiddenThoughts(parts)) {
       // A client call the adapter answered itself (grok's terminal/*) isn't part of the conversation.
       if (part.kind === "app_request" && appRequestKind(part.type) === "service") continue;
       const id = `${turnId}:${s}:${p}`;
-      const streaming = open && lastSection && p + count === section.parts.length;
+      const streaming = open && lastSection && p + count === parts.length;
       const where = { id, turn: turnId, lane: laneOf(section, rootSessionId) };
       out.push({
         id,
         // A run of hidden thoughts is made from each of them: one more changes it.
-        deps: [...section.parts.slice(p, p + count), streaming, rootSessionId],
+        deps: [...parts.slice(p, p + count), streaming, rootSessionId],
         make: (clip) => partItem(part, count, where, streaming, runtime, clip),
       });
     }

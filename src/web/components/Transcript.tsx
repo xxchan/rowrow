@@ -67,6 +67,7 @@ import { FileLink, InlineCode, LinkedText, useFileLinks } from "./FileLinks.tsx"
 import { mermaidRenderer } from "./MermaidDiagram.tsx";
 import { endText, noticeText, notifiedText } from "../../shared/transcript-model.ts";
 import { useNow } from "../lib/use-now.ts";
+import { withInlineThoughts } from "../../shared/inline-thoughts.ts";
 
 /** The item a transcript search jumped to (D-055), a new object each jump: what holds it opens. */
 export const RevealContext = createContext<{ readonly id: string } | null>(null);
@@ -356,7 +357,7 @@ function CoachYou({
 
 /** Coach's answer: what it wrote, then "Work performed (N)": its tool calls and what they read. */
 function CoachAnswer({ turn, runtime, open }: { turn: ViewTurn; runtime: string; open: boolean }) {
-  const parts = turn.sections.flatMap((section) => section.parts);
+  const parts = turn.sections.flatMap((section) => withInlineThoughts(section.parts));
   const tools = parts.filter((part): part is ToolPart => part.kind === "tool");
   const said = parts.filter((part) => part.kind === "text" && part.text.trim() !== "");
   const lastIndex = parts.length - 1;
@@ -802,8 +803,9 @@ function Section({
   streaming: boolean;
 }) {
   const out: ReactNode[] = [];
-  const lastIndex = section.parts.length - 1;
-  for (const segment of groupToolActivity(runtime, section.parts)) {
+  const parts = withInlineThoughts(section.parts);
+  const lastIndex = parts.length - 1;
+  for (const segment of groupToolActivity(runtime, parts)) {
     if (segment.kind === "tools") {
       out.push(
         <Activity

@@ -2,6 +2,7 @@
 // to know about one agent. Pure and incremental (reduceSummary), so the server keeps one
 // per agent up to date as entries are appended, and any tool can rebuild it from a log.
 import type { ContextUsage, RawEvent, TokenTotals, TurnOutcome } from "@botiverse/oar";
+import { NO_THOUGHT, previewPiece, type PreviewThought } from "./inline-thoughts.ts";
 import {
   appRequestKind,
   initialStatus,
@@ -137,6 +138,8 @@ export interface AgentSummary {
   readonly headSeq: number;
   /** Fold internals, derivable like the rest: the latest root event was text (so the next text joins the preview). */
   readonly textOpen: boolean;
+  /** Fold internals: whether that text is inside a `<think>` block, which the preview leaves out. */
+  readonly thought: PreviewThought;
   /**
    * Fold internals: the live run has been asked to stop, or its process exited to end a turn
    * you stopped, so its exit is not a surprise.
@@ -194,6 +197,7 @@ export function initialSummary(): AgentSummary {
     unread: [],
     headSeq: -1,
     textOpen: false,
+    thought: NO_THOUGHT,
     stopping: false,
     unanswered: null,
     tasks: [],
@@ -458,11 +462,18 @@ function foldRecord(
       if (!root) return next;
       for (const event of record.body.events) {
         if (event.kind === "text_delta") {
-          const text = next.textOpen ? (next.preview ?? "") + event.text : event.text;
+          const piece = previewPiece(event.text, !next.textOpen, next.thought);
+          const text =
+            piece.text === null
+              ? next.preview
+              : piece.restart
+                ? piece.text
+                : (next.preview ?? "") + piece.text;
           next = {
             ...next,
-            preview: text.length > PREVIEW_CHARS ? text.slice(-PREVIEW_CHARS) : text,
+            preview: text !== null && text.length > PREVIEW_CHARS ? text.slice(-PREVIEW_CHARS) : text,
             textOpen: true,
+            thought: piece.state,
           };
           continue;
         }

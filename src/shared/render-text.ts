@@ -16,6 +16,7 @@ import {
 } from "./timeline.ts";
 import { tierWords } from "./service-tier.ts";
 import { toolText } from "./tool-output.ts";
+import { withInlineThoughts } from "./inline-thoughts.ts";
 
 export interface RenderTextOptions {
   /** Cut tool input and output to this many characters (default 400; 0 hides them). */
@@ -151,7 +152,7 @@ function renderMessage(
         const lane = laneOf(section, rootSessionId);
         const indent = "  ".repeat(lane.length + 1);
         if (lane.length > 0) lines.push(`${"  ".repeat(lane.length)}↳ ${lane.join(" / ")}`);
-        for (const { part, count } of foldHiddenThoughts(section.parts))
+        for (const { part, count } of foldHiddenThoughts(withInlineThoughts(section.parts)))
           lines.push(...renderPart(part, indent, cut, count));
       }
       const { outcome } = message;

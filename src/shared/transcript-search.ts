@@ -13,6 +13,7 @@ import type { Entry } from "./entries.ts";
 import type { SearchWho, TranscriptHit, TranscriptSearch } from "./schemas.ts";
 import { initialTimeline, reduceTimeline, type RunBlock, type Timeline } from "./timeline.ts";
 import { transcriptItems } from "./transcript-model.ts";
+import { withInlineThoughts } from "./inline-thoughts.ts";
 
 /** Matches returned at most by default: the newest ones. */
 export const SEARCH_LIMIT = 200;
@@ -91,8 +92,9 @@ export class TranscriptIndex {
       // A part loads with its turn: from the input before the turn began, not one held since.
       const turnSeq = this.origins.get(`${run.runId}:${message.id}`)?.turnSeq ?? here.turnSeq;
       message.sections.forEach((section, s) => {
-        // Parts are only ever appended to a section: the last one named says how far it got.
-        for (let p = section.parts.length - 1; p >= 0; p--) {
+        // Parts are only ever appended to a section: the last one named says how far it got. Counted
+        // as the transcript counts them, with a reply's inline thought split off.
+        for (let p = withInlineThoughts(section.parts).length - 1; p >= 0; p--) {
           const id = `${run.runId}:${message.id}:${s}:${p}`;
           if (this.origins.has(id)) break;
           this.note(id, { ...here, turnSeq });

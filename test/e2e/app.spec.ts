@@ -1362,6 +1362,29 @@ test("type / to pick one of the agent's commands", async ({ page, rowrow }) => {
   await expect(page.getByText(/chunk 1 .*chunk 3/)).toBeVisible();
 });
 
+test("thinking a model writes into its reply as <think> shows as a thought, apart from the answer", async ({
+  page,
+  rowrow,
+}) => {
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { agent, sent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "inline thought",
+    input: {
+      inputId: randomUUID(),
+      text: "/echo <think>Keep answer short, no tools needed.</think>The boundary matters.",
+    },
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent?.seq ?? -1, timeoutMs: 10_000 });
+  await rowrow.open(page, `/a/${agent.id}`);
+  const transcript = page.getByRole("main");
+  await expect(transcript.getByText("The boundary matters.", { exact: true })).toBeVisible();
+  await expect(transcript.getByText("Keep answer short, no tools needed.", { exact: true })).toBeHidden();
+  await transcript.getByRole("button", { name: "Thought" }).click();
+  await expect(transcript.getByText("Keep answer short, no tools needed.", { exact: true })).toBeVisible();
+});
+
 test("the model and context sit by the composer, the rest of the session one tap away", async ({
   page,
   rowrow,
