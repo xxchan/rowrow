@@ -17,7 +17,7 @@ export function fastTierOf(runtime: string): string {
 /**
  * The tier Fast asks for with this model, or null when the model has no Fast mode (or can't
  * be looked up), so there's nothing to switch. `model` null is the runtime's default: the model
- * it reported running when it's listed, else the first it lists, as Coach's pickers assume.
+ * it reported running when it's listed, else the one it says is its default, else the first.
  */
 export function fastTier(
   runtime: string,
@@ -27,7 +27,7 @@ export function fastTier(
 ): string | null {
   const entry =
     model === null
-      ? (models.find((m) => m.id === reportedModel) ?? models[0])
+      ? (models.find((m) => m.id === reportedModel) ?? models.find((m) => m.default) ?? models[0])
       : models.find((m) => m.id === model);
   const tier = fastTierOf(runtime);
   return entry?.serviceTiers.includes(tier) === true ? tier : null;

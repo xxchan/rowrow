@@ -21,7 +21,15 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
@@ -41,6 +49,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
+import { byProvider, defaultModel, modelLabel, providerName } from "../../shared/models.ts";
 import type { AgentState, ModelInfo, Workspace } from "../../shared/schemas.ts";
 import { fastOn, fastTier, NO_TIER } from "../../shared/service-tier.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
@@ -373,6 +382,8 @@ function ModelDialog({
     return list.length > 0 && asked !== null && asked !== NO_TIER ? null : undefined;
   };
   const current = summary.reportedModel ?? summary.model ?? "the default model";
+  const fallback = defaultModel(list);
+  const defaultLabel = fallback === null ? "Default" : `Default (${modelLabel(list, fallback.id)})`;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent className="sm:max-w-md">
@@ -396,18 +407,24 @@ function ModelDialog({
                     <LoaderCircle className="animate-spin" /> Loading models
                   </span>
                 ) : (
-                  <SelectValue />
+                  // The provider too when two serve that name: the list says it in a heading.
+                  <SelectValue>{model === DEFAULT ? defaultLabel : modelLabel(list, model)}</SelectValue>
                 )}
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={DEFAULT}>Default</SelectItem>
-                {summary.model !== null && !(models?.list ?? []).some((m) => m.id === summary.model) && (
+                <SelectItem value={DEFAULT}>{defaultLabel}</SelectItem>
+                {summary.model !== null && !list.some((m) => m.id === summary.model) && (
                   <SelectItem value={summary.model}>{summary.model}</SelectItem>
                 )}
-                {(models?.list ?? []).map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </SelectItem>
+                {byProvider(list).map((group) => (
+                  <SelectGroup key={group.provider?.id ?? ""}>
+                    {group.provider !== null && <SelectLabel>{providerName(group.provider)}</SelectLabel>}
+                    {group.models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>

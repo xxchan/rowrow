@@ -444,6 +444,15 @@ export const ModelInfo = z.object({
     .describe(
       "What `serviceTier` accepts with this model besides `default` (codex: priority, flex; claude: fast); empty when it has none.",
     ),
+  default: z
+    .boolean()
+    .describe(
+      "The model a session runs with no `model` set, when the runtime says so (pi's saved default, codex's configured model); never guessed.",
+    ),
+  provider: z
+    .object({ id: z.string(), name: z.string().nullable() })
+    .nullable()
+    .describe("Who serves the model, for runtimes with several providers (pi, opencode); null otherwise."),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 

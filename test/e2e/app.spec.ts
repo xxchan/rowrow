@@ -1364,6 +1364,12 @@ test("a new agent can start in Fast mode, set beside its model", async ({ page, 
   await dialog.getByRole("button", { name: /^Agent: / }).click();
   await page.getByRole("option", { name: /Scripted demo/ }).click();
   await dialog.getByRole("button", { name: /^Model: / }).click();
+  // Default says what it runs, and the two providers that serve "Script 1" head their own groups.
+  await expect(
+    page.getByRole("option", { name: /^Default\s*Script 1 · Script Labs, Scripted demo.s own choice/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("group", { name: "Script Labs" }).getByRole("option")).toHaveText("Script 1");
+  await expect(page.getByRole("group", { name: "mirror" }).getByRole("option")).toHaveText("Script 1");
   const fast = page.getByRole("switch", { name: "Fast" });
   await expect(fast).not.toBeChecked();
   await fast.click();
@@ -1371,7 +1377,9 @@ test("a new agent can start in Fast mode, set beside its model", async ({ page, 
   // The menu hides the rest of the dialog while it's open.
   await page.keyboard.press("Escape");
   await expect(fast).toBeHidden();
-  await expect(dialog.getByRole("button", { name: "Model: default, Fast" })).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Model: Script 1 · Script Labs (default), Fast" }),
+  ).toBeVisible();
 
   await dialog.getByLabel("First message").fill("/options");
   await dialog.getByRole("button", { name: "Create and send" }).click();

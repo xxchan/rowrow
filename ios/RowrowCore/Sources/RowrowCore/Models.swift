@@ -455,6 +455,41 @@ public struct ModelInfo: Codable, Sendable, Equatable, Identifiable, Hashable {
   public let defaultEffort: String?
   /// Its service tiers besides "default" (codex: priority, flex; claude: fast); nil from a server before Fast mode.
   public let serviceTiers: [String]?
+  /// The model a session runs with no model set, when the runtime says so; nil from a server before oar 0.57.
+  public let isDefault: Bool?
+  /// Who serves it, for runtimes with several providers (pi, opencode).
+  public let provider: ModelProvider?
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, effortLevels, defaultEffort, serviceTiers, provider
+    case isDefault = "default"
+  }
+}
+
+public struct ModelProvider: Codable, Sendable, Equatable, Hashable {
+  public let id: String
+  public let name: String?
+}
+
+/// How pickers name a runtime's models, as src/shared/models.ts does.
+public enum ModelNames {
+  /// The model a session runs with no model set, when the runtime says which (never guessed).
+  public static func fallback(_ models: [ModelInfo]) -> ModelInfo? {
+    models.first { $0.isDefault == true }
+  }
+
+  /// The Default option: what it runs, when the runtime says.
+  public static func defaultTitle(_ models: [ModelInfo]) -> String {
+    fallback(models).map { "Default (\(label(models, id: $0.id)))" } ?? "Default"
+  }
+
+  /// Its name, and its provider when another listed model has the same name. An unlisted id stays as it is.
+  public static func label(_ models: [ModelInfo], id: String) -> String {
+    guard let entry = models.first(where: { $0.id == id }) else { return id }
+    let twin = models.contains { $0.id != id && $0.name == entry.name }
+    guard twin, let provider = entry.provider else { return entry.name }
+    return "\(entry.name) · \(provider.name ?? provider.id)"
+  }
 }
 
 /// Fast mode (D-049), as src/shared/service-tier.ts decides it.
@@ -468,13 +503,13 @@ public enum FastMode {
   }
 
   /// The tier Fast asks for with this model, or nil when it has none. A nil `model` is the
-  /// runtime's default: the model it reported running when it's listed, else the first listed.
+  /// runtime's default: the model it reported running when it's listed, else its default, else the first.
   public static func tier(runtime: String, models: [ModelInfo], model: String?, reportedModel: String? = nil) -> String? {
     let entry: ModelInfo?
     if let model {
       entry = models.first { $0.id == model }
     } else {
-      entry = models.first { $0.id == reportedModel } ?? models.first
+      entry = models.first { $0.id == reportedModel } ?? ModelNames.fallback(models) ?? models.first
     }
     let fast = tier(runtime: runtime)
     return entry?.serviceTiers?.contains(fast) == true ? fast : nil

@@ -131,7 +131,13 @@ describe("runtimes", () => {
       ["gpt-5-mini", []],
     ]);
     expect((await runtimes.listModels("scripted")).models).toMatchObject([
-      { id: "script-1", serviceTiers: ["fast"] },
+      {
+        id: "script-1",
+        serviceTiers: ["fast"],
+        default: true,
+        provider: { id: "script", name: "Script Labs" },
+      },
+      { id: "mirror/script-1", serviceTiers: [], default: false, provider: { id: "mirror", name: null } },
     ]);
     expect(runtimes.refusal("none", "serviceTier")).toBe("none exposes no service tier");
     expect(runtimes.refusal("tiers", "serviceTier")).toBeNull();
