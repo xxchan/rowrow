@@ -213,8 +213,10 @@ export function NewAgentForm({
   const isolated = isolate && canIsolate;
   const runtimeInfo = runtimes.find((r) => r.id === runtime);
 
-  // Tagged with the runtime they belong to, so switching runtimes shows "loading" without resetting state in an effect.
-  const [models, setModels] = useState<{ runtime: string; models: ModelInfo[]; error: string | null } | null>(
+  // Tagged with the runtime and workspace they belong to (a workspace's settings can change the
+  // list and its default), so switching shows "loading" without resetting state in an effect.
+  const modelsKey = `${runtime ?? ""}\0${workspaceId ?? ""}`;
+  const [models, setModels] = useState<{ key: string; models: ModelInfo[]; error: string | null } | null>(
     null,
   );
   useEffect(() => {
@@ -223,17 +225,17 @@ export function NewAgentForm({
     void (async () => {
       let result: { models: ModelInfo[]; error: string | null };
       try {
-        result = await client.runtimes.models({ runtime });
+        result = await client.runtimes.models({ runtime, ...(workspaceId === null ? {} : { workspaceId }) });
       } catch (err) {
         result = { models: [], error: err instanceof Error ? err.message : String(err) };
       }
-      if (!cancelled) setModels({ runtime, ...result });
+      if (!cancelled) setModels({ key: `${runtime}\0${workspaceId ?? ""}`, ...result });
     })();
     return () => {
       cancelled = true;
     };
-  }, [client, runtime]);
-  const loaded = models?.runtime === runtime ? models : null;
+  }, [client, runtime, workspaceId]);
+  const loaded = models?.key === modelsKey ? models : null;
   const modelInfo = loaded?.models.find((m) => m.id === model);
   // What the chip says: the model, or what Default runs when the runtime says (pi, codex).
   const fallback = loaded === null ? null : defaultModel(loaded.models);

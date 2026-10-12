@@ -233,7 +233,7 @@ struct ModelSheet: View {
         effort = agent.summary.effort
         fast = FastMode.isOn(agent.summary)
         do {
-          let list = try await session.api.models(runtime: agent.summary.runtime)
+          let list = try await session.api.models(runtime: agent.summary.runtime, workspaceId: agent.summary.workspaceId)
           models = list.models
           loadError = list.error
         } catch {

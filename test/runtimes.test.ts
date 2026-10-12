@@ -2,7 +2,7 @@
 // CLI (kimi can take seconds) never hides the others, the scripted one included. Update checks
 // are cached; an upgrade runs once however often it's asked for, and the new version shows.
 // A sign-in shows its progress in the runtime's info, takes its answer, and can be cancelled.
-import type { AvailableInstallation, SessionOptions } from "@botiverse/oar";
+import type { AvailableInstallation, ListModelsOptions, ModelEntry, SessionOptions } from "@botiverse/oar";
 import { scriptedRuntime } from "@botiverse/oar/testing";
 import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
@@ -141,6 +141,29 @@ describe("runtimes", () => {
     ]);
     expect(runtimes.refusal("none", "serviceTier")).toBe("none exposes no service tier");
     expect(runtimes.refusal("tiers", "serviceTier")).toBeNull();
+  });
+
+  it("lists models as a session in a workspace would, cached per workspace (oar 0.58)", async () => {
+    const asked: (string | undefined)[] = [];
+    const projectAware = {
+      ...scriptedRuntime({ id: "project", turn: () => {} }),
+      listModels: async (_installation: unknown, options?: ListModelsOptions) => {
+        asked.push(options?.cwd);
+        const project = options?.cwd === "/repo";
+        const models: ModelEntry[] = project
+          ? [{ id: "a" }, { id: "b", default: true }]
+          : [{ id: "a", default: true }, { id: "b" }];
+        return { kind: "ok", models } as const;
+      },
+    };
+    const runtimes = new Runtimes({ testRuntime: true, probe: false, extra: [projectAware] });
+    await runtimes.refresh();
+    const marked = async (cwd?: string): Promise<string | undefined> =>
+      (await runtimes.listModels("project", false, cwd)).models.find((m) => m.default)?.id;
+    expect(await marked()).toBe("a");
+    expect(await marked("/repo")).toBe("b");
+    expect(await marked("/repo")).toBe("b");
+    expect(asked).toEqual([undefined, "/repo"]);
   });
 
   it("signs a runtime in: progress in its info, the answer to its question, then who it is", async () => {

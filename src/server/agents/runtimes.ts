@@ -501,8 +501,17 @@ export class Runtimes {
     return known.runtime.session(known.installation, options);
   }
 
-  async listModels(id: string, refresh = false): Promise<{ models: ModelInfo[]; error: string | null }> {
-    const cached = this.models.get(id);
+  /**
+   * A runtime's models, as a session in `cwd` would see them (oar 0.58): a workspace's own settings
+   * can change the list and its default. Without `cwd`, as one in the server's directory would.
+   */
+  async listModels(
+    id: string,
+    refresh = false,
+    cwd?: string,
+  ): Promise<{ models: ModelInfo[]; error: string | null }> {
+    const key = `${id}\0${cwd ?? ""}`;
+    const cached = this.models.get(key);
     if (!refresh && cached !== undefined && Date.now() - cached.at < MODELS_TTL_MS) return cached;
     const known = this.known.get(id);
     if (known === undefined) return { models: [], error: `unknown runtime "${id}"` };
@@ -513,7 +522,10 @@ export class Runtimes {
     else if (lister === undefined) result = { models: [], error: "this runtime does not list its models" };
     else {
       try {
-        const listed = await lister(known.installation, { timeoutMs: 30_000 });
+        const listed = await lister(known.installation, {
+          timeoutMs: 30_000,
+          ...(cwd === undefined ? {} : { cwd }),
+        });
         result =
           listed.kind === "ok"
             ? {
@@ -545,7 +557,7 @@ export class Runtimes {
         result = { models: [], error: error instanceof Error ? error.message : String(error) };
       }
     }
-    this.models.set(id, { at: Date.now(), ...result });
+    this.models.set(key, { at: Date.now(), ...result });
     return result;
   }
 

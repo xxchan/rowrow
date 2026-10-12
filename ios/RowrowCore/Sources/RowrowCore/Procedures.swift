@@ -140,8 +140,11 @@ extension APIClient {
 
   // ─── Runtimes ──────────────────────────────────────────────────────────────
 
-  public func models(runtime: String) async throws -> ModelList {
-    try await call("runtimes.models", ["runtime": runtime])
+  /// With a workspace, as a session there would see them: its own settings can change the list and the default.
+  public func models(runtime: String, workspaceId: String? = nil) async throws -> ModelList {
+    var input = ["runtime": runtime]
+    if let workspaceId { input["workspaceId"] = workspaceId }
+    return try await call("runtimes.models", input)
   }
 
   public func skills(runtime: String, workspaceId: String) async throws -> SkillList {
