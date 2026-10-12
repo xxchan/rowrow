@@ -465,9 +465,14 @@ export function createRouter(s: Services) {
         if (input.refresh === true) await s.refreshRuntimes();
         return s.runtimes.list();
       }),
-      models: os.runtimes.models.handler(async ({ input }) =>
-        s.runtimes.listModels(input.runtime, input.refresh ?? false),
-      ),
+      models: os.runtimes.models.handler(async ({ input }) => {
+        if (input.workspaceId === undefined)
+          return s.runtimes.listModels(input.runtime, input.refresh ?? false);
+        const ws = s.workspaces.get(input.workspaceId);
+        if (ws === undefined)
+          throw new ORPCError("NOT_FOUND", { message: `no workspace ${input.workspaceId}` });
+        return s.runtimes.listModels(input.runtime, input.refresh ?? false, ws.path);
+      }),
       skills: os.runtimes.skills.handler(async ({ input }) => {
         const ws = s.workspaces.get(input.workspaceId);
         if (ws === undefined)

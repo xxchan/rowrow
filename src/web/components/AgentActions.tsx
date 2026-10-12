@@ -359,7 +359,10 @@ function ModelDialog({
     let cancelled = false;
     void (async () => {
       try {
-        const result = await client.runtimes.models({ runtime: summary.runtime });
+        const result = await client.runtimes.models({
+          runtime: summary.runtime,
+          workspaceId: summary.workspaceId,
+        });
         if (!cancelled) setModels({ list: result.models, error: result.error });
       } catch (error) {
         if (!cancelled)
@@ -369,7 +372,7 @@ function ModelDialog({
     return () => {
       cancelled = true;
     };
-  }, [client, summary.runtime]);
+  }, [client, summary.runtime, summary.workspaceId]);
 
   const efforts = models?.list.find((m) => m.id === model)?.effortLevels ?? [];
   const list = models?.list ?? [];

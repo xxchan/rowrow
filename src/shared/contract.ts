@@ -422,7 +422,17 @@ const runtimes = {
     .output(z.array(RuntimeInfo)),
   models: oc
     .route({ summary: "Models a runtime offers (may ask the runtime's provider; cached)." })
-    .input(z.object({ runtime: z.string(), refresh: z.boolean().optional() }))
+    .input(
+      z.object({
+        runtime: z.string(),
+        workspaceId: workspaceId
+          .optional()
+          .describe(
+            "List as a session there would: the workspace's own settings can change the list and which model is the default. Like skills, this starts the runtime there, which can run the workspace's code (pi's extensions).",
+          ),
+        refresh: z.boolean().optional(),
+      }),
+    )
     .output(z.object({ models: z.array(ModelInfo), error: z.string().nullable() })),
   skills: oc
     .route({

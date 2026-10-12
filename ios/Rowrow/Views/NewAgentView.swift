@@ -129,7 +129,8 @@ struct NewAgentView: View {
         }
       }
       .task { await resolve() }
-      .task(id: runtime) { await loadModels() }
+      // A workspace's own settings can change the list and its default.
+      .task(id: "\(runtime ?? "")/\(workspaceId ?? "")") { await loadModels() }
       .onChange(of: workspaceId) { _, id in
         if state?.workspaces[id ?? ""]?.git == nil { isolate = false }
       }
@@ -174,7 +175,7 @@ struct NewAgentView: View {
     models = []
     modelsError = nil
     do {
-      let list = try await session.api.models(runtime: runtime)
+      let list = try await session.api.models(runtime: runtime, workspaceId: workspaceId)
       models = list.models
       modelsError = list.error
       if let modelId, !models.contains(where: { $0.id == modelId }) { self.modelId = nil }
