@@ -43,6 +43,7 @@ import { agentListed, workspaceLabel } from "../../shared/workspaces.ts";
 import { useAppName } from "../lib/app-name.ts";
 import { statusDot, title } from "../lib/format.ts";
 import { navigate, RouterLink, type Route } from "../lib/router.ts";
+import { seenHere, useLookingAt } from "../lib/presence.ts";
 import { onAttention, onNotification, onTaskNotice, useApp } from "../lib/store.ts";
 import { useNarrow } from "../lib/use-narrow.ts";
 import { AgentContextMenu, AgentDialogs, openAgentDialog, WorkspaceContextMenu } from "./AgentActions.tsx";
@@ -68,7 +69,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   // Coach pinned in a narrow page sits under it (D-044).
   const coachStacked = useCoach((s) => s.stacked);
   useAttentionToasts(route);
-  useAppBadge();
+  useAppBadge(route);
   useAppName();
   return (
     <div className="flex h-full flex-col">
@@ -176,7 +177,10 @@ export function PageHeader({
 
 /** `sheet`: in the phone's sheet, whose close button sits at the first row's right end. */
 function Nav({ route, sheet = false }: { route: Route; sheet?: boolean }) {
-  const state = useApp((s) => s.state) as AppState;
+  const app = useApp((s) => s.state) as AppState;
+  // The agent you're looking at has seen its last turn, so its end doesn't flash it into Needs you.
+  const lookingAt = useLookingAt(route);
+  const state = useMemo(() => seenHere(app, lookingAt), [app, lookingAt]);
   const openNewAgent = useNewAgent((s) => s.open);
   const agents = useMemo(
     () => Object.values(state.agents).filter((a) => agentListed(state.workspaces, a)),
@@ -512,8 +516,9 @@ function NavRow({
 }
 
 /** The Home Screen icon counts the agents that need you (installed web apps that support badges). */
-function useAppBadge(): void {
-  const count = useApp((s) => (s.state === null ? 0 : needsYou(s.state).length));
+function useAppBadge(route: Route): void {
+  const lookingAt = useLookingAt(route);
+  const count = useApp((s) => (s.state === null ? 0 : needsYou(seenHere(s.state, lookingAt)).length));
   useEffect(() => {
     if (!("setAppBadge" in navigator)) return;
     const done = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge();

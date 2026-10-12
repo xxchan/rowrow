@@ -475,6 +475,80 @@ test("a finished agent is listed under Needs you until you look at it", async ({
   await expect(page.getByText("finishes").first()).toBeVisible();
 });
 
+test("a turn that ends while you look at the agent leaves the side nav as it was", async ({
+  page,
+  rowrow,
+}, info) => {
+  // It used to read "done" until the page's seen report came back: Needs you opened above the
+  // workspaces for that moment and closed again, and the whole list jumped down and back.
+  const ws = await rowrow.client.workspaces.add({ path: rowrow.repo() });
+  const { workspace: tree } = await rowrow.client.workspaces.createWorktree({ id: ws.id, branch: "side" });
+  await rowrow.client.agents.create({ workspaceId: tree.id, runtime: "scripted", title: "in the worktree" });
+  const { agent: other } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "elsewhere",
+  });
+  const { agent } = await rowrow.client.agents.create({
+    workspaceId: ws.id,
+    runtime: "scripted",
+    title: "on screen",
+  });
+  await rowrow.open(page, `/a/${agent.id}`);
+  await expect(page.getByLabel("Message input")).toBeEnabled();
+  if (info.project.name === "phone") await page.getByRole("button", { name: /^Open navigation/ }).click();
+  const nav = page.getByRole("navigation", { name: "Agents and workspaces" });
+  await expect(nav.getByRole("link", { name: /in the worktree/ })).toBeVisible();
+
+  // Every row, section or group the nav adds or removes, every group that opens or closes, and
+  // where the workspaces start, frame by frame.
+  await nav.evaluate((element) => {
+    const changes: string[] = [];
+    (window as unknown as { navChanges: string[] }).navChanges = changes;
+    const structural = (node: Node): boolean =>
+      node instanceof Element && node.matches("a, section, h2, [data-slot=collapsible], :has(a)");
+    new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes")
+          changes.push(`${record.oldValue} → ${(record.target as Element).getAttribute("data-state")}`);
+        for (const node of record.addedNodes) if (structural(node)) changes.push(`added ${node.textContent}`);
+        for (const node of record.removedNodes)
+          if (structural(node)) changes.push(`removed ${node.textContent}`);
+      }
+    }).observe(element, {
+      subtree: true,
+      childList: true,
+      attributeFilter: ["data-state"],
+      attributeOldValue: true,
+    });
+    const heading = [...element.querySelectorAll("h2")].find((h) => h.textContent === "Workspaces");
+    let top = heading?.getBoundingClientRect().top;
+    const frame = (): void => {
+      const now = heading?.getBoundingClientRect().top;
+      if (now !== top) changes.push(`workspaces moved ${top} → ${now}`);
+      top = now;
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  const sent = await rowrow.client.agents.send({
+    agentId: agent.id,
+    inputId: randomUUID(),
+    text: "/sleep 300",
+  });
+  await rowrow.client.agents.wait({ agentId: agent.id, afterSeq: sent.seq, timeoutMs: 10_000 });
+  // The page has seen it, as before.
+  await expect
+    .poll(async () => (await rowrow.client.state.get()).state.agents[agent.id]?.attention)
+    .toBe("idle");
+  expect(await page.evaluate(() => (window as unknown as { navChanges: string[] }).navChanges)).toEqual([]);
+
+  // One you aren't looking at still comes to Needs you when it finishes.
+  await rowrow.client.agents.send({ agentId: other.id, inputId: randomUUID(), text: "/echo hi" });
+  await expect(nav.getByRole("heading", { name: "Needs you" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /elsewhere/ })).toHaveCount(2);
+});
+
 test("agents keep their places while they work; a message you send one moves it up", async ({
   page,
   rowrow,

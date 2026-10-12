@@ -41,7 +41,7 @@ import { clearHitMarks, revealHit, TranscriptSearch } from "../components/Transc
 import { onPrefChange, readPref, writePref } from "../lib/device-prefs.ts";
 import { onFileOpen } from "../lib/file-links.ts";
 import { statusDot, title } from "../lib/format.ts";
-import { useLooking } from "../lib/presence.ts";
+import { seen, useLooking } from "../lib/presence.ts";
 import type { PaneSizing } from "../lib/pane-size.ts";
 import { navigate, type Route } from "../lib/router.ts";
 import { loadBackTo, loadOlder, useApp, useClient, useTranscript } from "../lib/store.ts";
@@ -75,7 +75,8 @@ function AgentView({ agent, state, route }: { agent: AgentState; state: AppState
   const wide = useWide();
   const { summary } = agent;
   const ws = state.workspaces[summary.workspaceId];
-  const dot = statusDot(agent, now);
+  // What you're looking at you have seen: it goes from working to idle, not via Finished.
+  const dot = statusDot(looking ? seen(agent) : agent, now);
   const head = transcript.timeline.headSeq;
   const actions = useAgentActions(agent, { here: true });
   // The next agent that needs you, one tap away (⌘J on a keyboard).

@@ -179,7 +179,10 @@ Status vocabulary, in priority order (a workspace shows its highest):
 | `idle` | nothing new | otherwise |
 
 - **Seen.** One marker per agent, for you (not per client): the log position you have
-  seen. A client reports it only when the agent's view is visible in a focused window.
+  seen. A client reports it only when the agent's view is visible in a focused window, and
+  that window shows the agent seen already (`seenHere` in `src/web/lib/presence.ts`): a turn
+  that ends in front of you goes from working to idle there, not into Needs you and back out
+  while the report travels.
 - **Pins** (D-046) sit beside it: when you pinned the agent, or null. Pinned agents lead
   every list in pin order (`byPin` in `src/shared/schemas.ts`), before attention order.
 - **Order** (D-053): within a list's groups, the agent a person last sent a message to comes
