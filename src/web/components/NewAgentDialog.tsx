@@ -31,10 +31,12 @@ import {
   type KeyboardEvent,
 } from "react";
 import { create } from "zustand";
+import { defaultModel, modelLabel } from "../../shared/models.ts";
 import type { ModelInfo } from "../../shared/schemas.ts";
 import { fastTier, NO_TIER } from "../../shared/service-tier.ts";
 import { attachFiles, clearFiles, detachFile, filesOf, readyFiles } from "../lib/attachments.ts";
 import { defaultNote, versionNumber } from "../lib/format.ts";
+import { ModelGroups, modelKeywords } from "./ModelGroups.tsx";
 import { contextOf, loadPrefs, startAgent } from "../lib/new-agent.ts";
 import { resolveSetup, type NewAgentContext } from "../../shared/new-agent-setup.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
@@ -233,6 +235,16 @@ export function NewAgentForm({
   }, [client, runtime]);
   const loaded = models?.runtime === runtime ? models : null;
   const modelInfo = loaded?.models.find((m) => m.id === model);
+  // What the chip says: the model, or what Default runs when the runtime says (pi, codex).
+  const fallback = loaded === null ? null : defaultModel(loaded.models);
+  const modelName =
+    model === null
+      ? fallback === null || loaded === null
+        ? "Default model"
+        : `${modelLabel(loaded.models, fallback.id)} (default)`
+      : loaded === null
+        ? model
+        : modelLabel(loaded.models, model);
   const efforts = modelInfo?.effortLevels ?? [];
   // A remembered effort the model doesn't take is dropped; with a model we can't look up, it's kept.
   const effectiveEffort =
@@ -463,13 +475,11 @@ export function NewAgentForm({
         <Popover {...chipMenu("model")}>
           <PopoverTrigger asChild>
             <Chip
-              aria-label={`Model: ${model === null ? "default" : (modelInfo?.name ?? model)}${effectiveEffort === null ? "" : `, ${effectiveEffort} effort`}${fast ? ", Fast" : ""}`}
+              aria-label={`Model: ${model === null && fallback === null ? "default" : modelName}${effectiveEffort === null ? "" : `, ${effectiveEffort} effort`}${fast ? ", Fast" : ""}`}
               title="Model, effort and Fast mode (⌥M)"
             >
               <Cpu />
-              <span className="truncate">
-                {model === null ? "Default model" : (modelInfo?.name ?? model)}
-              </span>
+              <span className="truncate">{modelName}</span>
               {effectiveEffort !== null && <span className="text-muted-foreground">· {effectiveEffort}</span>}
               {fast && <span className="text-muted-foreground">· fast</span>}
             </Chip>
@@ -729,6 +739,7 @@ function ModelMenu({
   const levels: (string | null)[] = [null, ...efforts];
   const list = loaded?.models ?? [];
   const unlisted = model !== null && loaded !== null && !list.some((m) => m.id === model);
+  const fallback = defaultModel(list);
   const pick = (id: string | null): void => {
     const takesEffort = (list.find((m) => m.id === id)?.effortLevels.length ?? 0) > 0;
     onModel(id, !takesEffort || id === model);
@@ -756,27 +767,37 @@ function ModelMenu({
         ) : (
           <>
             <CommandEmpty>No model matches.</CommandEmpty>
-            <CommandGroup heading="Model">
-              <CommandItem value="__default" keywords={["Default"]} onSelect={() => pick(null)}>
-                <span className="flex min-w-0 flex-col">
-                  Default
-                  <span className="text-xs text-muted-foreground">{defaultNote(runtimeName)}</span>
-                </span>
-                {model === null && <Check className="ml-auto shrink-0" />}
-              </CommandItem>
-              {unlisted && (
-                <CommandItem value={model} onSelect={() => pick(model)}>
-                  {model}
-                  <Check className="ml-auto" />
-                </CommandItem>
-              )}
-              {list.map((m) => (
-                <CommandItem key={m.id} value={m.id} keywords={[m.name]} onSelect={() => pick(m.id)}>
+            <ModelGroups
+              models={list}
+              heading="Model"
+              lead={
+                <>
+                  <CommandItem value="__default" keywords={["Default"]} onSelect={() => pick(null)}>
+                    <span className="flex min-w-0 flex-col">
+                      Default
+                      <span className="text-xs text-muted-foreground">
+                        {fallback === null
+                          ? defaultNote(runtimeName)
+                          : `${modelLabel(list, fallback.id)}, ${runtimeName}'s own choice`}
+                      </span>
+                    </span>
+                    {model === null && <Check className="ml-auto shrink-0" />}
+                  </CommandItem>
+                  {unlisted && (
+                    <CommandItem value={model} onSelect={() => pick(model)}>
+                      {model}
+                      <Check className="ml-auto" />
+                    </CommandItem>
+                  )}
+                </>
+              }
+              renderItem={(m) => (
+                <CommandItem key={m.id} value={m.id} keywords={modelKeywords(m)} onSelect={() => pick(m.id)}>
                   {m.name}
                   {m.id === model && <Check className="ml-auto" />}
                 </CommandItem>
-              ))}
-            </CommandGroup>
+              )}
+            />
           </>
         )}
       </CommandList>

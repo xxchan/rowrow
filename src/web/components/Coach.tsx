@@ -17,14 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,6 +51,7 @@ import { useStickToBottom } from "use-stick-to-bottom";
 import { canCoach, CANT_COACH, COACH_TOOLS_LEAKED, type CoachChat } from "../../shared/coach.ts";
 import { trimMentions } from "../../shared/coach-mentions.ts";
 import { newInputId } from "../../shared/ids.ts";
+import { defaultModel, modelLabel } from "../../shared/models.ts";
 import type { AgentState, AppState, CoachSettings, ModelInfo } from "../../shared/schemas.ts";
 import type { Timeline } from "../../shared/timeline.ts";
 import { workspaceArchived } from "../../shared/workspaces.ts";
@@ -88,6 +82,7 @@ import { useNarrow } from "../lib/use-narrow.ts";
 import { MentionInput } from "./CoachMentions.tsx";
 import { CoachTasksView } from "./CoachTasks.tsx";
 import { ConversationWave } from "./ConversationWave.tsx";
+import { ModelGroups, modelKeywords } from "./ModelGroups.tsx";
 import { Transcript } from "./Transcript.tsx";
 
 /** In every page's header: opens and closes Coach; a dot while it works. */
@@ -925,11 +920,18 @@ function ModelPills({
   const [picking, setPicking] = useState(false);
   const list = loaded?.models ?? [];
   const model = list.find((m) => m.id === settings.model);
-  const levels = settings.model === null ? (list[0]?.effortLevels ?? []) : (model?.effortLevels ?? []);
-  const modelLabel =
+  // What Default runs, when the runtime says (else its first model stands in for effort levels).
+  const fallback = defaultModel(list);
+  const levels =
+    settings.model === null ? ((fallback ?? list[0])?.effortLevels ?? []) : (model?.effortLevels ?? []);
+  const chosenLabel =
     settings.model === null
-      ? "Default model"
-      : (model?.name ?? `${settings.model}${loaded === null ? "" : " (unavailable)"}`);
+      ? fallback === null
+        ? "Default model"
+        : `${modelLabel(list, fallback.id)} (default)`
+      : model === undefined
+        ? `${settings.model}${loaded === null ? "" : " (unavailable)"}`
+        : modelLabel(list, model.id);
   const defaultLevel = (settings.model === null ? null : model?.defaultEffort) ?? null;
   const effortLabel =
     settings.effort === null
@@ -964,10 +966,10 @@ function ModelPills({
             type="button"
             variant="ghost"
             className={cn(pill, "max-w-[65%]")}
-            aria-label={`Model: ${modelLabel}`}
-            title={`${modelLabel} (${runtimeName}). Changes apply to the next message.`}
+            aria-label={`Model: ${chosenLabel}`}
+            title={`${chosenLabel} (${runtimeName}). Changes apply to the next message.`}
           >
-            <span className="truncate">{modelLabel}</span>
+            <span className="truncate">{chosenLabel}</span>
             <ChevronDown className="size-3 shrink-0" />
           </Button>
         </PopoverTrigger>
@@ -982,25 +984,30 @@ function ModelPills({
               ) : (
                 <>
                   <CommandEmpty>{loaded.error ?? "No models found"}</CommandEmpty>
-                  <CommandGroup>
-                    <CommandItem
-                      value="__default"
-                      keywords={["Default", runtimeName]}
-                      onSelect={() => {
-                        setPicking(false);
-                        onLayer(false);
-                        void save({ model: null, effort: null });
-                      }}
-                    >
-                      Default
-                      <span className="ml-auto text-xs text-muted-foreground">{runtimeName}</span>
-                      {settings.model === null && <Check />}
-                    </CommandItem>
-                    {list.map((m) => (
+                  <ModelGroups
+                    models={list}
+                    lead={
+                      <CommandItem
+                        value="__default"
+                        keywords={["Default", runtimeName]}
+                        onSelect={() => {
+                          setPicking(false);
+                          onLayer(false);
+                          void save({ model: null, effort: null });
+                        }}
+                      >
+                        Default
+                        <span className="ml-auto truncate text-xs text-muted-foreground">
+                          {fallback === null ? runtimeName : modelLabel(list, fallback.id)}
+                        </span>
+                        {settings.model === null && <Check />}
+                      </CommandItem>
+                    }
+                    renderItem={(m) => (
                       <CommandItem
                         key={m.id}
                         value={m.id}
-                        keywords={[m.name, runtimeName]}
+                        keywords={[...modelKeywords(m), runtimeName]}
                         onSelect={() => {
                           setPicking(false);
                           onLayer(false);
@@ -1013,8 +1020,8 @@ function ModelPills({
                         <span className="ml-auto text-xs text-muted-foreground">{runtimeName}</span>
                         {m.id === settings.model && <Check />}
                       </CommandItem>
-                    ))}
-                  </CommandGroup>
+                    )}
+                  />
                 </>
               )}
             </CommandList>

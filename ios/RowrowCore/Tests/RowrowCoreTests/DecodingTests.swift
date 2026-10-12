@@ -26,3 +26,33 @@ import Testing
     #expect(state.agents.isEmpty)
   }
 }
+
+// pi through two providers: Default says what it runs, and a shared name carries its provider.
+@Suite struct ModelNaming {
+  let models = try! JSONDecoder().decode(
+    [ModelInfo].self,
+    from: Data(
+      #"""
+      [{"id":"anthropic/claude-sonnet-4-5","name":"Claude Sonnet 4.5","effortLevels":[],"defaultEffort":null,
+        "serviceTiers":[],"default":false,"provider":{"id":"anthropic","name":"Anthropic"}},
+       {"id":"openrouter/anthropic/claude-sonnet-4.5","name":"Claude Sonnet 4.5","effortLevels":[],"defaultEffort":null,
+        "serviceTiers":[],"default":true,"provider":{"id":"openrouter","name":null}},
+       {"id":"openrouter/z-ai/glm-4.6","name":"GLM 4.6","effortLevels":[],"defaultEffort":null,
+        "serviceTiers":[],"default":false,"provider":{"id":"openrouter","name":null}}]
+      """#.utf8))
+
+  @Test func namesTheDefaultAndTheProviderOfASharedName() {
+    #expect(ModelNames.defaultTitle(models) == "Default (Claude Sonnet 4.5 · openrouter)")
+    #expect(ModelNames.label(models, id: "anthropic/claude-sonnet-4-5") == "Claude Sonnet 4.5 · Anthropic")
+    #expect(ModelNames.label(models, id: "openrouter/z-ai/glm-4.6") == "GLM 4.6")
+    #expect(ModelNames.label(models, id: "gone") == "gone")
+  }
+
+  @Test func readsAServerBeforeOar057() throws {
+    let old = try JSONDecoder().decode(
+      [ModelInfo].self,
+      from: Data(#"[{"id":"gpt-5.5","name":"GPT-5.5","effortLevels":[],"defaultEffort":null,"serviceTiers":[]}]"#.utf8))
+    #expect(ModelNames.defaultTitle(old) == "Default")
+    #expect(old[0].provider == nil)
+  }
+}

@@ -25,12 +25,14 @@ const frame = (events: unknown[], agentPath: string[] = []): Entry =>
       body: { type: "thread/started", native: null, events },
     } as unknown as RawEvent,
   });
-const model = (id: string, serviceTiers: string[] = []): ModelInfo => ({
+const model = (id: string, serviceTiers: string[] = [], isDefault = false): ModelInfo => ({
   id,
   name: id,
   effortLevels: [],
   defaultEffort: null,
   serviceTiers,
+  default: isDefault,
+  provider: null,
 });
 
 describe("the Fast tier", () => {
@@ -50,11 +52,14 @@ describe("the Fast tier", () => {
     expect(fastTier("codex", [model("gpt-5.5", ["fast"])], "gpt-5.5")).toBeNull();
   });
 
-  it("with the default model: the one the runtime reported running, else the first listed", () => {
+  it("with the default model: the one the runtime reported running, else its default, else the first", () => {
     const codex = [model("gpt-5.5", ["priority"]), model("gpt-5-mini", ["flex"])];
     expect(fastTier("codex", codex, null)).toBe("priority");
     expect(fastTier("codex", codex, null, "gpt-5-mini")).toBeNull();
     expect(fastTier("codex", codex, null, "gpt-unlisted")).toBe("priority");
+    const configured = [model("gpt-5.5", ["priority"]), model("gpt-5-mini", ["flex"], true)];
+    expect(fastTier("codex", configured, null)).toBeNull();
+    expect(fastTier("codex", configured, null, "gpt-5.5")).toBe("priority");
   });
 
   it("reads as on, off, the runtime's own setting, or another tier", () => {

@@ -16,7 +16,7 @@
 //                           the JSON arguments, as a tool call, and say what it returned (or
 //                           the lines that follow, when there are any)
 //   /options                say what the session was opened with: model, effort, service tier
-// Its one model, script-1, lists a Fast tier (`fast`, as claude's do), so the Fast switch has
+// Its default model, script-1, lists a Fast tier (`fast`, as claude's do), so the Fast switch has
 // something to switch; it takes `fast` and `default` but, unlike claude, never reports one.
 // Anything else gets a short demo answer with a thought, a tool call and some Markdown. With
 // attachments, commands are read from the request after the list of files, and the answer
@@ -196,7 +196,17 @@ export function scriptedDemoRuntime(): Runtime {
     },
     listModels: async () => ({
       kind: "ok",
-      models: [{ id: MODEL, displayName: "Script 1", serviceTiers: TIERS }],
+      // Two providers serve "Script 1", as they can on pi: the pickers name the provider.
+      models: [
+        {
+          id: MODEL,
+          displayName: "Script 1",
+          serviceTiers: TIERS,
+          default: true,
+          provider: { id: "script", displayName: "Script Labs" },
+        },
+        { id: `mirror/${MODEL}`, displayName: "Script 1", provider: { id: "mirror" } },
+      ],
     }),
     skills: async (_installation, options) => ({
       kind: "ok",

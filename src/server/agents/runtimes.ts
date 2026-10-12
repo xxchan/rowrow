@@ -526,6 +526,11 @@ export class Runtimes {
                     effortLevels: [...(model.effortLevels ?? [])],
                     defaultEffort: model.defaultEffort ?? null,
                     serviceTiers: [...(model.serviceTiers ?? [])],
+                    default: model.default === true,
+                    provider:
+                      model.provider === undefined
+                        ? null
+                        : { id: model.provider.id, name: model.provider.displayName ?? null },
                   })),
                 error: null,
               }

@@ -91,8 +91,9 @@ struct NewAgentView: View {
             Label("Agent", systemImage: "cpu")
           }
           Picker(selection: $modelId) {
-            Text("Default").tag(String?.none)
-            ForEach(models) { Text($0.name).tag(String?.some($0.id)) }
+            Text(ModelNames.defaultTitle(models)).tag(String?.none)
+            // The provider too when two serve the same name (pi).
+            ForEach(models) { Text(ModelNames.label(models, id: $0.id)).tag(String?.some($0.id)) }
           } label: {
             Label("Model", systemImage: "sparkles")
           }
