@@ -72,12 +72,15 @@ runs:
         API_ISSUER_ID: ${{ inputs.api-issuer-id }}
         API_PRIVATE_KEY: ${{ inputs.api-private-key }}
       run: |
+        # Apple's ticket service can drop the connection just after notarization is accepted
+        # (stapler error 68, twice in a row on 2026-10-13): wait and try again.
+        staple() { for n in 1 2 3 4 5 6 7 8 9 10; do xcrun stapler staple "$1" && return 0; echo "stapler failed (try $n); again in 60 s"; sleep 60; done; return 1; }
         key="$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8"
         printf '%s' "$API_PRIVATE_KEY" > "$key"
         ditto -c -k --keepParent "${{ inputs.app }}" "$RUNNER_TEMP/notarize.zip"
         xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$key" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 45m
         rm -f "$RUNNER_TEMP/notarize.zip"
-        xcrun stapler staple "${{ inputs.app }}"
+        staple "${{ inputs.app }}"
         spctl --assess --type execute --verbose=2 "${{ inputs.app }}"
     - name: The zip and the disk image, the image signed and notarized too
       shell: bash
@@ -85,11 +88,13 @@ runs:
         API_KEY_ID: ${{ inputs.api-key-id }}
         API_ISSUER_ID: ${{ inputs.api-issuer-id }}
       run: |
+        # As for the app: Apple's ticket service can drop the connection, so stapling retries.
+        staple() { for n in 1 2 3 4 5 6 7 8 9 10; do xcrun stapler staple "$1" && return 0; echo "stapler failed (try $n); again in 60 s"; sleep 60; done; return 1; }
         "$GITHUB_WORKSPACE/desktop/pack.sh" "${{ inputs.app }}" "${{ inputs.version }}" "${{ inputs.out }}"
         dmg="${{ inputs.out }}/rowrow-${{ inputs.version }}-mac-arm64.dmg"
         codesign --sign "$ROWROW_SIGN_IDENTITY" --timestamp "$dmg"
         xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/AuthKey_$API_KEY_ID.p8" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 45m
-        xcrun stapler staple "$dmg"
+        staple "$dmg"
         spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
     - name: Forget the keys
       if: always()
