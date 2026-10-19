@@ -193,7 +193,7 @@ export class Workspaces {
     parent: string | null;
     entries: { name: string; path: string; repo: boolean }[];
   } {
-    const dir = fs.realpathSync(resolvePath(input ?? "~"));
+    const dir = fs.realpathSync(resolvePath(input === undefined || input.trim() === "" ? "~" : input));
     const entries = fs
       .readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
@@ -230,9 +230,19 @@ export function labelOf(dir: string, custom: string | null, git: GitSummary | nu
   return path.basename(dir) || dir;
 }
 
+/**
+ * A folder someone named, on this machine: absolute, or from the home directory (`~`, `~/…`). A
+ * relative one is refused: resolved against the server's own directory (rowrow's install folder
+ * under `rowrow service`) it would name some other folder. The CLI makes its relative paths
+ * absolute from where it runs.
+ */
 export function resolvePath(input: string): string {
   const trimmed = input.trim();
   if (trimmed === "~") return os.homedir();
   if (trimmed.startsWith("~/")) return path.join(os.homedir(), trimmed.slice(2));
+  if (!path.isAbsolute(trimmed))
+    throw new UserError(
+      `${trimmed === "" ? "no path given" : `"${trimmed}" is a relative path`}: use an absolute path, or one starting with ~/`,
+    );
   return path.resolve(trimmed);
 }

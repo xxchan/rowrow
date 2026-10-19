@@ -1193,6 +1193,25 @@ describe("workspaces (D-047)", () => {
     expect(again.id).not.toBe(ws.id);
   });
 
+  it("takes a folder from where you run `rowrow ws add`, and refuses a relative path", async () => {
+    const server = await startTestServer();
+    t = server;
+    // Against the server's own directory (rowrow's install folder as a service) it would be another folder.
+    await expect(server.client.workspaces.add({ path: "some/folder" })).rejects.toThrow(
+      /"some\/folder" is a relative path: use an absolute path, or one starting with ~\//,
+    );
+    await expect(server.client.workspaces.browse({ path: "." })).rejects.toThrow(/relative path/);
+    const repo = server.repo();
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [path.resolve(import.meta.dirname, "../src/cli/main.ts"), "ws", "add"],
+      { cwd: repo, env: { ...process.env, ROWROW_URL: server.server.url, ROWROW_TOKEN: server.token } },
+    );
+    expect(stdout.trim()).toMatch(
+      new RegExp(`  ${fs.realpathSync(repo).replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+    );
+  });
+
   it("is what `rowrow ws rename|archive|unarchive|remove` do", async () => {
     const server = await startTestServer();
     t = server;

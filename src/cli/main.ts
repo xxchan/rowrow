@@ -538,12 +538,14 @@ async function main(argv: string[]): Promise<void> {
         const [sub, ...args] = rest;
         if (sub === "add") {
           const ws = await client.workspaces.add({
-            path: args[0] ?? ".",
+            path: pathArg(args[0] ?? "."),
             ...(str("label") === undefined ? {} : { label: str("label") }),
           });
           out(ws, () => `${ws.id}  ${ws.label}  ${ws.path}`);
         } else if (sub === "browse") {
-          const listing = await client.workspaces.browse(args[0] === undefined ? {} : { path: args[0] });
+          const listing = await client.workspaces.browse(
+            args[0] === undefined ? {} : { path: pathArg(args[0]) },
+          );
           out(listing, () =>
             [listing.path, ...listing.entries.map((e) => `  ${e.repo ? "●" : " "} ${e.name}`)].join("\n"),
           );
@@ -651,12 +653,20 @@ async function upload(client: Client, files: readonly string[]): Promise<Attachm
   return attachments;
 }
 
+/**
+ * A folder argument as the server should get it: a relative one made absolute from where you ran
+ * the CLI (the server refuses relative paths); `~` and `~/…` left for the server's own home.
+ */
+function pathArg(arg: string): string {
+  return arg === "~" || arg.startsWith("~/") ? arg : path.resolve(arg);
+}
+
 async function agentCommand(client: Client, args: string[], h: Helpers): Promise<void> {
   const [sub = "", ref = "", ...rest] = args;
   if (sub === "new") {
     const { state } = await client.state.get();
     // A workspace by id or label, or any directory path (registered on the fly).
-    const ws = findWorkspace(state, ref) ?? (await client.workspaces.add({ path: path.resolve(ref) }));
+    const ws = findWorkspace(state, ref) ?? (await client.workspaces.add({ path: pathArg(ref) }));
     const text = rest.join(" ");
     const attachments = await upload(client, h.strings("attach"));
     const runtime = h.str("runtime") ?? "claude";
