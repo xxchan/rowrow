@@ -1658,8 +1658,14 @@ the runtime refuses for a new conversation too.
 **Why.** A lost conversation is only recoverable by starting over; a passing failure hasn't lost
 anything yet, and starting over for it is a silent loss you can't undo.
 
+The new conversation shows in the agent's transcript as an error notice ("could not resume the
+conversation, starting a new one: …", with the runtime's reason), not only in the log. pi's
+refusal depends on the tools that open asked for: with other tool settings (an extension
+installed again), the old conversation may resume. Its session file stays as it was.
+
 **Revisit when** a runtime fails resumes in a lasting way oar doesn't classify (then oar should
-report it as one of the two), or people want "start a new conversation" as an explicit action.
+report it as one of the two), or people want "start a new conversation" as an explicit action,
+or "resume the old conversation again" (pi, once the missing tool is back).
 
 ## D-057 The Mac app has no title bar: the page draws to the top, the window buttons sit in it (2026-10-10)
 
