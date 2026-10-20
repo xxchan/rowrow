@@ -1844,3 +1844,29 @@ private. `npx rowrow up` needs a writable npm global prefix.
 **Revisit when** `tailscale serve` can be set up unattended (then HTTPS by default over
 Tailscale), the iOS app should take a code or find machines itself, or people run rowrow on
 networks they don't trust (TLS by default, with the code checking the certificate).
+
+## D-061 Typecheck with tsrs, pinned to one exact build (2026-10-20)
+
+**Context.** `pnpm typecheck` ran `tsc` from `typescript` 7 on the three tsconfigs (node, web,
+e2e). tsrs (oxc-project/tsrs) is a Rust port of TypeScript 7 by Cloudflare and Oxc. xxchan asked
+for it in oar, ferry and rowrow, locally and in CI. On rowrow 0.3.91 it reports what `tsc` 7.0.2
+reports (no errors on all three) and fails the same way on an error (`error TS2322`, exit 2).
+
+**Decision.** `typecheck:node`, `typecheck:web` and `typecheck:e2e` run `tsrs -p …`. The
+`tsrs` devDependency is pinned to an exact version (`0.18.0-ts7.1.0-dev.20260929`, no `^`): it's
+experimental and ships about every two days, so a new build is a deliberate bump with
+`pnpm check` run on it. `typescript` is gone: nothing else needs it (oxlint's type-aware rules
+run on oxlint-tsgolint's own copy; Vite, Vitest and `scripts/build-node.ts` strip types without
+it).
+
+**Why.** Speed, same answers. On the 8-core Linux check machine, warm: `tsc` took 1.3, 1.3 and
+1.0 s for node, web and e2e, tsrs 0.27, 0.31 and 0.24 s; `pnpm typecheck` went from about 4.3 s
+to 2.8 s, the rest being pnpm and run-p starting up.
+
+**Cost.** tsrs has binaries for macOS on Apple silicon and Linux (x64, arm64) only, so
+`pnpm typecheck` (and `pnpm check`) won't run on an Intel Mac or Windows. CI runs on Ubuntu and
+macos-15 (Apple silicon), and only ci.yml and release.yml typecheck. A tsrs build can differ
+from `tsc` where the port is unfinished.
+
+**Revisit when** tsrs disagrees with `tsc` on rowrow's code, someone develops rowrow on an Intel
+Mac or Windows, or tsrs ships a stable release (then a `^` range).
