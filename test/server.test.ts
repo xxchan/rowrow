@@ -180,7 +180,9 @@ describe("agents", () => {
   it("starts a new conversation only when the runtime says the old one is gone (D-056)", async () => {
     t = await startTestServer({
       idleTimeoutMs: 200,
-      extraRuntimes: (["gone", "moved", "refused", "down"] as const).map((how) => resumeFails(how)),
+      extraRuntimes: (["gone", "moved", "unresumable", "refused", "down"] as const).map((how) =>
+        resumeFails(how),
+      ),
     });
     const ws = await t.client.workspaces.add({ path: t.repo() });
     const secondTurn = async (runtime: string) => {
@@ -206,9 +208,9 @@ describe("agents", () => {
       return (await t!.client.agents.entries({ agentId: agent.id, after: -1 })).entries;
     };
 
-    // The conversation is gone, or lives in a folder it won't resume from here: a new one
-    // starts, and the log says so.
-    for (const runtime of ["gone", "moved"]) {
+    // The conversation is gone, lives in a folder it won't resume from here, or can't be resumed
+    // at all: a new one starts, and the log says so.
+    for (const runtime of ["gone", "moved", "unresumable"]) {
       const entries = await secondTurn(runtime);
       const runs = entries.filter(
         (e): e is Extract<Entry, { kind: "run.started" }> => e.kind === "run.started",
@@ -1611,7 +1613,7 @@ function neverAnswers(): Runtime {
 }
 
 /** The scripted runtime, but resuming fails: the conversation is gone, or the network is down. */
-function resumeFails(how: "gone" | "moved" | "refused" | "down"): Runtime {
+function resumeFails(how: "gone" | "moved" | "unresumable" | "refused" | "down"): Runtime {
   const base = scriptedDemoRuntime();
   return {
     ...base,
@@ -1624,6 +1626,8 @@ function resumeFails(how: "gone" | "moved" | "refused" | "down"): Runtime {
             native: {},
           });
         if (how === "moved") throw new UnsupportedOptionError("cwd", "it lives in another folder");
+        if (how === "unresumable")
+          throw new UnsupportedOptionError("resume", "it names a tool no extension registers");
         if (how === "refused") throw new UnsupportedOptionError("effort", "no effort here");
         throw new Error("the network is down");
       }

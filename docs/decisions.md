@@ -1650,7 +1650,8 @@ runtime that reports the session missing rejects with `SessionNotFoundError`.
 **Decision.** The actor starts a new conversation (and notes `resume_failed`) only for
 `SessionNotFoundError`, or `UnsupportedOptionError` on `cwd` (kimi and opencode: the
 conversation lives in another folder and won't resume from this one, so retrying would fail the
-same way forever). Any other error fails the run (`run.failed`, its message shown), so sending
+same way forever) or on `resume` (pi since oar 0.68: the conversation names a tool that no
+extension registers now, and pi gives no way to resume it with only the tools a new session gets). Any other error fails the run (`run.failed`, its message shown), so sending
 again tries the resume again; that includes `UnsupportedOptionError` on any other option, which
 the runtime refuses for a new conversation too.
 

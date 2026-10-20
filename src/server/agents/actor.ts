@@ -415,15 +415,17 @@ export class AgentActor {
           session = await this.deps.runtimes.start(summary.runtime, { ...base, resume: summary.sessionId });
           resumed = summary.sessionId;
         } catch (error) {
-          // Only when the runtime says the conversation is gone, or lives in another folder it
-          // won't resume from here (kimi, opencode: `cwd`), does a new one start (D-056); the log
-          // keeps the history, and says what happened. Any other failure (a login, the network,
-          // the process, an option the runtime refuses, which a new one would refuse too) fails
-          // the run, so sending again retries the resume instead of quietly dropping what the
-          // agent knew.
+          // Only when the runtime says the conversation is gone, lives in another folder it
+          // won't resume from here (kimi, opencode: `cwd`), or can't be resumed at all (pi:
+          // `resume`, when it names a tool no extension registers now), does a new one start
+          // (D-056); the log keeps the history, and says what happened. Any other failure (a
+          // login, the network, the process, an option the runtime refuses, which a new one
+          // would refuse too) fails the run, so sending again retries the resume instead of
+          // quietly dropping what the agent knew.
           const lost =
             error instanceof SessionNotFoundError ||
-            (error instanceof UnsupportedOptionError && error.option === "cwd");
+            (error instanceof UnsupportedOptionError &&
+              (error.option === "cwd" || error.option === "resume"));
           if (!lost) throw error;
           const message = error instanceof Error ? error.message : String(error);
           log.warn("agent.resume_failed", {
