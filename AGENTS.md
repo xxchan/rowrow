@@ -12,6 +12,7 @@ dependency workarounds in [docs/upstream.md](docs/upstream.md).
 pnpm install        # pnpm fetches Node 24 (devEngines) when your shell has another version
 pnpm dev            # a server (profile dev, scripted runtime) + Vite with hot reload; prints a sign-in link
 pnpm check          # typecheck + lint + format check + unit and integration tests: must pass before a commit
+                    # (typecheck is tsrs, D-061: macOS on Apple silicon and Linux only)
 pnpm test:e2e       # Playwright on a desktop and a phone viewport (rebuilds the web app if it changed)
 pnpm test:e2e -g "the inspector" --project desktop   # one test on one viewport
 pnpm test:package   # packs the npm package, installs it with npm in a temp prefix, and runs it
