@@ -361,9 +361,11 @@ the checkout, outside `.git`, symlinks followed only if they stay in).
 The pull request of a checkout's current branch (roamgate #228), behind `git.pullRequest`,
 read with the GitHub CLI where the server runs (D-020). Read-only.
 
-1. Without the network: a detached HEAD is `detached`; no remote is `no-remote`; remotes that
-   are all local paths or other forges (GitLab, Bitbucket, Codeberg, sourcehut, Gitea) are
-   `unsupported`: GitHub only for now.
+1. Without the network: a detached HEAD is `detached`, except while a rebase is stopped (a
+   conflict, an edit): then it is the branch being rebased (`rebase-merge/head-name` or
+   `rebase-apply/head-name`), and gh is given that branch by name (roamgate #474); no remote
+   is `no-remote`; remotes that are all local paths or other forges (GitLab, Bitbucket,
+   Codeberg, sourcehut, Gitea) are `unsupported`: GitHub only for now.
 2. `gh pr view --json number,title,url,state,isDraft,author,headRefName,baseRefName,reviewDecision,statusCheckRollup,updatedAt`
    in the checkout, so gh's sign-in (github.com or an enterprise host) and its rules for
    which PR belongs to the current branch apply. 15 s timeout; no prompts, no update checks.

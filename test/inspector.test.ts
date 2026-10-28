@@ -1037,11 +1037,21 @@ describe("pull request", () => {
     expect((await t.client.git.pullRequest({ workspaceId: id })).state).toBe("found");
     expect(fake.calls()).toHaveLength(before);
 
+    // A rebase stopped on the branch (a conflict, here a failing --exec): HEAD is detached, and
+    // gh is asked for the branch's pull request by name (roamgate #474).
+    sh(repo, "commit", "-q", "--allow-empty", "-m", "wip");
+    expect(() => sh(repo, "rebase", "-q", "--exec", "false", "HEAD~1")).toThrow();
+    await t.client.workspaces.refresh({ id });
+    expect(await ask()).toMatchObject({ state: "found", branch: "fix/cart", pr: { number: 42 } });
+    expect(fake.calls().at(-1)).toMatch(/^pr view fix\/cart --json /);
+    sh(repo, "rebase", "--abort");
+
     // Detached HEAD: nothing to look up, gh isn't run.
+    const asked = fake.calls().length;
     sh(repo, "checkout", "-q", "--detach");
     await t.client.workspaces.refresh({ id });
     expect((await ask()).state).toBe("detached");
-    expect(fake.calls()).toHaveLength(before);
+    expect(fake.calls()).toHaveLength(asked);
     removeDir(ghDir);
   });
 

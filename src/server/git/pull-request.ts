@@ -6,6 +6,8 @@
 // Every outcome is explicit: no branch, no remote, a remote that isn't GitHub, gh not
 // installed or not signed in, no PR, or an error. Missing or unrecognized check and review
 // data is never reported as passing or approved.
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { ChecksSummary, PullRequest, PullRequestStatus } from "../../shared/schemas.ts";
 import { git, run } from "./exec.ts";
 
@@ -43,8 +45,10 @@ export async function pullRequestStatus(input: PullRequestInput): Promise<PullRe
   ): PullRequestStatus => ({ state, message, branch, pr, checkedAt: now() });
 
   const head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd });
-  if (head.code !== 0) return status("detached", "HEAD is detached: there is no branch to look up.", null);
-  const branch = head.stdout.trim();
+  const rebasing = head.code === 0 ? null : await rebasingBranch(cwd);
+  if (head.code !== 0 && rebasing === null)
+    return status("detached", "HEAD is detached: there is no branch to look up.", null);
+  const branch = rebasing ?? head.stdout.trim();
 
   const remotes = await remoteHosts(cwd);
   if (remotes.length === 0)
@@ -60,7 +64,9 @@ export async function pullRequestStatus(input: PullRequestInput): Promise<PullRe
     );
   }
 
-  const result = await run(input.gh ?? "gh", ["pr", "view", "--json", FIELDS], {
+  // Mid-rebase HEAD is detached, so gh is told the branch; otherwise its own rules pick it.
+  const args = ["pr", "view", ...(rebasing === null ? [] : [rebasing]), "--json", FIELDS];
+  const result = await run(input.gh ?? "gh", args, {
     cwd,
     timeoutMs: input.timeoutMs ?? GH_TIMEOUT_MS,
     maxBytes: 4 * 1024 * 1024,
@@ -127,6 +133,23 @@ function failure(
 function firstLine(text: string): string {
   const line = text.split("\n").find((l) => l.trim() !== "") ?? "";
   return line.trim().slice(0, 300);
+}
+
+/**
+ * The branch a stopped rebase (a conflict, an edit, a break) is rebasing: HEAD is detached until
+ * it ends, but the pull request is still that branch's (roamgate #474). Null when no rebase is.
+ */
+async function rebasingBranch(cwd: string): Promise<string | null> {
+  for (const dir of ["rebase-merge", "rebase-apply"]) {
+    const file = await git(["rev-parse", "--git-path", `${dir}/head-name`], { cwd });
+    if (file.code !== 0) continue;
+    const name = await fs
+      .readFile(path.resolve(cwd, file.stdout.trim()), "utf8")
+      .then((text) => text.trim())
+      .catch(() => "");
+    if (name.startsWith("refs/heads/")) return name.slice("refs/heads/".length);
+  }
+  return null;
 }
 
 /** Remotes of the checkout with the host each points to (null for a local path). */
