@@ -94,11 +94,25 @@ function sh(
   return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], ...options });
 }
 
+/**
+ * A download, tried three times, three minutes each: nodejs.org has stalled a runner's download
+ * until the job's timeout, and closed the connection halfway (v0.3.93).
+ */
 async function download(url: string, file: string): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok || response.body === null) throw new Error(`GET ${url}: HTTP ${response.status}`);
-  fs.writeFileSync(`${file}.part`, Buffer.from(await response.arrayBuffer()));
-  fs.renameSync(`${file}.part`, file);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3 * 60_000) });
+      if (!response.ok || response.body === null) throw new Error(`GET ${url}: HTTP ${response.status}`);
+      fs.writeFileSync(`${file}.part`, Buffer.from(await response.arrayBuffer()));
+      fs.renameSync(`${file}.part`, file);
+      return;
+    } catch (error) {
+      if (attempt === 3) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      console.log(`build:bundle: GET ${url} failed (${reason}), trying again`);
+      await new Promise((resolve) => setTimeout(resolve, attempt * 5000));
+    }
+  }
 }
 
 /** Node for a platform: downloaded once into a cache, and checked against nodejs.org's SHASUMS256. */
