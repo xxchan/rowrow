@@ -108,7 +108,7 @@ export class CoachService implements TaskRunner {
   private executing: { readonly chatId: string; readonly actionId: string } | null = null;
   /** Full access runs its actions in the order Coach asks, one after another. */
   private acting: Promise<unknown> = Promise.resolve();
-  /** Whether each live run opened with Full access: its prompt and tools say so. */
+  /** Whether each live run opened with Full access: its tools (the MCP server's env) say so. */
   private readonly runModes = new Map<string, boolean>();
   /** Coach's own settings change (a worktree you confirmed becomes readable) expires nothing. */
   private ownSettingsChange = false;
@@ -246,7 +246,7 @@ export class CoachService implements TaskRunner {
     }
     // A new question replaces the previews of the last one.
     if (chat !== null) this.expire(chat.id, ACTION_COPY.replaced, input.by);
-    // A run opened with the other permission mode has the other prompt and tools: start a new one.
+    // A run opened with the other permission mode has the other tools: start a new one.
     const live = chat?.summary.run?.runId;
     if (chat !== null && live !== undefined && this.runModes.get(live) !== settings.fullAccess)
       await agents.stop(chat.id, "restart");
@@ -368,7 +368,7 @@ export class CoachService implements TaskRunner {
       ...(signIn === null || signIn.helpers === null ? [] : ["--settings", JSON.stringify(signIn.helpers)]),
     ];
     return {
-      systemPrompt: coachSystemPrompt(fullAccess),
+      systemPrompt: coachSystemPrompt(),
       disallowedTools: BUILTIN_TOOLS[summary.runtime] ?? [],
       ...(launchArgs.length === 0 ? {} : { launchArgs }),
       ...(signIn === null || Object.keys(signIn.env).length === 0 ? {} : { env: signIn.env }),
@@ -403,6 +403,7 @@ export class CoachService implements TaskRunner {
       text,
       this.tasks?.frame(agentId) ?? null,
       this.referenced(entry?.kind === "input" ? (entry.mentions ?? []) : []),
+      entry?.kind === "input" && entry.fullAccess === true,
     );
   }
 

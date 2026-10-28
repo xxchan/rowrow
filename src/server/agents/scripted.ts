@@ -308,12 +308,12 @@ async function callMcp(
 }
 
 /**
- * The person's own text: Coach's runtime reads the turn's workspaces first (coach/prompt.ts), and
- * with attachments the runtime reads a list of files first (agents/input.ts).
+ * The person's own text: Coach's runtime reads the turn's mode and workspaces first
+ * (coach/prompt.ts), and with attachments the runtime reads a list of files first (agents/input.ts).
  */
 function requestOf(framed: string): string {
   const coach = "\n\nUser message:\n";
-  const input = framed.startsWith("Authorized workspace scope for this turn")
+  const input = framed.startsWith("Permission mode for this turn")
     ? framed.slice(framed.indexOf(coach) + coach.length)
     : framed;
   if (!input.startsWith("# Files mentioned by the user:")) return input;

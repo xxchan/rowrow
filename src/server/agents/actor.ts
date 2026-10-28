@@ -387,6 +387,25 @@ export class AgentActor {
 
   // ─── Runs ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Resume a conversation. A runtime that keeps the prompt a session was created with (claude)
+   * refuses a prompt on resume, so the resume goes again without it: the conversation is there,
+   * and its prompt is the one it began with (Coach's says the same in both modes, D-045).
+   */
+  private async resumeSession(runtime: string, base: SessionOptions, sessionId: string): Promise<Session> {
+    try {
+      return await this.deps.runtimes.start(runtime, { ...base, resume: sessionId });
+    } catch (error) {
+      if (
+        !(error instanceof UnsupportedOptionError) ||
+        (error.option !== "systemPrompt" && error.option !== "appendSystemPrompt")
+      )
+        throw error;
+      const { systemPrompt: _prompt, appendSystemPrompt: _appended, ...rest } = base;
+      return await this.deps.runtimes.start(runtime, { ...rest, resume: sessionId });
+    }
+  }
+
   private async ensureRun(): Promise<LiveRun> {
     if (this.run !== null) return this.run;
     const summary = this.deps.summary(this.id);
@@ -412,7 +431,7 @@ export class AgentActor {
     try {
       if (summary.sessionId !== null) {
         try {
-          session = await this.deps.runtimes.start(summary.runtime, { ...base, resume: summary.sessionId });
+          session = await this.resumeSession(summary.runtime, base, summary.sessionId);
           resumed = summary.sessionId;
         } catch (error) {
           // Only when the runtime says the conversation is gone, lives in another folder it

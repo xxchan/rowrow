@@ -1,7 +1,7 @@
 // Coach's actions (D-045): proposals freeze what Confirm runs, an action runs once and ends with
 // rowrow's receipt, previews expire when their question does, the model hears receipts on its
 // next message, and Full access (only when you turn it on) runs proposals at once.
-import type { Runtime, SessionOptions } from "@botiverse/oar";
+import { UnsupportedOptionError, type Runtime, type Session, type SessionOptions } from "@botiverse/oar";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import fs from "node:fs";
@@ -110,20 +110,22 @@ describe("Coach's actions, folded", () => {
       proposedAt: "2026-10-09T12:00:09.000Z",
     });
     expect(
-      turnText([{ workspaceId: "ws_a", label: "a" }], receipts.slice(-1), "and now?").split("\n\n")[1],
+      turnText([{ workspaceId: "ws_a", label: "a" }], receipts.slice(-1), "and now?").split("\n\n")[2],
     ).toBe(
       `Recorded operation outcomes (server receipts, not proof of task completion):\n${JSON.stringify(receipts.slice(-1))}`,
     );
   });
 
   it("say what they do, with or without Full access", () => {
-    const manual = coachSystemPrompt(false);
-    expect(manual).toContain("Proposal tools only record a pending proposal.");
-    expect(manual).toContain("Never claim that a pending proposal was executed or succeeded.");
-    expect(manual).not.toContain("Full access");
-    const full = coachSystemPrompt(true);
-    expect(full).toContain("Never automatically repeat an uncertain operation");
-    expect(full).toContain("a pending receipt means nothing was executed");
+    // One prompt for both modes (a resumed claude session keeps the one it began with): each
+    // message says which mode it has.
+    const prompt = coachSystemPrompt();
+    expect(prompt).toContain("Without Full access: Proposal tools only record a pending proposal.");
+    expect(prompt).toContain("Never claim that a pending proposal was executed or succeeded.");
+    expect(prompt).toContain("Never automatically repeat an uncertain operation");
+    expect(prompt).toContain("a pending receipt means nothing was executed");
+    expect(turnText([], [], "go", null, [], true)).toMatch(/^Permission mode for this turn: Full access \(/);
+    expect(turnText([], [], "go")).toMatch(/^Permission mode for this turn: confirm each action \(/);
     const worktree = COACH_TOOLS.find((tool) => tool.name === "propose_worktree_create");
     const status = COACH_TOOLS.find((tool) => tool.name === "agents_status");
     if (worktree === undefined || status === undefined) throw new Error("missing tools");
@@ -226,16 +228,40 @@ describe("rowrow mcp coach's proposals", () => {
 
 // ─── The server ───────────────────────────────────────────────────────────────
 
-function spyRuntime(): { runtime: Runtime; opened: SessionOptions[] } {
+/**
+ * The scripted runtime, keeping what each session opened with and the text of each prompt. With
+ * `keepsPrompt`, like claude (oar 0.72): a resumed session refuses another system prompt.
+ */
+function spyRuntime(keepsPrompt = false): { runtime: Runtime; opened: SessionOptions[]; prompts: string[] } {
   const base = scriptedDemoRuntime();
   const opened: SessionOptions[] = [];
+  const prompts: string[] = [];
   return {
     opened,
+    prompts,
     runtime: {
       ...base,
       session: async (installation, options) => {
+        if (keepsPrompt && options.resume !== undefined && options.systemPrompt !== undefined)
+          throw new UnsupportedOptionError(
+            "systemPrompt",
+            "a resumed session keeps the prompt it was created with",
+          );
         opened.push(options);
-        return base.session(installation, options);
+        const session = await base.session(installation, options);
+        const prompt: Session["prompt"] = (input, promptOptions) => {
+          prompts.push(input);
+          return session.prompt(input, promptOptions);
+        };
+        return new Proxy(session, {
+          get: (target, key) => {
+            if (key === "prompt") return prompt;
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === "function"
+              ? (value as (...args: unknown[]) => unknown).bind(target)
+              : value;
+          },
+        });
       },
     },
   };
@@ -505,12 +531,13 @@ describe("Coach's actions", () => {
   }, 40_000);
 
   it("run at once with Full access, which reads every workspace, until you turn it off", async () => {
-    const spy = spyRuntime();
+    const spy = spyRuntime(true);
     const { server, a, b, inB, coach } = await setUp(spy);
     await server.client.settings.update({ coach: { ...coach, workspaces: [], fullAccess: true } });
     const { chatId, as } = await ask(server, spy, "/echo looking everywhere");
     const opened = spy.opened.at(-1);
-    expect(opened?.systemPrompt).toBe(coachSystemPrompt(true));
+    expect(opened?.systemPrompt).toBe(coachSystemPrompt());
+    expect(spy.prompts.at(-1)).toMatch(/^Permission mode for this turn: Full access /);
     const mcp = opened?.mcpServers?.[0];
     expect(mcp !== undefined && "env" in mcp ? mcp.env?.["ROWROW_COACH_FULL_ACCESS"] : undefined).toBe("1");
     expect((await as.coach.agentsStatus({})).workspaces.map((ws) => ws.workspaceId).sort()).toEqual(
@@ -529,11 +556,17 @@ describe("Coach's actions", () => {
     await expect(server.client.coach.send({ inputId: newInputId(), text: "/echo hi" })).rejects.toThrow(
       "Choose the workspaces",
     );
-    // The next message runs with the manual prompt and tools: a new run.
+    // The next message runs with the manual tools: a new run, the same conversation. Its runtime
+    // keeps the prompt the conversation began with, so the message says the mode.
     await server.client.settings.update({ coach: { ...coach, workspaces: [b.id] } });
     const runs = spy.opened.length;
     await ask(server, spy, "/echo back to asking");
     expect(spy.opened.length).toBe(runs + 1);
-    expect(spy.opened.at(-1)?.systemPrompt).toBe(coachSystemPrompt(false));
+    expect(spy.opened.at(-1)).not.toHaveProperty("systemPrompt");
+    expect(spy.prompts.at(-1)).toMatch(/^Permission mode for this turn: confirm each action /);
+    const { entries } = await server.client.agents.entries({ agentId: chatId, after: -1 });
+    const started = entries.filter((e) => e.kind === "run.started");
+    expect(started.at(-1)?.resume).toBe(started[0]?.sessionId);
+    expect(entries.some((e) => e.kind === "host.error")).toBe(false);
   }, 40_000);
 });

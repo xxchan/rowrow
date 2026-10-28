@@ -216,8 +216,8 @@ rowrow's own parts.
   `rowrow agents` never see it. Leaving a chat archives it; `coach.chats` is its History.
 - **A message** goes through `coach.send`, which captures `settings.coach.workspaces` (those
   still there) into the `input` entry's `scope`, fixed for the turn, and applies Coach's model,
-  effort and runtime from `settings.coach`. The runtime reads the scope as a frame before your
-  text (`src/server/coach/prompt.ts`); the transcript shows your text.
+  effort and runtime from `settings.coach`. The runtime reads the permission mode and the scope
+  as a frame before your text (`src/server/coach/prompt.ts`); the transcript shows your text.
 - **References** (Ranger's mentions, `src/shared/coach-mentions.ts`): @ in Coach's composer
   offers the workspaces of the next message's scope and their agents not archived, from
   AppState (`CoachMentions.tsx`). A pick binds `{kind, id, label}` to the exact `@label` it

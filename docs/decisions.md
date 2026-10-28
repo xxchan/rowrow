@@ -1249,9 +1249,13 @@ equivalent. Each is a `coach.propose*` procedure the run's token may call; `coac
 - **Full access** (`settings.coach.fullAccess`, off by default) is on only through a dialog that
   says what it allows; off is one click. While on, every workspace (also ones made later) is in
   scope, proposals run at once and return their receipt, the run gets Ranger's high-permission
-  prompt and tool descriptions, and Coach's header says "Full access". A run opened in the other
-  mode is restarted before the next message; turning it off mid-turn leaves later proposals
-  pending. What it sends is marked as Coach's (`by: agent <chat>`), not yours.
+  tool descriptions, each message's frame says "Full access", and Coach's header says so too. A
+  run opened in the other mode is restarted before the next message; turning it off mid-turn
+  leaves later proposals pending. What it sends is marked as Coach's (`by: agent <chat>`), not
+  yours. The system prompt is the same in both modes and gives the rules of each; the mode is in
+  the frame (2026-10-28): a resumed claude session keeps the system prompt it was created with,
+  so after a switch the chat read the old mode's rules, and since oar 0.72 claude refuses a
+  system prompt on resume.
 
 **Why.** The card is the confirmation PRINCIPLES.md asks for, and what it shows is what runs,
 because the server froze it. Receipts in the log are facts the model reads, not claims it makes.
@@ -1653,7 +1657,10 @@ conversation lives in another folder and won't resume from this one, so retrying
 same way forever) or on `resume` (pi since oar 0.68: the conversation names a tool that no
 extension registers now, and pi gives no way to resume it with only the tools a new session gets). Any other error fails the run (`run.failed`, its message shown), so sending
 again tries the resume again; that includes `UnsupportedOptionError` on any other option, which
-the runtime refuses for a new conversation too.
+the runtime refuses for a new conversation too. One exception: a refused `systemPrompt` or
+`appendSystemPrompt` (claude since oar 0.72; a resumed session keeps the prompt it began with)
+resumes again without them, the same conversation, nothing in the log. pi takes the prompt on
+every open, so it is always passed.
 
 **Why.** A lost conversation is only recoverable by starting over; a passing failure hasn't lost
 anything yet, and starting over for it is a silent loss you can't undo.

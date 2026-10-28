@@ -5,6 +5,7 @@
 // updater, and a login or logout its own sign-in or sign-out, only when someone asks for it.
 import {
   createCursorRuntime,
+  cursorNativeEnvironment,
   defaultRuntimes as builtins,
   type AvailableInstallation,
   type InventoryResult,
@@ -59,13 +60,25 @@ const UPDATES_TTL_MS = 60 * 60_000;
 /** The end of an updater's output is where it says what went wrong. */
 const OUTPUT_CHARS = 8000;
 
+/** oar's built-in runtimes rowrow doesn't offer yet (oar 0.72 added them; development is paused). */
+const NOT_YET = new Set(["qwen", "qoder"]);
+
 /**
  * oar's built-in runtimes, and Cursor, whose SDK rowrow installs and hands to oar (oar 0.20): it
  * loads the first time a Cursor agent runs. Listed by id, the order every screen shows.
  */
 function hostRuntimes(): Runtime[] {
-  const cursor = createCursorRuntime({ sdk: () => import("@cursor/sdk") });
-  return [...builtins.list(), cursor].sort((a, b) => a.id.localeCompare(b.id));
+  const cursor = createCursorRuntime({
+    sdk: () => {
+      // Where the SDK's tree-sitter and ripgrep are, which pnpm's layout hides from it: set before
+      // it loads (oar 0.72 no longer sets them itself).
+      Object.assign(process.env, cursorNativeEnvironment() ?? {});
+      return import("@cursor/sdk");
+    },
+  });
+  return [...builtins.list().filter((runtime) => !NOT_YET.has(runtime.id)), cursor].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
 }
 
 export class Runtimes {
