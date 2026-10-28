@@ -95,29 +95,36 @@ function sh(
 }
 
 /**
- * A download, tried three times, three minutes each: nodejs.org has stalled a runner's download
- * until the job's timeout, and closed the connection halfway (v0.3.93).
+ * Where Node's archives come from: nodejs.org (or NODEJS_ORG_MIRROR), then a mirror with the same
+ * files. Either way an archive is checked against the SHASUMS256 from the first. A source that
+ * failed goes to the back: nodejs.org has stalled a runner's downloads until the job's timeout,
+ * and closed the connection halfway (v0.3.93, v0.3.94).
  */
-async function download(url: string, file: string): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
+const official = (process.env["NODEJS_ORG_MIRROR"] ?? "https://nodejs.org/dist").replace(/\/+$/, "");
+const archiveSources = [official, "https://npmmirror.com/mirrors/node"];
+
+/** A download from the first of `sources` to answer within three minutes, each tried twice. */
+async function download(sources: string[], at: string, file: string): Promise<void> {
+  for (let attempt = 0; attempt < sources.length * 2; attempt += 1) {
+    const url = `${sources[0]}${at}`;
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(3 * 60_000) });
-      if (!response.ok || response.body === null) throw new Error(`GET ${url}: HTTP ${response.status}`);
+      if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`);
       fs.writeFileSync(`${file}.part`, Buffer.from(await response.arrayBuffer()));
       fs.renameSync(`${file}.part`, file);
       return;
     } catch (error) {
-      if (attempt === 3) throw error;
-      const reason = error instanceof Error ? error.message : String(error);
-      console.log(`build:bundle: GET ${url} failed (${reason}), trying again`);
-      await new Promise((resolve) => setTimeout(resolve, attempt * 5000));
+      console.log(
+        `build:bundle: GET ${url} failed (${error instanceof Error ? error.message : String(error)})`,
+      );
+      sources.push(...sources.splice(0, 1));
     }
   }
+  throw new Error(`build:bundle: couldn't download ${at}`);
 }
 
 /** Node for a platform: downloaded once into a cache, and checked against nodejs.org's SHASUMS256. */
 async function nodeBinary(target: Target, cache: string): Promise<{ node: string; license: string }> {
-  const mirror = (process.env["NODEJS_ORG_MIRROR"] ?? "https://nodejs.org/dist").replace(/\/+$/, "");
   const name = `node-v${NODE_VERSION}-${target}`;
   const dir = path.join(cache, name);
   const node = path.join(dir, "bin", "node");
@@ -125,10 +132,10 @@ async function nodeBinary(target: Target, cache: string): Promise<{ node: string
     fs.mkdirSync(cache, { recursive: true });
     const archive = path.join(cache, `${name}.tar.gz`);
     const sums = path.join(cache, `SHASUMS256-${NODE_VERSION}.txt`);
-    if (!fs.existsSync(sums)) await download(`${mirror}/v${NODE_VERSION}/SHASUMS256.txt`, sums);
+    if (!fs.existsSync(sums)) await download([official], `/v${NODE_VERSION}/SHASUMS256.txt`, sums);
     if (!fs.existsSync(archive)) {
       console.log(`build:bundle: downloading ${name}.tar.gz`);
-      await download(`${mirror}/v${NODE_VERSION}/${name}.tar.gz`, archive);
+      await download(archiveSources, `/v${NODE_VERSION}/${name}.tar.gz`, archive);
     }
     const expected = new RegExp(`^([0-9a-f]{64})\\s+${name}\\.tar\\.gz$`, "m").exec(
       fs.readFileSync(sums, "utf8"),
